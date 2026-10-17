@@ -54,6 +54,9 @@ release/
 # Runtime-generated user content (AI portraits + image uploads)
 server/uploads/
 
+# The fork's own SQLite database (server/src/fork/store.ts)
+server/data/
+
 # Backup files left by one-off scripts (e.g. icon regeneration)
 *.prev.png
 

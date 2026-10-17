@@ -11,7 +11,7 @@
  *      the app loads, otherwise we fall through to AuthScreen.
  */
 import { useEffect, useState, type ReactNode } from 'react'
-import { api } from '@/api/client'
+import { api, ApiError } from '@/api/client'
 import { useAuth } from '@/stores/auth'
 import { isElectron } from '@/lib/runtime'
 import { AuthScreen } from './AuthScreen'
@@ -70,15 +70,30 @@ export function AuthGate({ children, unauthFallback }: AuthGateProps) {
     let cancelled = false
     if (!token) { markReady(); return }
     void (async () => {
-      try {
-        const r = await api.authMe()
-        if (cancelled) return
-        setMe(r.user, r.companies, r.activeCompanyId)
-        setServerCapabilities(r.serverCapabilities)
-        markReady()
-      } catch {
-        // Token's bad / expired — clear and route to login.
-        if (!cancelled) clear()
+      // Phones often start on a flaky or IPv6-only network where a request
+      // can stall without ever failing. Give each probe a deadline and retry
+      // network trouble with backoff; only the server rejecting the token (a
+      // 4xx answer) signs the user out.
+      for (let attempt = 0; !cancelled; attempt++) {
+        try {
+          const r = await Promise.race([
+            api.authMe(),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('auth probe timed out')), 10_000)),
+          ])
+          if (cancelled) return
+          setMe(r.user, r.companies, r.activeCompanyId)
+          setServerCapabilities(r.serverCapabilities)
+          markReady()
+          return
+        } catch (e) {
+          if (cancelled) return
+          if (e instanceof ApiError && e.status >= 400 && e.status < 500) {
+            clear()
+            return
+          }
+          console.warn('[auth] probe failed, retrying', e)
+          await new Promise((resolve) => setTimeout(resolve, Math.min(1000 * 2 ** attempt, 15_000)))
+        }
       }
     })()
     return () => { cancelled = true }

@@ -59,6 +59,7 @@ import {
 import { attachComputerControlStream, deliverEngineDetect } from '../agents/computer/control-bus.js'
 import { companyTier } from '../tier.js'
 import { createShippingRouter } from './shipping-router.js'
+import { createForkRouter } from '../fork/router.js'
 import {
   findIdempotentCreate, IdempotencyConflictError,
   parseRequestId, requestHash,
@@ -7292,6 +7293,9 @@ api.post('/push/unregister', async (req, res) => {
 // tenant/role gates as the rest of this file; it never trusts company ids from
 // request bodies or URLs.
 api.use('/shipping', createShippingRouter({ pool, requireCompany, requireCompanyRole }))
+
+// Fork-only data lives in its own SQLite file (server/src/fork), not in upstream's Postgres.
+api.use('/fork', createForkRouter({ requireCompany }))
 
 // Global error handler — must come after all routes. HttpError → status code.
 api.use(errorHandler)

@@ -21,6 +21,8 @@
 # Don't bake source maps / built assets / huge logs into the layer.
 server/**/*.log
 server/**/dist
+# A local fork SQLite database must never ship in the image.
+server/data
 # Local frontend build outputs — we always rebuild inside the image.
 dist
 node_modules

@@ -235,15 +235,123 @@ body.keyboard-open .nx-tabbar { display: none; }
   white-space: nowrap;
   font-size: var(--text-caption);
 }
-.nx-tile__more {
+/* Pinned rooms: tiles that wrap onto new rows; the row also accepts drops. */
+.nx-tiles {
+  transition: background-color var(--duration-quick);
+  border-radius: var(--radius);
+}
+.nx-tiles[data-drop] { background: var(--accent); }
+/* With nothing pinned, the pin target floats over the top of the list while a
+   room is dragged. Its anchor is sticky and zero-height, so no row moves. */
+.nx-pin-drop { position: sticky; top: 0; z-index: 2; height: 0; }
+.nx-pin-drop__zone {
+  position: absolute;
+  inset: 0 0 auto;
+  padding: 12px 8px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: var(--popover);
+  box-shadow: var(--shadow-float);
+  text-align: center;
+  font-size: var(--text-caption);
+  color: var(--muted-foreground);
+  animation: nx-fade var(--duration-quick) var(--ease-smooth-out);
+  transition: background-color var(--duration-quick), color var(--duration-quick);
+}
+.nx-pin-drop__zone[data-drop] { background: var(--accent); color: var(--foreground); }
+.nx-tile[aria-current="page"] { background: var(--selected); }
+.nx-tile__face { position: relative; display: grid; place-items: center; }
+.nx-tile .nx-room-glyph { width: 40px; height: 40px; }
+.nx-tile__badge { position: absolute; top: -4px; right: -8px; }
+
+/* Room groups: a custom category, Other, or Former. */
+.nx-group { border-radius: var(--radius); transition: background-color var(--duration-quick); }
+.nx-group[data-drop] { background: var(--accent); }
+.nx-group__head { margin: 0; }
+.nx-group__toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 12px 8px 4px;
+  border: 0;
+  background: none;
+  color: var(--muted-foreground);
+  font: 500 var(--text-caption) / 1.2 var(--font-sans);
+  text-align: left;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.nx-group__label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-group__chev {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  transition: transform var(--duration-fast) var(--ease-smooth-out);
+}
+.nx-group[data-collapsed] .nx-group__chev { transform: rotate(-90deg); }
+/* 1fr → 0fr lets the browser interpolate the height without JS measuring it.
+   It is not a compositor animation: every frame runs a layout pass over the
+   rooms below, which the short, unvirtualized chat list affords (AGENTS.md). */
+.nx-group__body {
   display: grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 999px;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows var(--duration-fast) var(--ease-smooth-out), opacity var(--duration-fast);
+}
+.nx-group[data-collapsed] .nx-group__body { grid-template-rows: 0fr; opacity: 0; }
+.nx-group__inner { min-height: 0; overflow: hidden; }
+/* The wrapper clips anything drawn outside a row, so the ring goes inside. */
+html.nx .nx-room:focus-visible { outline-offset: -2px; }
+.nx-group__empty {
+  margin: 0 8px 4px;
+  padding: 12px 8px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  text-align: center;
+  font-size: var(--text-caption);
+  color: var(--muted-foreground);
+}
+.nx-room[data-dragging],
+.nx-tile[data-dragging] { opacity: 0.4; }
+.nx-group-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 12px 8px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  font-size: var(--text-caption);
+  color: var(--muted-foreground);
+  transition: background-color var(--duration-quick), color var(--duration-quick);
+}
+.nx-group-new svg { width: 14px; height: 14px; }
+.nx-group-new[data-drop] { background: var(--accent); color: var(--foreground); }
+.nx-group-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0 0 4px;
+  padding: 8px;
+  border: 0;
+  border-radius: var(--radius);
   background: var(--muted);
   color: var(--muted-foreground);
-  font-size: var(--text-caption);
+  font: 500 var(--text-caption) / 1.4 var(--font-sans);
+  text-align: left;
+}
+.nx-category-form { display: flex; flex-direction: column; gap: 12px; }
+.nx-category-form__actions { display: flex; justify-content: flex-end; gap: 8px; }
+.nx-category-form__error { margin: 0; font-size: var(--text-caption); color: var(--destructive); }
+@media (hover: hover) {
+  .nx-group__toggle:hover { color: var(--foreground); }
+  .nx-group-error:hover { color: var(--foreground); }
+}
+@media (pointer: coarse) {
+  .nx-group__toggle { min-height: 44px; padding-top: 16px; }
 }
 
 .nx-group-label {
