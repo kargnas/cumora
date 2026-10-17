@@ -53,6 +53,9 @@ function appProtocolFile(reqUrl) {
   if (!rel || rel === 'index.html') rel = 'index.html'
   const resolved = path.normalize(path.join(distRoot, rel))
   if (!resolved.startsWith(distRoot)) return null
+  // Client-side routes (`/next/c/<id>`) are not files: serve the app shell,
+  // like the server's SPA fallback, so a reload lands on the same screen.
+  if (!path.extname(rel) && !fs.existsSync(resolved)) return path.join(distRoot, 'index.html')
   return resolved
 }
 

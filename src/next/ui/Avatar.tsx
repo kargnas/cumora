@@ -1,0 +1,68 @@
+import { memo, type CSSProperties } from 'react'
+import type { Participant } from '@/types'
+import { AVATAR_IMG_LOADING, useAvatarImg, useCachedAvatarSrc } from '@/lib/avatarCache'
+import { useAuth } from '@/stores/auth'
+import { useComputers } from '@/stores/computers'
+
+export type Presence = 'avail' | 'live' | 'waiting' | 'off'
+
+/** One presence vocabulary for every avatar: working/thinking agents are
+ *  "live" (breathing ring), idle online is a green dot, waiting is amber,
+ *  anything else draws nothing. A BYOA agent whose computer is offline is
+ *  offline regardless of its last reported status. */
+export function usePresence(p: Participant | undefined): Presence {
+  const selfId = useAuth((s) => s.user?.id)
+  const host = useComputers((s) => (p?.computerId ? s.byId[p.computerId] : undefined))
+  if (!p) return 'off'
+  if (p.id === selfId && p.kind === 'human') return 'avail'
+  if (host && host.kind !== 'cloud' && host.status !== 'online') return 'off'
+  if (p.status === 'working' || p.status === 'thinking') return 'live'
+  if (p.status === 'waiting') return 'waiting'
+  if (p.status === 'avail') return 'avail'
+  return 'off'
+}
+
+interface Props {
+  p: Participant
+  size?: number
+  /** Show the presence dot / live ring. */
+  presence?: boolean
+  className?: string
+}
+
+function AvatarImpl({ p, size = 32, presence = false, className }: Props) {
+  const src = useCachedAvatarSrc(p.id, p.avatarUrl)
+  const { showImg, imgKey, onError } = useAvatarImg(src)
+  const state = usePresence(presence ? p : undefined)
+  const dot = Math.max(8, Math.round(size * 0.26))
+  const style: CSSProperties = {
+    width: size,
+    height: size,
+    background: showImg ? 'var(--muted)' : p.avatarBg,
+    fontSize: Math.max(11, Math.round(size * 0.4)),
+  }
+  return (
+    <span className={className ? `nx-avatar ${className}` : 'nx-avatar'} style={style} aria-hidden>
+      {showImg ? (
+        <img key={imgKey} src={src ?? ''} alt="" loading={AVATAR_IMG_LOADING} decoding="async" onError={onError} draggable={false} />
+      ) : (
+        p.initial
+      )}
+      {presence && state === 'live' && <span className="nx-avatar__live" />}
+      {presence && (state === 'avail' || state === 'waiting') && (
+        <span className="nx-avatar__dot" data-s={state} style={{ width: dot, height: dot }} />
+      )}
+    </span>
+  )
+}
+
+export const Avatar = memo(AvatarImpl)
+
+export function AvatarStack({ ps, size = 24, max = 3 }: { ps: Participant[]; size?: number; max?: number }) {
+  const shown = ps.slice(0, max)
+  return (
+    <span className="nx-avatar-stack">
+      {shown.map((p) => <Avatar key={p.id} p={p} size={size} />)}
+    </span>
+  )
+}

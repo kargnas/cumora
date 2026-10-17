@@ -1,0 +1,456 @@
+/* Boards section: board list, kanban, card sheet. Sizes come from the five
+   type tokens and the 4/8/12/16 spacing steps. The list reuses the shell's
+   sidebar rows (.nx-sidebar, .nx-room) so it reads like the chat list. */
+
+/* ── Layout ────────────────────────────────────────────────────────── */
+.nx-boards {
+  position: relative;
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+.nx-boards[data-layout="split"] { grid-template-columns: 260px minmax(0, 1fr); }
+.nx-boards[data-sheet="dock"] { grid-template-columns: 280px minmax(0, 1fr) 400px; }
+.nx-boards-dock { min-width: 0; min-height: 0; border-left: 1px solid var(--border); }
+.nx-boards-overlay { position: absolute; inset: 0; z-index: 30; }
+.nx-boards-overlay__sheet {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(420px, 92vw);
+  box-shadow: -1px 0 0 var(--border);
+}
+
+/* ── Board list ────────────────────────────────────────────────────── */
+.nx-boards-list__scroll { flex: 1; min-height: 0; padding: 0 8px 12px; }
+.nx-boards-list__edit { padding: 8px; }
+.nx-boards-list__note { display: flex; align-items: center; gap: 8px; margin: 0; padding: 4px 8px; }
+
+/* ── Board ─────────────────────────────────────────────────────────── */
+.nx-boards-board {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  background: var(--background);
+}
+.nx-boards-board--empty { align-items: center; justify-content: center; }
+.nx-boards-fill { flex: 1; }
+.nx-boards-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+}
+.nx-boards-empty-icon svg { width: 20px; height: 20px; }
+
+.nx-boards-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  height: 56px;
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+.nx-boards-head:has(> .nx-icon-btn:first-child) { padding-left: 8px; }
+.nx-boards-head__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.nx-boards-head__title { margin: 0; min-width: 0; font-size: var(--text-title); font-weight: 600; line-height: 1.3; }
+.nx-boards-head__title button,
+.nx-boards-col__title {
+  max-width: 100%;
+  margin: 0 -4px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--foreground);
+  font: inherit;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background-color var(--duration-quick);
+}
+@media (hover: hover) {
+  .nx-boards-head__title button:hover,
+  .nx-boards-col__title:hover { background: var(--accent); }
+}
+.nx-boards-head__desc {
+  margin: 0;
+  font-size: var(--text-caption);
+  color: var(--muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nx-boards-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  margin: 8px 16px 0;
+  padding: 4px 4px 4px 12px;
+  border-radius: var(--radius);
+  font-size: var(--text-caption);
+  color: var(--destructive);
+  background: color-mix(in oklch, var(--destructive) 8%, transparent);
+}
+.nx-boards-notice > span { flex: 1; min-width: 0; }
+
+/* ── Canvas and columns ────────────────────────────────────────────── */
+.nx-boards-canvas {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  padding: 16px;
+}
+/* Phones page one column at a time, with the next one peeking in. */
+.nx-boards-board[data-layout="stack"] .nx-boards-canvas {
+  gap: 8px;
+  padding: 12px 16px;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 16px;
+}
+/* Programmatic auto-scroll while carrying a card would be snapped back. */
+.nx-boards-canvas[data-dragging] { scroll-snap-type: none !important; }
+
+.nx-boards-col {
+  flex: none;
+  width: 272px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-radius: var(--radius-lg);
+  background: var(--muted);
+}
+.nx-boards-board[data-layout="stack"] .nx-boards-col,
+.nx-boards-board[data-layout="stack"] .nx-boards-addcol {
+  width: calc(100% - 24px);
+  scroll-snap-align: start;
+}
+.nx-boards-col__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  min-height: 44px;
+  padding: 4px 4px 4px 12px;
+}
+.nx-boards-col__title { flex: 1; min-width: 0; font-weight: 600; font-size: var(--text-body); line-height: 1.3; }
+.nx-boards-col__count { font-size: var(--text-micro); color: var(--muted-foreground); }
+.nx-boards-col__edit { flex: 1; min-width: 0; }
+/* position: relative makes this list the cards' offsetParent, which the
+   drop-slot math reads. */
+.nx-boards-col__cards {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 8px 8px;
+}
+.nx-boards-col__foot { flex: none; padding: 0 8px 8px; }
+.nx-boards-col__add { justify-content: flex-start; color: var(--muted-foreground); }
+@media (hover: hover) {
+  .nx-boards-col__add:hover:not(:disabled) { color: var(--foreground); }
+}
+.nx-boards-col__add svg,
+.nx-boards-addcol svg { width: 14px; height: 14px; }
+
+.nx-boards-kind { display: inline-grid; place-items: center; flex: none; width: 16px; height: 16px; }
+.nx-boards-kind::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1.5px var(--input);
+}
+.nx-boards-kind[data-kind="todo"]::before { box-shadow: inset 0 0 0 1.5px var(--muted-foreground); }
+.nx-boards-kind[data-kind="doing"]::before { background: var(--primary); box-shadow: none; }
+.nx-boards-kind[data-kind="done"]::before { background: var(--live); box-shadow: none; }
+
+.nx-boards-addcol {
+  flex: none;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 272px;
+  height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  outline: 1px dashed var(--input);
+  outline-offset: -1px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: 500 var(--text-body) / 1 var(--font-sans);
+  transition: background-color var(--duration-quick), color var(--duration-quick);
+}
+@media (hover: hover) {
+  button.nx-boards-addcol:hover { background: var(--accent); color: var(--foreground); }
+}
+.nx-boards-addcol--edit { height: auto; padding: 8px; outline: 0; background: var(--muted); }
+
+.nx-boards-col--skel { gap: 8px; padding: 12px; }
+.nx-boards-skel-title { width: 40%; height: 12px; margin-bottom: 4px; }
+.nx-boards-skel-card { height: 64px; border-radius: var(--radius); }
+
+/* ── Cards ─────────────────────────────────────────────────────────── */
+.nx-boards-card {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--border), var(--shadow-card);
+  color: var(--foreground);
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  transition: box-shadow var(--duration-quick);
+}
+@media (hover: hover) {
+  .nx-boards-card:hover { box-shadow: 0 0 0 1px var(--input), var(--shadow-card); }
+}
+.nx-boards-card[aria-current="true"] { box-shadow: 0 0 0 2px var(--primary), var(--shadow-card); }
+.nx-boards-card--lifted { box-shadow: 0 0 0 1px var(--input), var(--shadow-float); }
+.nx-boards-card__title {
+  font-size: var(--text-body);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.nx-boards-card__meta { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 20px; }
+.nx-boards-card__at {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: var(--text-micro);
+  color: var(--muted-foreground);
+}
+.nx-boards-card__at span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-boards-card__at svg,
+.nx-boards-card__count svg { flex: none; width: 12px; height: 12px; }
+.nx-boards-card__end { display: inline-flex; align-items: center; gap: 8px; flex: none; margin-left: auto; }
+.nx-boards-card__count { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-micro); color: var(--muted-foreground); }
+.nx-boards-card__who { display: inline-flex; }
+
+/* The drop slot while a card is carried. */
+.nx-boards-ph {
+  flex: none;
+  border-radius: var(--radius);
+  outline: 1px dashed var(--input);
+  outline-offset: -1px;
+  background: var(--accent);
+}
+.nx-boards-ghost { position: fixed; top: 0; left: 0; z-index: 85; pointer-events: none; }
+html.nx-boards-dragging,
+html.nx-boards-dragging * { cursor: grabbing !important; }
+html.nx-boards-dragging body { -webkit-user-select: none; user-select: none; }
+
+.nx-boards-due svg { width: 12px; height: 12px; }
+.nx-boards-due[data-s="overdue"] { color: var(--destructive); background: color-mix(in oklch, var(--destructive) 10%, transparent); }
+.nx-boards-due[data-s="today"] { color: var(--primary); background: var(--selected); }
+/* Amber alone is too light to read as text on white. */
+.nx-boards-due[data-s="unclassified"] {
+  color: color-mix(in oklch, var(--warn) 65%, var(--foreground));
+  background: color-mix(in oklch, var(--warn) 14%, transparent);
+}
+.nx-boards-due--text[data-s] { background: none; font-size: var(--text-caption); }
+
+/* ── Prose chips ───────────────────────────────────────────────────── */
+.nx-boards-at {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--selected);
+  color: var(--primary);
+  font-weight: 500;
+}
+.nx-boards-at:not([data-known]) { background: var(--muted); color: var(--muted-foreground); }
+.nx-boards-ref {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  height: 20px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  vertical-align: middle;
+  background: var(--selected);
+  color: var(--primary);
+  font: 500 var(--text-caption) / 1 var(--font-sans);
+  text-decoration: none;
+  transition: background-color var(--duration-quick);
+}
+@media (hover: hover) {
+  .nx-boards-ref:hover { background: color-mix(in oklch, var(--primary) 18%, transparent); }
+}
+.nx-boards-ref svg { flex: none; width: 12px; height: 12px; }
+.nx-boards-ref span { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.nx-boards-mentions {
+  position: fixed;
+  z-index: 82;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 4px;
+  border-radius: var(--radius);
+  background: var(--popover);
+  box-shadow: var(--shadow-float);
+  animation: nx-pop var(--duration-quick) var(--ease-smooth-out) both;
+}
+.nx-boards-mentions__sub,
+.nx-boards-picker__meta { margin-left: auto; font-size: var(--text-caption); color: var(--muted-foreground); }
+
+/* ── Fields ────────────────────────────────────────────────────────── */
+.nx-boards-edit { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.nx-boards-edit__row { display: flex; align-items: center; gap: 8px; }
+.nx-boards-error { font-size: var(--text-caption); color: var(--destructive); }
+.nx-boards-composer { display: flex; flex-direction: column; gap: 8px; }
+.nx-boards-composer textarea.nx-input,
+.nx-boards-block textarea.nx-input {
+  min-height: 0;
+  max-height: 240px;
+  resize: none;
+  field-sizing: content;
+}
+.nx-boards-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+
+/* ── Card sheet ────────────────────────────────────────────────────── */
+.nx-boards-sheet {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  background: var(--card);
+}
+/* Focus is moved onto the sheet for keyboard and screen reader users; the
+   container itself is not a control, so it draws no ring. */
+html.nx .nx-boards-sheet:focus-visible { outline: none; }
+.nx-boards-sheet__head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  height: 56px;
+  padding: 0 8px 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+.nx-boards-sheet__head:has(> .nx-icon-btn:first-child) { padding-left: 8px; }
+.nx-boards-sheet__crumb {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-caption);
+  color: var(--muted-foreground);
+}
+.nx-boards-sheet__crumb > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-boards-sheet__body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 16px; padding: 16px; }
+
+.nx-boards-title { display: flex; flex-direction: column; gap: 4px; }
+.nx-boards-title textarea.nx-boards-title__input {
+  min-height: 0;
+  margin: 0 -8px;
+  padding: 4px 8px;
+  resize: none;
+  field-sizing: content;
+  background: transparent;
+  box-shadow: none;
+  font: 600 var(--text-title) / 1.4 var(--font-sans);
+}
+@media (hover: hover) {
+  .nx-boards-title textarea.nx-boards-title__input:hover { background: var(--accent); }
+}
+.nx-boards-title textarea.nx-boards-title__input:focus {
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--primary), 0 0 0 3px color-mix(in oklch, var(--primary) 16%, transparent);
+}
+
+.nx-boards-value { max-width: 60%; gap: 8px; }
+.nx-boards-value__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-boards-value svg { flex: none; width: 14px; height: 14px; color: var(--muted-foreground); }
+.nx-boards-date { width: auto; height: 28px; padding: 0 8px; font-family: var(--font-mono); font-size: var(--text-caption); }
+
+.nx-boards-picker { display: flex; flex-direction: column; gap: 4px; width: 280px; max-width: 100%; }
+.nx-sheet .nx-boards-picker { width: auto; }
+.nx-boards-picker__list { display: flex; flex-direction: column; max-height: 240px; }
+.nx-sheet .nx-boards-picker__list { max-height: 50dvh; }
+.nx-boards-picker__none { flex: none; width: 20px; height: 20px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--input); }
+.nx-boards-picker__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-boards-picker__empty { margin: 0; padding: 8px; font-size: var(--text-caption); color: var(--muted-foreground); }
+
+.nx-boards-block { display: flex; flex-direction: column; gap: 8px; }
+.nx-boards-block__head { display: flex; align-items: center; gap: 8px; min-height: 28px; }
+.nx-boards-block__head h3 { margin: 0; font-size: var(--text-caption); font-weight: 500; color: var(--muted-foreground); }
+.nx-boards-block__head .nx-icon-btn { margin-left: auto; }
+.nx-boards-prose { margin: 0; font-size: var(--text-body); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.nx-boards-muted { margin: 0; font-size: var(--text-caption); color: var(--muted-foreground); }
+.nx-boards-add { align-self: flex-start; color: var(--muted-foreground); }
+.nx-boards-add svg { width: 14px; height: 14px; }
+.nx-boards-inline-error { display: flex; align-items: center; gap: 8px; font-size: var(--text-caption); color: var(--destructive); }
+.nx-boards-meta { margin: 0; font-size: var(--text-micro); color: var(--muted-foreground); }
+
+.nx-boards-comments { display: flex; flex-direction: column; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.nx-boards-comment { display: flex; align-items: flex-start; gap: 8px; }
+.nx-boards-comment__blank { flex: none; width: 24px; height: 24px; border-radius: 999px; background: var(--muted); }
+.nx-boards-comment__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.nx-boards-comment__top { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+.nx-boards-comment__top b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-boards-comment__top time { font-size: var(--text-micro); color: var(--muted-foreground); }
+.nx-boards-comment__del { margin-left: auto; opacity: 0; transition: opacity var(--duration-quick); }
+@media (hover: hover) {
+  .nx-boards-comment:hover .nx-boards-comment__del,
+  .nx-boards-comment__del:focus-visible { opacity: 1; }
+}
+
+.nx-boards-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ── Touch ─────────────────────────────────────────────────────────── */
+@media (pointer: coarse) {
+  .nx-boards-col__head { min-height: 52px; }
+  .nx-boards-col__title,
+  .nx-boards-head__title button { padding: 12px 4px; font-size: var(--text-title); }
+  .nx-boards-card__title { font-size: var(--text-title); }
+  .nx-boards-addcol { height: 52px; }
+  .nx-boards-date { height: 44px; font-size: 16px; }
+  /* The rows hold 44px controls; keep them off the row's hairlines. */
+  .nx-boards-sheet .nx-row { padding-top: 4px; padding-bottom: 4px; }
+  /* 16px, not the scale: iOS zooms into smaller editable text. */
+  .nx-boards-title textarea.nx-boards-title__input { font-size: 16px; }
+  /* No hover on touch: the delete stays visible instead. */
+  .nx-boards-comment__del { opacity: 1; }
+}

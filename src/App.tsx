@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useIsMobile } from '@/lib/utils'
 import { useApp } from '@/stores/app'
 import { isWindowAttentive, subscribeWindowAttention } from '@/lib/windowAttention'
@@ -18,7 +18,7 @@ import { AuthGate } from '@/components/AuthGate'
 import { NotificationToasts } from '@/components/NotificationToasts'
 import { NotificationWindow } from '@/components/NotificationWindow'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
-import { isNotificationWindow, isWebAppHost } from '@/lib/runtime'
+import { isCapacitorNative, isElectron, isNotificationWindow, isWebAppHost } from '@/lib/runtime'
 import { WebShell } from '@/web/WebShell'
 import {
   InviteAcceptScreen, consumeInviteFromUrl,
@@ -31,6 +31,28 @@ import { SuspendedScreen, consumeSuspendedFragment } from '@/admin/SuspendedScre
 import { NoWorkspaceScreen } from '@/components/NoWorkspaceScreen'
 import { WorkspaceSessionBridge } from '@/components/WorkspaceSessionBridge'
 import '@/admin/admin.css'
+
+/** The Next redesign lives under `/next` and replaces only the Desktop/Mobile
+ *  shells; auth, stores and WebSocket boot below are shared. `cumora.ui`
+ *  remembers the choice ('next' | 'classic'): the web defaults to classic,
+ *  the native apps (which always open `/` or `/index.html`) to the redesign. */
+const isNextMode = (() => {
+  if (typeof location === 'undefined') return false
+  try {
+    const pref = localStorage.getItem('cumora.ui')
+    const wantsNext = pref === 'next' || (pref === null && (isElectron || isCapacitorNative))
+    const atRoot = location.pathname === '/' || location.pathname === '/index.html'
+    // The Electron notification panel loads index.html#notifications; leave it be.
+    if (wantsNext && atRoot && location.hash !== '#notifications') {
+      history.replaceState(history.state, '', `/next${location.search}${location.hash}`)
+    }
+  } catch { /* storage disabled: stay on the classic shell */ }
+  return location.pathname === '/next' || location.pathname.startsWith('/next/')
+})()
+// Start fetching the chunk during auth instead of after it.
+const nextChunk = isNextMode ? import('@/next/NextApp') : null
+const NextApp = lazy(() => nextChunk ?? import('@/next/NextApp'))
+const NextSignIn = lazy(() => import('@/next/auth/SignIn'))
 
 /** True iff this browser tab is for the admin panel. On prod the
  *  hostname is admin.cumora.ai; in localhost dev the path prefix
@@ -184,7 +206,11 @@ function AuthedApp() {
 
   return (
     <>
-      {(needsOnboarding || forceOnboarding) ? <Onboarding /> : (isMobile ? <MobileApp /> : <DesktopApp />)}
+      {(needsOnboarding || forceOnboarding)
+        ? <Onboarding />
+        : isNextMode
+          ? <Suspense fallback={null}><NextApp /></Suspense>
+          : (isMobile ? <MobileApp /> : <DesktopApp />)}
       {/* In-app message toasts (window-blur / different-convo only) —
           rendered at the AuthedApp level so they share auth context and
           unmount cleanly on sign-out. */}
@@ -296,7 +322,7 @@ function MainApp() {
   }
 
   return (
-    <AuthGate>
+    <AuthGate unauthFallback={isNextMode ? <Suspense fallback={null}><NextSignIn /></Suspense> : undefined}>
       <ErrorBoundary>
         <WorkspaceSessionBridge />
         {userId && !companyId

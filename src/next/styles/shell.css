@@ -1,0 +1,562 @@
+/* Next redesign: app frame, rail, tab bar, sidebar, stacked screens. */
+
+.nx-app {
+  position: relative;
+  display: flex;
+  height: 100dvh;
+  width: 100%;
+  overflow: hidden;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  padding-top: var(--safe-top);
+}
+
+.nx-main {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+.nx-main > * { flex: 1; min-width: 0; }
+
+.nx-legacy {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.nx-legacy > * { flex: 1; min-height: 0; }
+
+/* ── Rail ──────────────────────────────────────────────────────────── */
+.nx-rail {
+  flex: none;
+  width: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+  border-right: 1px solid var(--border);
+  background: var(--sidebar);
+}
+.nx-rail__items {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.nx-rail__ws,
+.nx-rail__me {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--radius);
+  font: 600 var(--text-title) / 1 var(--font-sans);
+  color: var(--primary-foreground);
+  background: var(--primary);
+  text-decoration: none;
+  transition: transform var(--duration-quick) var(--ease-smooth-out);
+}
+.nx-rail__ws:active { transform: scale(0.94); }
+.nx-rail__me {
+  border-radius: 999px;
+  color: var(--foreground);
+  background: var(--muted);
+  font-size: var(--text-caption);
+}
+.nx-rail__me[aria-current="page"] { box-shadow: 0 0 0 2px var(--primary); }
+.nx-rail__item {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius);
+  color: var(--muted-foreground);
+  transition: background-color var(--duration-quick), color var(--duration-quick), transform var(--duration-quick) var(--ease-smooth-out);
+}
+.nx-rail__item svg { width: 20px; height: 20px; }
+@media (hover: hover) {
+  .nx-rail__item:hover { background: var(--accent); color: var(--foreground); }
+}
+.nx-rail__item:active { transform: scale(0.94); }
+.nx-rail__item[aria-current="page"] { background: var(--selected); color: var(--primary); }
+.nx-rail__dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--primary);
+  box-shadow: 0 0 0 2px var(--sidebar);
+}
+
+/* ── Phone tab bar ─────────────────────────────────────────────────── */
+.nx-tabbar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  padding: 4px 8px calc(4px + var(--safe-bottom));
+  background: var(--glass);
+  -webkit-backdrop-filter: saturate(180%) blur(16px);
+  backdrop-filter: saturate(180%) blur(16px);
+  box-shadow: 0 -1px 0 var(--border);
+}
+.nx-tabbar__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 48px;
+  border: 0;
+  background: none;
+  color: var(--muted-foreground);
+  font: 500 var(--text-micro) / 1 var(--font-sans);
+  text-decoration: none;
+  transition: color var(--duration-quick), transform var(--duration-quick) var(--ease-smooth-out);
+}
+.nx-tabbar__item:active { transform: scale(0.94); }
+.nx-tabbar__item[aria-current="page"] { color: var(--primary); }
+.nx-tabbar__icon { position: relative; display: grid; place-items: center; height: 24px; }
+.nx-tabbar__icon svg { width: 22px; height: 22px; }
+.nx-tabbar__badge { position: absolute; top: -4px; left: 14px; }
+.nx-tabbar__me {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--foreground);
+  font-size: var(--text-micro);
+  font-weight: 600;
+}
+.nx-tabbar__item[aria-current="page"] .nx-tabbar__me { box-shadow: 0 0 0 2px var(--primary); }
+/* Like native tab bars, it steps aside while the keyboard is up. */
+body.keyboard-open .nx-tabbar { display: none; }
+/* Content scrolls under the frosted bar instead of stopping above it. */
+.nx-app:has(.nx-tabbar) .nx-sidebar__scroll { padding-bottom: calc(64px + var(--safe-bottom)); }
+
+/* ── Chats layout ──────────────────────────────────────────────────── */
+.nx-chats {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+.nx-app[data-layout="split"] .nx-chats { grid-template-columns: 260px minmax(0, 1fr); }
+.nx-chats[data-panel="dock"] { grid-template-columns: 280px minmax(0, 1fr) 360px; }
+.nx-panel-dock { min-width: 0; min-height: 0; border-left: 1px solid var(--border); background: var(--sidebar); }
+
+.nx-panel-overlay { position: absolute; inset: 0; z-index: 30; }
+.nx-panel-sheet {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(380px, 92vw);
+  background: var(--sidebar);
+  box-shadow: -1px 0 0 var(--border);
+}
+
+/* ── Sidebar ───────────────────────────────────────────────────────── */
+.nx-sidebar {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  border-right: 1px solid var(--border);
+  background: var(--sidebar);
+}
+.nx-sidebar__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 56px;
+  padding: 0 12px 0 16px;
+  flex: none;
+}
+.nx-sidebar__head h1 {
+  flex: 1;
+  margin: 0;
+  font-size: var(--text-title);
+  font-weight: 600;
+  text-wrap: balance;
+}
+.nx-sidebar__scroll { flex: 1; min-height: 0; padding: 0 8px 12px; }
+
+.nx-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+  gap: 4px;
+  padding: 0 0 8px;
+}
+.nx-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px 4px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--foreground);
+  text-decoration: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  transition: background-color var(--duration-quick), transform var(--duration-quick) var(--ease-smooth-out);
+}
+@media (hover: hover) {
+  .nx-tile:hover { background: var(--accent); }
+}
+.nx-tile:active { transform: scale(0.95); }
+.nx-tile__name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-caption);
+}
+.nx-tile__more {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: var(--text-caption);
+}
+
+.nx-group-label {
+  margin: 0;
+  padding: 12px 8px 4px;
+  font-size: var(--text-caption);
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+
+.nx-rooms { display: flex; flex-direction: column; }
+.nx-room {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px;
+  border-radius: var(--radius);
+  color: var(--foreground);
+  text-decoration: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  transition: background-color var(--duration-quick);
+}
+@media (hover: hover) {
+  .nx-room:hover { background: var(--accent); }
+}
+.nx-room:active { background: var(--muted); }
+/* Selection slides between rows (shared layout) instead of blinking. */
+.nx-room__sel {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: var(--radius);
+  background: var(--selected);
+}
+.nx-room > :not(.nx-room__sel) { position: relative; z-index: 1; }
+.nx-room__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.nx-room__top,
+.nx-room__bottom { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.nx-room__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.nx-room[data-unread] .nx-room__title { font-weight: 600; }
+.nx-room__time { flex: none; font-size: var(--text-micro); color: var(--muted-foreground); }
+.nx-room__muted { flex: none; width: 12px; height: 12px; color: var(--muted-foreground); }
+.nx-room__preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-caption);
+  color: var(--muted-foreground);
+}
+.nx-room[data-unread] .nx-room__preview { color: var(--foreground); }
+.nx-room--skel { pointer-events: none; }
+.nx-room--skel .nx-room__main { gap: 6px; }
+
+.nx-room-glyph {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+}
+.nx-room-glyph svg { width: 16px; height: 16px; }
+.nx-room-glyph--faces { background: transparent; }
+
+/* ── Stacked screens (narrow) ──────────────────────────────────────── */
+.nx-stackview { position: relative; height: 100%; min-height: 0; overflow: hidden; }
+.nx-stackview__base,
+.nx-pushed,
+.nx-pushed__inner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.nx-stackview__base > *,
+.nx-pushed > *,
+.nx-pushed__inner > * { flex: 1; min-height: 0; }
+.nx-pushed {
+  background: var(--card);
+  /* The edge shadow sells depth while a screen slides over another. */
+  box-shadow: -1px 0 0 var(--border);
+}
+.nx-stackview .nx-sidebar { border-right: 0; }
+
+@media (pointer: coarse) {
+  .nx-sidebar__head { height: 56px; }
+  .nx-room { padding: 10px 8px; }
+  .nx-room__title { font-size: var(--text-title); }
+  .nx-room__preview { font-size: var(--text-body); }
+  .nx-room-glyph { width: 44px; height: 44px; }
+  .nx-tile__name { font-size: var(--text-caption); }
+}
+
+/* ── Palette ───────────────────────────────────────────────────────── */
+.nx-palette-layer { display: flex; justify-content: center; align-items: flex-start; padding: 12vh 16px 16px; }
+.nx-palette {
+  position: relative;
+  z-index: 1;
+  width: min(560px, 100%);
+  max-height: min(560px, 76dvh);
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-lg);
+  background: var(--popover);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+}
+.nx-palette__field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+}
+.nx-palette__field svg { width: 16px; height: 16px; flex: none; }
+.nx-palette__field input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font: 400 var(--text-title) / 1 var(--font-sans);
+  color: var(--foreground);
+}
+/* The whole palette is the focus context; a ring on the input would box it in. */
+html.nx .nx-palette__field input:focus-visible { outline: none; }
+.nx-palette__list { padding: 4px 8px 8px; }
+.nx-palette__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--foreground);
+  text-align: left;
+}
+.nx-palette__item[aria-selected="true"] { background: var(--accent); }
+.nx-palette__item .nx-room-glyph { width: 28px; height: 28px; }
+.nx-palette__text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.nx-palette__title, .nx-palette__sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-palette__title { font-weight: 500; }
+.nx-palette__sub { font-size: var(--text-caption); color: var(--muted-foreground); }
+@media (pointer: coarse) {
+  .nx-palette-layer { padding: calc(8px + var(--safe-top)) 8px 8px; }
+  .nx-palette { max-height: calc(100dvh - 16px - var(--safe-top) - var(--nx-kb)); }
+  .nx-palette__field input { font-size: 16px; }
+}
+
+/* ── Dialog ────────────────────────────────────────────────────────── */
+.nx-dialog-layer { display: grid; place-items: center; padding: 16px; }
+.nx-dialog {
+  position: relative;
+  z-index: 1;
+  width: min(440px, 100%);
+  max-height: min(640px, 86dvh);
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-lg);
+  background: var(--popover);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+}
+.nx-dialog--wide { width: min(720px, 100%); }
+.nx-dialog__head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 48px;
+  padding: 0 8px 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+.nx-dialog__head h2 { margin: 0; font-size: var(--text-title); font-weight: 600; text-wrap: balance; }
+.nx-dialog__body { display: flex; flex-direction: column; gap: 12px; padding: 16px; }
+@media (pointer: coarse) {
+  .nx-dialog-layer { place-items: end stretch; padding: 0; }
+  .nx-dialog { width: 100%; border-radius: 16px 16px 0 0; max-height: 90dvh; padding-bottom: var(--safe-bottom); }
+}
+
+/* Reaction row inside a message's long-press sheet / menu. */
+.nx-menu__reacts {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 4px 4px 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.nx-menu__reacts button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--muted);
+  font-size: 18px;
+  transition: transform var(--duration-quick) var(--ease-bounce), background-color var(--duration-quick);
+}
+@media (hover: hover) {
+  .nx-menu__reacts button:hover { background: var(--accent); transform: scale(1.12); }
+}
+.nx-menu__reacts button:active { transform: scale(0.9); }
+@media (pointer: coarse) {
+  .nx-menu__reacts button { width: 44px; height: 44px; font-size: 22px; }
+}
+
+/* Section host: each section screen fades in as it mounts. */
+.nx-section {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  animation: nx-fade var(--duration-fast) var(--ease-smooth-out) both;
+}
+.nx-section > * { flex: 1; min-height: 0; }
+.nx-app:has(.nx-tabbar) .nx-section { padding-bottom: calc(56px + var(--safe-bottom)); }
+
+/* Desktop app (Electron): a draggable strip replaces the hidden title bar. */
+.nx-app[data-electron] { padding-top: 32px; }
+.nx-dragbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  height: 32px;
+  -webkit-app-region: drag;
+}
+
+/* ── Sign-in ───────────────────────────────────────────────────────── */
+.nx-signin {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: calc(16px + var(--safe-top)) 16px calc(16px + var(--safe-bottom));
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+.nx-signin__card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: min(340px, 100%);
+  animation: nx-rise var(--duration-slow) var(--ease-smooth-out) both;
+}
+.nx-signin__mark { border-radius: var(--radius-lg); box-shadow: 0 0 0 1px var(--border); }
+/* Documented exception: the one welcome heading uses the 24px step of the
+   scale; 14px reads as a label on a screen with nothing else on it. */
+.nx-signin h1 {
+  margin: 16px 0 4px;
+  font-size: var(--text-kpi);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+  text-align: center;
+}
+.nx-signin__sub { margin: 0; color: var(--muted-foreground); text-align: center; }
+.nx-signin__providers { display: flex; flex-direction: column; gap: 8px; width: 100%; margin-top: 16px; }
+.nx-signin__provider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 44px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--input), var(--shadow-card);
+  color: var(--foreground);
+  font: 500 var(--text-title) / 1 var(--font-sans);
+  transition: background-color var(--duration-quick), transform var(--duration-quick) var(--ease-smooth-out), opacity var(--duration-quick);
+}
+.nx-signin__provider:active:not(:disabled) { transform: scale(0.98); }
+.nx-signin__provider:disabled { opacity: 0.6; }
+.nx-signin__provider[aria-busy] { opacity: 1; }
+/* Provider brand colors follow the providers' own button guidelines. */
+.nx-signin__provider[data-provider="github"] { background: #1f2328; color: #fff; box-shadow: none; }
+.nx-signin__provider[data-provider="apple"] { background: #000; color: #fff; box-shadow: none; }
+.nx-signin__provider[data-provider="gitlab"] { background: #fc6d26; color: #fff; box-shadow: none; }
+html.nx.dark .nx-signin__provider[data-provider="github"],
+html.nx.dark .nx-signin__provider[data-provider="apple"] { box-shadow: inset 0 0 0 1px var(--input); }
+@media (hover: hover) {
+  .nx-signin__provider:hover:not(:disabled) { background: color-mix(in oklch, var(--card) 94%, var(--foreground)); }
+  .nx-signin__provider[data-provider="github"]:hover:not(:disabled) { background: #2a3037; }
+  .nx-signin__provider[data-provider="apple"]:hover:not(:disabled) { background: #111; }
+  .nx-signin__provider[data-provider="gitlab"]:hover:not(:disabled) { background: #e24329; }
+}
+.nx-signin__error { margin: 12px 0 0; color: var(--destructive); font-size: var(--text-caption); text-align: center; overflow-wrap: anywhere; }
+.nx-signin__note { margin: 16px 0 8px; color: var(--muted-foreground); font-size: var(--text-caption); text-align: center; }

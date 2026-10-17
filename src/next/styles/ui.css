@@ -1,0 +1,391 @@
+/* Next redesign primitives. Sizes come only from the five type tokens and the
+   4px spacing steps (4/8/12/16); nothing here pads more than 16px. */
+
+/* ── Buttons ───────────────────────────────────────────────────────── */
+.nx-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  font: 500 var(--text-body) / 1 var(--font-sans);
+  color: var(--foreground);
+  background: transparent;
+  white-space: nowrap;
+  transition: background-color var(--duration-quick), color var(--duration-quick), transform var(--duration-quick) var(--ease-smooth-out), opacity var(--duration-quick);
+  user-select: none;
+}
+@media (hover: hover) {
+  .nx-btn:hover:not(:disabled) { background: var(--accent); }
+}
+.nx-btn:active:not(:disabled) { transform: scale(0.97); }
+.nx-btn:disabled { opacity: 0.5; }
+.nx-btn--primary { background: var(--primary); color: var(--primary-foreground); }
+@media (hover: hover) {
+  .nx-btn--primary:hover:not(:disabled) { background: color-mix(in oklch, var(--primary) 88%, black); }
+}
+.nx-btn--outline { box-shadow: inset 0 0 0 1px var(--input); background: var(--card); }
+@media (hover: hover) {
+  .nx-btn--outline:hover:not(:disabled) { background: color-mix(in oklch, var(--card) 92%, var(--foreground)); }
+}
+.nx-btn--danger { color: var(--destructive); }
+@media (hover: hover) {
+  .nx-btn--danger:hover:not(:disabled) { background: color-mix(in oklch, var(--destructive) 8%, transparent); }
+}
+/* The shared icon set has no intrinsic size; unsized, an icon fills the row. */
+.nx-btn svg { flex: none; width: 16px; height: 16px; }
+.nx-btn--sm { height: 28px; padding: 0 8px; font-size: var(--text-caption); }
+.nx-btn--sm svg { width: 14px; height: 14px; }
+.nx-btn--block { width: 100%; }
+
+.nx-icon-btn {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  background: transparent;
+  transition: background-color var(--duration-quick), color var(--duration-quick), transform var(--duration-quick) var(--ease-smooth-out);
+}
+@media (hover: hover) {
+  .nx-icon-btn:hover:not(:disabled) { background: var(--accent); color: var(--foreground); }
+}
+.nx-icon-btn:active:not(:disabled) { transform: scale(0.92); }
+.nx-icon-btn[aria-pressed="true"],
+.nx-icon-btn[data-active="true"] { background: var(--selected); color: var(--primary); }
+.nx-icon-btn--ring { background: var(--card); box-shadow: 0 0 0 1px var(--border), var(--shadow-card); }
+.nx-icon-btn--sm { width: 28px; height: 28px; }
+.nx-icon-btn svg { width: 16px; height: 16px; }
+
+/* ── Keyboard hints ────────────────────────────────────────────────── */
+.nx-kbd {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font: 500 var(--text-micro) / 1 var(--font-mono);
+  color: var(--muted-foreground);
+  background: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+/* ── Spinner, dots, shimmer text ───────────────────────────────────── */
+.nx-spinner {
+  display: inline-block;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid color-mix(in oklch, currentColor 22%, transparent);
+  border-top-color: currentColor;
+  animation: nx-spin 0.7s linear infinite;
+}
+.nx-spinner--lg { width: 20px; height: 20px; }
+
+.nx-dots { display: inline-flex; gap: 3px; }
+.nx-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 99px;
+  background: currentColor;
+  animation: nx-dot 1.2s ease-in-out infinite;
+}
+.nx-dots i:nth-child(2) { animation-delay: 0.15s; }
+.nx-dots i:nth-child(3) { animation-delay: 0.3s; }
+
+/* transitions-dev 15: shimmer text. The gradient sweeps over the glyphs only. */
+.nx-shimmer {
+  color: transparent;
+  background: linear-gradient(90deg, var(--muted-foreground) 0%, var(--muted-foreground) 40%, var(--foreground) 50%, var(--muted-foreground) 60%, var(--muted-foreground) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: nx-shimmer 1.8s linear infinite;
+}
+
+/* ── Badges, chips ─────────────────────────────────────────────────── */
+.nx-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font: 500 var(--text-micro) / 1 var(--font-mono);
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+.nx-badge--muted { color: var(--muted-foreground); background: var(--muted); }
+
+.nx-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: var(--text-micro);
+  font-weight: 400;
+  color: var(--muted-foreground);
+  background: var(--muted);
+  white-space: nowrap;
+}
+
+/* ── Avatar ────────────────────────────────────────────────────────── */
+.nx-avatar {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  border-radius: 999px;
+  color: #fff;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  user-select: none;
+}
+.nx-avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  object-fit: cover;
+}
+/* Presence dot: emerald online, amber waiting. Working agents get the ring. */
+.nx-avatar__dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  z-index: 1;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px var(--nx-avatar-ring, var(--card));
+}
+.nx-avatar__dot[data-s="avail"] { background: var(--live); }
+.nx-avatar__dot[data-s="waiting"] { background: var(--warn); }
+.nx-avatar__live {
+  position: absolute;
+  inset: -3px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px var(--live);
+  animation: nx-breathe 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+.nx-avatar-stack { display: inline-flex; align-items: center; }
+.nx-avatar-stack > * + * { margin-left: -8px; }
+.nx-avatar-stack .nx-avatar { box-shadow: 0 0 0 2px var(--nx-avatar-ring, var(--card)); }
+
+/* ── Segmented tabs with a sliding pill (transitions-dev 16) ───────── */
+.nx-seg {
+  position: relative;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--muted);
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.nx-seg::-webkit-scrollbar { display: none; }
+.nx-seg__tab {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font: 500 var(--text-caption) / 1 var(--font-sans);
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  transition: color var(--duration-fast);
+}
+@media (hover: hover) {
+  .nx-seg__tab:hover { color: var(--foreground); }
+}
+.nx-seg__tab[aria-selected="true"] { color: var(--foreground); }
+.nx-seg__pill {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--border), var(--shadow-card);
+}
+
+/* ── Inputs ────────────────────────────────────────────────────────── */
+.nx-input {
+  width: 100%;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--input);
+  font: 400 var(--text-body) / 1 var(--font-sans);
+  color: var(--foreground);
+  transition: box-shadow var(--duration-quick);
+}
+.nx-input::placeholder { color: var(--muted-foreground); }
+.nx-input:focus { outline: none; box-shadow: inset 0 0 0 1px var(--primary), 0 0 0 3px color-mix(in oklch, var(--primary) 16%, transparent); }
+textarea.nx-input { height: auto; min-height: 72px; padding: 8px 12px; line-height: 1.5; resize: vertical; }
+
+.nx-field { display: flex; flex-direction: column; gap: 4px; }
+.nx-field__label { font-size: var(--text-caption); color: var(--muted-foreground); }
+
+/* ── Switch (transitions-dev 27) ───────────────────────────────────── */
+.nx-switch {
+  position: relative;
+  flex: none;
+  width: 32px;
+  height: 18px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--input);
+  transition: background-color var(--duration-fast) var(--ease-smooth-out);
+}
+.nx-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
+  transition: transform var(--duration-fast) var(--ease-bounce);
+}
+.nx-switch[aria-checked="true"] { background: var(--primary); }
+.nx-switch[aria-checked="true"]::after { transform: translateX(14px); }
+
+/* ── Floating layers: menu, popover, sheet, tooltip ────────────────── */
+.nx-layer { position: fixed; inset: 0; z-index: 80; }
+.nx-scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--scrim);
+}
+.nx-menu {
+  position: fixed;
+  z-index: 81;
+  min-width: 184px;
+  max-width: min(320px, calc(100vw - 16px));
+  padding: 4px;
+  border-radius: var(--radius);
+  background: var(--popover);
+  box-shadow: var(--shadow-float);
+  transform-origin: var(--nx-origin, top left);
+}
+.nx-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font: 400 var(--text-body) / 1.2 var(--font-sans);
+  color: var(--foreground);
+  text-align: left;
+}
+@media (hover: hover) {
+  .nx-menu__item:hover,
+  .nx-menu__item[data-highlighted="true"] { background: var(--accent); }
+}
+.nx-menu__item svg { width: 16px; height: 16px; color: var(--muted-foreground); flex: none; }
+.nx-menu__item--danger { color: var(--destructive); }
+.nx-menu__item--danger svg { color: currentColor; }
+.nx-menu__item .nx-kbd { margin-left: auto; }
+.nx-menu__sep { height: 1px; margin: 4px 0; background: var(--border); }
+.nx-menu__label { padding: 8px 8px 4px; font-size: var(--text-caption); color: var(--muted-foreground); }
+
+/* Touch: menus become bottom sheets with 44px rows. */
+.nx-sheet {
+  position: fixed;
+  z-index: 81;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 85dvh;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 8px calc(8px + var(--safe-bottom));
+  border-radius: 16px 16px 0 0;
+  background: var(--popover);
+  box-shadow: var(--shadow-float);
+}
+.nx-sheet__grip {
+  align-self: center;
+  width: 36px;
+  height: 4px;
+  margin: 4px 0 8px;
+  border-radius: 99px;
+  background: var(--input);
+}
+.nx-sheet .nx-menu__item { min-height: 44px; padding: 0 12px; font-size: var(--text-title); }
+
+.nx-tooltip {
+  position: fixed;
+  z-index: 90;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--foreground);
+  color: var(--background);
+  font-size: var(--text-caption);
+  pointer-events: none;
+  white-space: nowrap;
+  animation: nx-pop var(--duration-quick) var(--ease-smooth-out) both;
+}
+
+/* ── Empty / loading states ────────────────────────────────────────── */
+.nx-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  text-align: center;
+  color: var(--muted-foreground);
+  font-size: var(--text-caption);
+  line-height: 1.6;
+}
+.nx-empty b { font-size: var(--text-title); font-weight: 600; color: var(--foreground); }
+.nx-center { display: grid; place-items: center; height: 100%; color: var(--muted-foreground); }
+
+.nx-skel {
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, var(--muted) 0%, var(--accent) 40%, var(--muted) 80%);
+  background-size: 200% 100%;
+  animation: nx-shimmer 1.4s linear infinite;
+}
+
+/* ── Touch sizing: every target reaches 44px under a coarse pointer ── */
+@media (pointer: coarse) {
+  .nx-btn { height: 44px; padding: 0 16px; font-size: var(--text-title); }
+  .nx-btn--sm { height: 36px; }
+  .nx-icon-btn { width: 44px; height: 44px; }
+  .nx-icon-btn svg { width: 20px; height: 20px; }
+  .nx-icon-btn--sm { width: 40px; height: 40px; }
+  /* 16px, not the scale: iOS zooms into inputs below 16px on focus. */
+  .nx-input { height: 44px; font-size: 16px; }
+  .nx-seg__tab { height: 36px; padding: 0 12px; font-size: var(--text-body); }
+  .nx-menu__item { min-height: 44px; }
+  .nx-switch { width: 44px; height: 26px; }
+  .nx-switch::after { width: 22px; height: 22px; }
+  .nx-switch[aria-checked="true"]::after { transform: translateX(18px); }
+}

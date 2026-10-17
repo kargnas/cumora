@@ -1,0 +1,571 @@
+/* Next redesign: calendar section. Type scale, 4px steps and one elevation
+   only. Agent tasks and personal events differ by tint plus the mark at
+   their start (assignee face vs. calendar glyph), never by a colored edge.
+   Tints mix in oklab: the card color has no hue, and an oklch mix would
+   swing the primary's hue toward pink on the way to it. */
+
+.nx-calendar {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  background: var(--card);
+}
+.nx-calendar[data-dock] { grid-template-columns: minmax(0, 1fr) 360px; }
+.nx-calendar__dock { min-width: 0; min-height: 0; border-left: 1px solid var(--border); }
+
+.nx-calendar__main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  background: var(--card);
+}
+.nx-calendar__view {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  animation: nx-fade var(--duration-fast) var(--ease-smooth-out) both;
+}
+.nx-calendar__view > * { flex: 1; min-height: 0; }
+.nx-calendar__busy {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+
+/* ── Toolbar ───────────────────────────────────────────────────────── */
+.nx-calendar__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  min-height: 56px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.nx-calendar__nav { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; }
+.nx-calendar__nav h1 {
+  min-width: 0;
+  margin: 0 0 0 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-title);
+  font-weight: 600;
+}
+.nx-calendar__head[data-stack] { flex-wrap: wrap; }
+.nx-calendar__head[data-stack] .nx-calendar__nav h1 { flex: 1; margin: 0; text-align: center; }
+.nx-calendar__head[data-stack] .nx-seg { display: flex; width: 100%; }
+.nx-calendar__head[data-stack] .nx-seg__tab { flex: 1; justify-content: center; }
+
+/* ── Kind mark ─────────────────────────────────────────────────────── */
+.nx-calendar-mark {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  background: var(--muted);
+}
+.nx-calendar-mark[data-kind="agent_task"] { color: var(--primary); background: var(--selected); }
+.nx-calendar-mark svg { width: 62%; height: 62%; }
+
+/* ── Event chips (all-day lanes, month cells) ──────────────────────── */
+.nx-calendar-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 4px;
+  color: var(--foreground);
+  background: color-mix(in oklab, var(--foreground) 7%, var(--card));
+  font-size: var(--text-micro);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color var(--duration-quick), opacity var(--duration-quick);
+}
+@media (hover: hover) {
+  .nx-calendar-chip:hover { background: color-mix(in oklab, var(--foreground) 11%, var(--card)); }
+}
+.nx-calendar-chip[data-kind="agent_task"] { background: color-mix(in oklab, var(--primary) 16%, var(--card)); }
+@media (hover: hover) {
+  .nx-calendar-chip[data-kind="agent_task"]:hover { background: color-mix(in oklab, var(--primary) 24%, var(--card)); }
+}
+.nx-calendar-chip[aria-current="true"] { box-shadow: 0 0 0 2px var(--ring); }
+.nx-calendar-chip[data-paused] { opacity: 0.55; }
+.nx-calendar-chip > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.nx-calendar-chip time { flex: none; color: var(--muted-foreground); }
+
+/* ── Time grid (day, week) ─────────────────────────────────────────── */
+.nx-calendar-grid { --gutter: 52px; position: relative; }
+.nx-calendar-grid__top {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+}
+.nx-calendar-grid__heads,
+.nx-calendar-grid__body {
+  display: grid;
+  grid-template-columns: var(--gutter) repeat(var(--days), minmax(0, 1fr));
+}
+.nx-calendar-grid__zone {
+  align-self: end;
+  padding: 0 8px 8px 4px;
+  font-size: var(--text-micro);
+  color: var(--muted-foreground);
+  text-align: right;
+}
+.nx-calendar-grid__head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 4px;
+  border-radius: var(--radius-sm);
+  color: var(--foreground);
+  text-decoration: none;
+  transition: background-color var(--duration-quick);
+}
+@media (hover: hover) {
+  a.nx-calendar-grid__head:hover { background: var(--accent); }
+}
+.nx-calendar-grid__wd { font-size: var(--text-micro); color: var(--muted-foreground); }
+.nx-calendar-grid__num {
+  display: grid;
+  place-items: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 4px;
+  border-radius: 999px;
+  font-size: var(--text-title);
+  font-weight: 600;
+}
+.nx-calendar-grid__head[data-today] .nx-calendar-grid__wd { color: var(--primary); }
+.nx-calendar-grid__head[data-today] .nx-calendar-grid__num { background: var(--primary); color: var(--primary-foreground); }
+
+.nx-calendar-grid__allday {
+  display: grid;
+  grid-template-columns: var(--gutter) minmax(0, 1fr);
+  border-top: 1px solid var(--border);
+}
+.nx-calendar-grid__label {
+  padding: 8px 8px 8px 4px;
+  font-size: var(--text-micro);
+  color: var(--muted-foreground);
+  text-align: right;
+}
+/* Dense auto-placement packs multi-day chips into the first free lane. */
+.nx-calendar-grid__lanes {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--days), minmax(0, 1fr));
+  grid-auto-flow: row dense;
+  align-content: start;
+  gap: 2px 0;
+  min-height: 32px;
+  padding: 4px 0;
+}
+.nx-calendar-grid__slots {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--days), minmax(0, 1fr));
+}
+.nx-calendar-grid__slot {
+  border: 0;
+  border-left: 1px solid var(--border);
+  background: transparent;
+  transition: background-color var(--duration-quick);
+}
+@media (hover: hover) {
+  .nx-calendar-grid__slot:hover { background: var(--accent); }
+}
+/* Positioned so they paint above the absolutely placed slots. */
+.nx-calendar-grid__lanes > .nx-calendar-chip { position: relative; margin: 0 2px; }
+
+.nx-calendar-grid__body { position: relative; height: calc(24 * var(--hour)); }
+.nx-calendar-grid__rules { position: absolute; inset: 0 0 0 var(--gutter); pointer-events: none; }
+.nx-calendar-grid__rules i { position: absolute; left: 0; right: 0; height: 1px; background: var(--border); }
+.nx-calendar-grid__gutter { position: relative; }
+.nx-calendar-grid__gutter span {
+  position: absolute;
+  right: 8px;
+  transform: translateY(-50%);
+  font-size: var(--text-micro);
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.nx-calendar-grid__col {
+  position: relative;
+  min-width: 0;
+  border-left: 1px solid var(--border);
+  cursor: pointer;
+}
+.nx-calendar-grid__col[data-today] { background: color-mix(in oklab, var(--primary) 3%, transparent); }
+
+.nx-calendar-ev {
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 4px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  color: var(--foreground);
+  background: color-mix(in oklab, var(--foreground) 7%, var(--card));
+  /* A card-colored hairline keeps side-by-side blocks apart. */
+  box-shadow: 0 0 0 1px var(--card);
+  font-size: var(--text-micro);
+  line-height: 1.3;
+  text-decoration: none;
+  transition: background-color var(--duration-quick), transform var(--duration-quick) var(--ease-smooth-out), opacity var(--duration-quick);
+}
+@media (hover: hover) {
+  .nx-calendar-ev:hover { background: color-mix(in oklab, var(--foreground) 11%, var(--card)); }
+}
+.nx-calendar-ev:active { transform: scale(0.98); }
+.nx-calendar-ev[data-kind="agent_task"] { background: color-mix(in oklab, var(--primary) 16%, var(--card)); }
+@media (hover: hover) {
+  .nx-calendar-ev[data-kind="agent_task"]:hover { background: color-mix(in oklab, var(--primary) 24%, var(--card)); }
+}
+.nx-calendar-ev[aria-current="true"] { z-index: 2; box-shadow: 0 0 0 2px var(--ring); }
+.nx-calendar-ev[data-paused] { opacity: 0.55; }
+.nx-calendar-ev[data-short] { justify-content: center; padding: 0 4px; }
+.nx-calendar-ev__title { display: flex; align-items: flex-start; gap: 4px; min-width: 0; font-weight: 500; }
+.nx-calendar-ev__title > span:last-child {
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.nx-calendar-ev[data-short] .nx-calendar-ev__title { align-items: center; }
+.nx-calendar-ev[data-short] .nx-calendar-ev__title > span:last-child { display: block; white-space: nowrap; text-overflow: ellipsis; }
+.nx-calendar-ev__time { overflow: hidden; color: var(--muted-foreground); text-overflow: ellipsis; white-space: nowrap; }
+
+.nx-calendar-grid__now {
+  position: absolute;
+  z-index: 2;
+  height: 2px;
+  margin-top: -1px;
+  background: var(--destructive);
+  pointer-events: none;
+}
+.nx-calendar-grid__now::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--destructive);
+}
+.nx-calendar-grid__draft {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  z-index: 2;
+  padding: 4px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--primary) 16%, transparent);
+  box-shadow: inset 0 0 0 1px var(--primary);
+  color: var(--primary);
+  font-size: var(--text-micro);
+  pointer-events: none;
+}
+
+/* ── Month (wide) ──────────────────────────────────────────────────── */
+.nx-calendar-month { display: flex; flex-direction: column; }
+.nx-calendar-month__wk {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  flex: none;
+  border-bottom: 1px solid var(--border);
+}
+.nx-calendar-month__wk span { padding: 8px; font-size: var(--text-micro); color: var(--muted-foreground); }
+.nx-calendar-month__grid {
+  flex: 1 0 auto;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--border);
+  user-select: none;
+}
+.nx-calendar-month__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  min-height: 0;
+  padding: 4px;
+  overflow: hidden;
+  background: var(--card);
+  cursor: pointer;
+  transition: background-color var(--duration-quick);
+}
+.nx-calendar-month__cell[data-out] { background: var(--background); }
+.nx-calendar-month__cell[data-picked] { background: var(--selected); }
+.nx-calendar-month__num {
+  align-self: flex-start;
+  display: grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 4px;
+  border-radius: 999px;
+  color: var(--foreground);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color var(--duration-quick);
+}
+@media (hover: hover) {
+  .nx-calendar-month__num:hover { background: var(--accent); }
+}
+.nx-calendar-month__cell[data-out] .nx-calendar-month__num { color: var(--muted-foreground); }
+.nx-calendar-month__cell .nx-calendar-month__num[data-today] { background: var(--primary); color: var(--primary-foreground); }
+.nx-calendar-month__more {
+  align-self: flex-start;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: var(--text-micro);
+  color: var(--muted-foreground);
+  text-decoration: none;
+}
+@media (hover: hover) {
+  .nx-calendar-month__more:hover { background: var(--accent); color: var(--foreground); }
+}
+
+/* ── Month (phone) ─────────────────────────────────────────────────── */
+.nx-calendar-mini { display: flex; flex-direction: column; }
+.nx-calendar-mini .nx-calendar-month__wk { border-bottom: 0; padding: 0 8px; }
+.nx-calendar-mini .nx-calendar-month__wk span { padding: 8px 0 4px; text-align: center; }
+.nx-calendar-mini__grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  flex: none;
+  padding: 0 8px;
+}
+.nx-calendar-mini__day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-height: 48px;
+  padding: 4px 0;
+  border-radius: var(--radius);
+  color: var(--foreground);
+  text-decoration: none;
+  transition: background-color var(--duration-quick);
+}
+@media (hover: hover) {
+  .nx-calendar-mini__day:hover { background: var(--accent); }
+}
+.nx-calendar-mini__day[aria-current="date"] { background: var(--selected); }
+.nx-calendar-mini__day[data-out] { color: var(--muted-foreground); }
+.nx-calendar-mini__num {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  font-size: var(--text-body);
+  font-weight: 500;
+}
+.nx-calendar-mini__day[data-today] .nx-calendar-mini__num { background: var(--primary); color: var(--primary-foreground); font-weight: 600; }
+.nx-calendar-mini__dots { display: flex; gap: 2px; height: 6px; }
+.nx-calendar-mini__dots i { width: 6px; height: 6px; border-radius: 999px; box-shadow: inset 0 0 0 1.5px var(--muted-foreground); }
+.nx-calendar-mini__dots i[data-kind="agent_task"] { background: var(--primary); box-shadow: none; }
+.nx-calendar-mini__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 12px 0 16px;
+  border-top: 1px solid var(--border);
+}
+.nx-calendar-mini__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 16px 4px; }
+.nx-calendar-mini__head h2 { margin: 0; font-size: var(--text-title); font-weight: 600; }
+.nx-calendar-mini__empty { margin: 0; padding: 16px; text-align: center; font-size: var(--text-caption); color: var(--muted-foreground); }
+
+/* ── Agenda rows ───────────────────────────────────────────────────── */
+.nx-calendar-agenda__day {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 16px 4px;
+  background: var(--card);
+  font-size: var(--text-caption);
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+.nx-calendar-agenda__day b { font-weight: 600; color: var(--foreground); }
+.nx-calendar-agenda__day[data-today] b { color: var(--primary); }
+.nx-calendar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  margin: 0 8px;
+  padding: 8px;
+  border-radius: var(--radius);
+  color: var(--foreground);
+  text-decoration: none;
+  transition: background-color var(--duration-quick);
+}
+@media (hover: hover) {
+  .nx-calendar-row:hover { background: var(--accent); }
+}
+.nx-calendar-row[aria-current="true"] { background: var(--selected); }
+.nx-calendar-row[data-paused] > :not(.nx-chip) { opacity: 0.55; }
+.nx-calendar-row__time { display: flex; flex: none; flex-direction: column; gap: 2px; width: 64px; font-size: var(--text-caption); }
+.nx-calendar-row__time b { font-weight: 500; }
+.nx-calendar-row__time span { font-size: var(--text-micro); color: var(--muted-foreground); }
+.nx-calendar-row__main { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
+.nx-calendar-row__title,
+.nx-calendar-row__sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-calendar-row__title { font-weight: 500; }
+.nx-calendar-row__sub { font-size: var(--text-caption); color: var(--muted-foreground); }
+.nx-calendar-row__lock { display: grid; flex: none; place-items: center; color: var(--muted-foreground); }
+.nx-calendar-row__lock svg { width: 14px; height: 14px; }
+.nx-calendar-row--skel { pointer-events: none; }
+
+/* ── Detail ────────────────────────────────────────────────────────── */
+.nx-calendar-detail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--sidebar);
+}
+.nx-calendar-detail__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  height: 56px;
+  padding: 0 12px 0 8px;
+  border-bottom: 1px solid var(--border);
+}
+.nx-calendar-detail__grow { flex: 1; }
+.nx-calendar-detail__body { display: flex; flex: 1; flex-direction: column; gap: 12px; min-height: 0; padding: 16px; }
+.nx-calendar-detail__body > * { flex: none; }
+.nx-calendar-detail__title { display: flex; align-items: flex-start; gap: 12px; }
+.nx-calendar-detail__title h2 { margin: 0; font-size: var(--text-title); font-weight: 600; overflow-wrap: anywhere; text-wrap: balance; }
+.nx-calendar-detail__title p { margin: 2px 0 0; font-size: var(--text-caption); color: var(--muted-foreground); }
+.nx-row.nx-calendar-kv { align-items: flex-start; gap: 12px; padding: 12px; }
+/* The paused hint wraps to two lines, so the row needs its own padding. */
+.nx-row.nx-calendar-status { padding: 8px 12px; }
+.nx-calendar-kv__label { flex: none; width: 80px; font-size: var(--text-caption); line-height: 1.6; color: var(--muted-foreground); }
+.nx-calendar-kv__value { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.nx-calendar-kv__zone { font-size: var(--text-micro); color: var(--muted-foreground); }
+.nx-calendar-detail__who {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  color: var(--foreground);
+  text-decoration: none;
+  transition: color var(--duration-quick);
+}
+@media (hover: hover) {
+  a.nx-calendar-detail__who:hover { color: var(--primary); }
+}
+.nx-calendar-detail__who svg { flex: none; width: 16px; height: 16px; color: var(--muted-foreground); }
+.nx-calendar-detail__text .nx-group-label { padding: 0 0 4px; }
+.nx-calendar-detail__text p {
+  margin: 0;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--border);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.nx-calendar-detail__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.nx-calendar-detail__actions .nx-field__error { flex-basis: 100%; }
+.nx-calendar-detail__error { margin: 0; }
+.nx-rows > .nx-calendar-detail__error { padding: 0 12px 12px; }
+.nx-calendar-detail__meta { margin: 0; font-size: var(--text-micro); color: var(--muted-foreground); }
+.nx-calendar-detail__gone { flex: 1; }
+
+.nx-calendar-runs { display: flex; flex-direction: column; gap: 4px; }
+.nx-calendar-runs__head { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.nx-calendar-runs__wait { display: grid; place-items: center; min-height: 64px; color: var(--muted-foreground); }
+.nx-calendar-runs__none { margin: 0; font-size: var(--text-caption); color: var(--muted-foreground); }
+.nx-calendar-runs__error { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: var(--text-caption); color: var(--destructive); }
+.nx-calendar-runs__list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--border);
+}
+.nx-calendar-run { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 12px; }
+.nx-calendar-run + .nx-calendar-run { border-top: 1px solid var(--border); }
+.nx-calendar-run__icon { display: grid; flex: none; place-items: center; width: 16px; height: 16px; color: var(--muted-foreground); }
+.nx-calendar-run__icon svg { width: 14px; height: 14px; }
+.nx-calendar-run[data-status="dispatched"] .nx-calendar-run__icon { color: var(--live); }
+.nx-calendar-run[data-status="failed"] .nx-calendar-run__icon { color: var(--destructive); }
+.nx-calendar-run__dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor; }
+.nx-calendar-run__text { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; font-size: var(--text-caption); }
+.nx-calendar-run__time { font-size: var(--text-micro); color: var(--muted-foreground); }
+.nx-calendar-run__err { font-size: var(--text-micro); color: var(--destructive); overflow-wrap: anywhere; }
+
+/* ── Editor ────────────────────────────────────────────────────────── */
+/* EventEditor draws its own modal (scrim, card, title). Inside our Dialog
+   only its form and footer stay: the outer layers go flat and fill the
+   dialog, so the form scrolls and the footer stays in view. */
+.nx-dialog__body:has(> .nx-calendar-editor) { padding: 0; overflow: hidden; }
+.nx-calendar-editor,
+.nx-calendar-editor > div,
+.nx-calendar-editor > div > div { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+.nx-calendar-editor > div {
+  position: static;
+  padding: 0;
+  background: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+.nx-calendar-editor > div > div {
+  max-width: none;
+  max-height: none;
+  border: 0 !important;
+  border-radius: 0;
+  box-shadow: none;
+  background: none;
+}
+.nx-calendar-editor > div > div > div:first-child { display: none; }
+
+/* ── Touch ─────────────────────────────────────────────────────────── */
+@media (pointer: coarse) {
+  .nx-calendar-chip { height: 24px; }
+  .nx-calendar-grid__num { min-width: 32px; height: 32px; }
+  .nx-calendar-grid__lanes { min-height: 44px; }
+  .nx-calendar-month__num { min-width: 32px; height: 32px; }
+  .nx-calendar-mini__day { min-height: 52px; }
+  .nx-calendar-row { min-height: 56px; }
+  .nx-calendar-row__title { font-size: var(--text-title); }
+}

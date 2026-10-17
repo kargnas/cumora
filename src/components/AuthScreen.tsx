@@ -31,15 +31,15 @@ const PRESET_LABEL_KEY: Record<string, MessageKey> = {
   'Local Dev': 'auth.presetLocalDev',
 }
 
-export function AuthScreen() {
-  const t = useT()
+/** Sign-in state and the provider flows (browser, Electron, native), shared
+ *  by this screen and the Next redesign's sign-in screen. */
+export function useSignIn() {
   const [busy, setBusy] = useState<'google' | 'github' | 'gitlab' | 'apple' | null>(null)
   // GitLab is opt-in and can point at a self-managed instance, so most
   // deployments have no credentials for it — ask the server rather than
   // offering a button that can only 503.
   const [gitlabEnabled, setGitlabEnabled] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  const [picker, setPicker] = useState(false)
 
   // AuthGate strips a successful fragment after consuming it. A failure
   // fragment looks like `#token=&companyId=&error=...` — surface that
@@ -185,6 +185,14 @@ export function AuthScreen() {
     location.assign(`${api.authStartUrl(provider)}?return=${ret}`)
   }
 
+  return { busy, err, gitlabEnabled, go, goApple }
+}
+
+export function AuthScreen() {
+  const t = useT()
+  const { busy, err, gitlabEnabled, go, goApple } = useSignIn()
+  const [picker, setPicker] = useState(false)
+
   return (
     <div
       className="fixed inset-0 grid place-items-center"
@@ -271,7 +279,7 @@ function currentOriginLabel(t: ReturnType<typeof useT>): string {
   return match ? `${match.label} · ${origin}` : origin
 }
 
-function ServerSwitch({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+export function ServerSwitch({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   const t = useT()
   const [custom, setCustom] = useState('')
   const current = getServerOrigin()
@@ -341,7 +349,7 @@ function ServerSwitch({ open, onToggle }: { open: boolean; onToggle: () => void 
   )
 }
 
-function GoogleMark() {
+export function GoogleMark() {
   return (
     <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden>
       <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
@@ -352,7 +360,7 @@ function GoogleMark() {
   )
 }
 
-function GitLabMark() {
+export function GitLabMark() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
       <path d="M12 21.4 8.7 11.2H15.3L12 21.4zM3.6 11.2 2.3 15.3a.9.9 0 0 0 .33 1L12 21.4 3.6 11.2zM3.6 11.2h5.1L6.5 4.4a.45.45 0 0 0-.86 0L3.6 11.2zM20.4 11.2l1.3 4.1a.9.9 0 0 1-.33 1L12 21.4l8.4-10.2zM20.4 11.2h-5.1l2.2-6.8a.45.45 0 0 1 .86 0l2.04 6.8z" />
@@ -360,7 +368,7 @@ function GitLabMark() {
   )
 }
 
-function GitHubMark() {
+export function GitHubMark() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
       <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.55 0-.27-.01-1-.02-1.95-3.2.69-3.88-1.54-3.88-1.54-.52-1.32-1.28-1.67-1.28-1.67-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.73-1.54-2.55-.29-5.23-1.28-5.23-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.47.11-3.06 0 0 .97-.31 3.18 1.18.92-.26 1.91-.39 2.9-.39.99 0 1.97.13 2.9.39 2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.77.12 3.06.74.81 1.18 1.84 1.18 3.1 0 4.42-2.69 5.4-5.25 5.68.41.36.78 1.07.78 2.16 0 1.56-.01 2.81-.01 3.19 0 .31.21.67.8.55C20.22 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z"/>
@@ -368,7 +376,7 @@ function GitHubMark() {
   )
 }
 
-function AppleMark() {
+export function AppleMark() {
   return (
     <svg width="16" height="20" viewBox="0 0 384 512" fill="currentColor" aria-hidden>
       <path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zM236.1 86.7c25.5-30.3 23.2-57.9 22.4-67.9-22.5 1.3-48.6 15.3-63.5 32.5-16.4 18.4-26 41.2-23.9 66.6 24.3 1.9 46.5-10.6 65-31.2z"/>

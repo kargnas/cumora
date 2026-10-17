@@ -281,6 +281,8 @@ function fromApi(m: ApiMessage): Message {
     clientId: raw.clientId ?? undefined,
   }
   ;(out as Message & { sequence?: number }).sequence = m.sequence
+  // `at` keeps only HH:MM; the Next redesign needs the full instant for day separators.
+  ;(out as Message & { createdAt?: string }).createdAt = m.createdAt
   return out
 }
 

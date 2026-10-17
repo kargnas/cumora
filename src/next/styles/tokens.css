@@ -1,0 +1,303 @@
+/*
+ * Next redesign mode: design tokens, legacy token remap, and base rules.
+ *
+ * Vite injects this stylesheet globally once the lazy NextApp chunk loads, so
+ * every rule here is gated on `html.nx` (NextApp adds the class on mount and
+ * removes it on unmount). Component classes elsewhere use the `nx-` prefix,
+ * which the classic UI never uses, so they need no extra scoping.
+ */
+
+html.nx {
+  color-scheme: light;
+  --background: oklch(0.985 0 0);
+  --sidebar: oklch(0.985 0 0);
+  --card: oklch(1 0 0);
+  --popover: oklch(1 0 0);
+  --foreground: oklch(0.169 0.002 286.177);
+  --muted-foreground: oklch(0.551 0.023 264.364);
+  --primary: oklch(0.567 0.159 275.206);
+  --primary-foreground: oklch(1 0 0);
+  --accent: oklch(0 0 0 / 3.5%);
+  --muted: oklch(0 0 0 / 3.5%);
+  --border: oklch(0 0 0 / 8%);
+  --input: oklch(0 0 0 / 12%);
+  --ring: oklch(0.567 0.159 275.206);
+  --destructive: oklch(0.577 0.245 27.325);
+  /* Status colors: live/streaming = emerald, attention = amber. */
+  --live: oklch(0.696 0.17 162.48);
+  --warn: oklch(0.769 0.188 70.08);
+  --selected: color-mix(in oklch, var(--primary) 10%, transparent);
+  --bubble: oklch(0 0 0 / 5%);
+  --scrim: oklch(0 0 0 / 32%);
+  --glass: color-mix(in oklch, var(--card) 82%, transparent);
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.04);
+  /* Floating layers (menus, sheets) sit on the same single elevation plus a
+     hairline; the design system allows no heavier shadow. */
+  --shadow-float: 0 0 0 1px var(--border), var(--shadow-card);
+
+  --font-sans: Inter, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --text-kpi: 24px;
+  --text-title: 14px;
+  --text-body: 13px;
+  --text-caption: 12px;
+  --text-micro: 11px;
+  --radius: 10px;
+  --radius-sm: 6px;
+  --radius-lg: 14px;
+
+  /* transitions-dev motion tokens */
+  --duration-stagger: 40ms;
+  --duration-quick: 150ms;
+  --duration-fast: 250ms;
+  --duration-medium: 350ms;
+  --duration-slow: 400ms;
+  --duration-very-slow: 500ms;
+  --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-bounce: cubic-bezier(0.34, 1.36, 0.64, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* Safe areas + how far the soft keyboard covers the layout. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --nx-kb: 0px;
+}
+/* lib/native publishes the keyboard height as --kb-height. Android's WebView
+   already shrinks the layout viewport around the keyboard, so lifting by that
+   height too would push the composer to the top of the screen; only iOS
+   (Capacitor `resize: 'none'`) keeps a full-height page under the keyboard. */
+html.nx body.native-ios.keyboard-open { --nx-kb: var(--kb-height, 0px); }
+
+html.nx.dark {
+  color-scheme: dark;
+  --background: oklch(0.145 0.002 286.131);
+  --sidebar: oklch(0.145 0.002 286.131);
+  --card: oklch(0.192 0.004 286.018);
+  --popover: oklch(0.192 0.004 286.018);
+  --foreground: oklch(0.947 0.003 286.349);
+  --muted-foreground: oklch(0.649 0.015 262.359);
+  --accent: oklch(1 0 0 / 5%);
+  --muted: oklch(1 0 0 / 5%);
+  --border: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 12%);
+  --selected: color-mix(in oklch, var(--primary) 14%, transparent);
+  --bubble: oklch(1 0 0 / 7%);
+  --scrim: oklch(0 0 0 / 55%);
+  /* `none` would break the comma-joined box-shadow lists below. */
+  --shadow-card: 0 0 #0000;
+}
+
+/*
+ * Legacy remap. Screens that the redesign reuses (document editor, event
+ * editor, modals, ...) paint with the classic `--*-rgb` channels and the
+ * `--chrome-*` washes. Pointing them at the new palette makes those screens
+ * read as part of this design without touching their code. Values are the
+ * sRGB equivalents of the OKLCH tokens above.
+ */
+html.nx {
+  --paper-rgb: 250 250 250;
+  --cloud-rgb: 255 255 255;
+  --ink-900-rgb: 15 15 16;
+  --ink-700-rgb: 63 63 69;
+  --ink-500-rgb: 107 114 128;
+  --ink-300-rgb: 156 161 170;
+  --ink-200-rgb: 210 212 216;
+  --ink-100-rgb: 235 235 237;
+  --skype-rgb: 94 106 210;
+  --skype-deep-rgb: 71 79 182;
+  --skype-ink-rgb: 49 55 134;
+  --sky-50-rgb: 245 246 252;
+  --sky-100-rgb: 235 237 250;
+  --sky-200-rgb: 214 218 245;
+  --sky-300-rgb: 177 184 235;
+  --sky-glow-rgb: 94 106 210;
+  --whisper-rgb: 94 106 210;
+  --whisper-deep-rgb: 71 79 182;
+  --whisper-50-rgb: 245 246 252;
+  --whisper-100-rgb: 235 237 250;
+  --whisper-200-rgb: 214 218 245;
+  --coral-rgb: 231 0 11;
+  --coral-soft-rgb: 253 228 228;
+  --coral-deep-rgb: 185 28 28;
+  --gold-rgb: 254 154 0;
+  --gold-deep-rgb: 180 100 0;
+  --avail-rgb: 0 188 125;
+  --working-rgb: 0 188 125;
+  --thinking-rgb: 0 188 125;
+  --waiting-rgb: 254 154 0;
+  --resting-rgb: 156 161 170;
+  --chrome: var(--background);
+  --chrome-rail: var(--background);
+  --chrome-pane: var(--background);
+  --chrome-whisper: var(--background);
+  --chrome-warm: var(--background);
+  --chat-wash: var(--card);
+  --whispers-wash: var(--background);
+  --whisper-room-wash: var(--card);
+  --error-card: var(--card);
+  --select-face: var(--card);
+  --select-shadow: var(--shadow-card);
+  --select-menu-shadow: var(--shadow-float);
+  --select-menu-border: var(--border);
+  --toast-bg: var(--popover);
+  --toast-border: var(--border);
+  --toast-shadow: var(--shadow-card);
+  --toast-frost-bg: var(--glass);
+  --toast-frost-border: var(--border);
+  --toast-frost-shadow: var(--shadow-float);
+  --modal-scrim: var(--scrim);
+  --email-backdrop: var(--scrim);
+  --unread-fresh: var(--primary);
+  --unread-fresh-fg: var(--primary-foreground);
+  --ship-canvas: var(--background);
+  --ship-face: var(--card);
+}
+
+html.nx.dark {
+  --paper-rgb: 10 10 11;
+  --cloud-rgb: 20 20 22;
+  --ink-900-rgb: 237 237 239;
+  --ink-700-rgb: 195 195 201;
+  --ink-500-rgb: 138 143 152;
+  --ink-300-rgb: 101 105 112;
+  --ink-200-rgb: 61 61 64;
+  --ink-100-rgb: 38 38 40;
+  --sky-50-rgb: 28 29 40;
+  --sky-100-rgb: 34 36 54;
+  --sky-200-rgb: 46 49 80;
+  --sky-300-rgb: 70 76 130;
+  --whisper-50-rgb: 28 29 40;
+  --whisper-100-rgb: 34 36 54;
+  --whisper-200-rgb: 46 49 80;
+  --coral-soft-rgb: 60 22 22;
+}
+
+/* Classic components set Manrope through Tailwind's font utilities. */
+html.nx body,
+html.nx .font-display,
+html.nx .font-body {
+  font-family: var(--font-sans);
+}
+
+html.nx body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: var(--text-body);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  /* The app scrolls inside its regions; the page itself never rubber-bands. */
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+html.nx,
+html.nx body,
+html.nx #root {
+  height: 100%;
+}
+
+/* The classic body paints decorative glows on ::before/::after. */
+html.nx body::before,
+html.nx body::after {
+  display: none;
+}
+
+html.nx ::selection {
+  background: color-mix(in oklch, var(--primary) 24%, transparent);
+}
+
+html.nx *:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+html.nx button:not(:disabled),
+html.nx [role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+
+html.nx button:disabled {
+  cursor: not-allowed;
+}
+
+/* Touch: no grey tap flash, no double-tap zoom delay. */
+html.nx button,
+html.nx a,
+html.nx [role="button"] {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* Thin, quiet scrollbars on fine pointers; touch keeps the native overlay. */
+@media (pointer: fine) {
+  html.nx .nx-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklch, var(--foreground) 18%, transparent) transparent;
+  }
+}
+
+html.nx .nx-scroll {
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+html.nx .nx-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.nx *,
+  html.nx *::before,
+  html.nx *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+/* Shared keyframes (prefixed so they never collide with classic ones). */
+@keyframes nx-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes nx-pop {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes nx-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes nx-breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(1.06); }
+}
+
+@keyframes nx-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes nx-dot {
+  0%, 80%, 100% { opacity: 0.3; transform: none; }
+  40% { opacity: 1; transform: translateY(-2px); }
+}
+
+@keyframes nx-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
+@keyframes nx-word-in {
+  from { opacity: 0; filter: blur(2px); transform: translateY(2px); }
+  to { opacity: 1; filter: none; transform: none; }
+}

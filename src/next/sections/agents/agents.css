@@ -1,0 +1,262 @@
+/* Agents section: roster list + profile. The list column mirrors the chats
+   sidebar (same head height, row rhythm, selection pill) so both sections
+   read as one app; the profile sits on the card surface like a chat. */
+
+.nx-agents {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+.nx-agents[data-layout="split"] { grid-template-columns: 280px minmax(0, 1fr); }
+
+/* ── Roster ────────────────────────────────────────────────────────── */
+.nx-agents-list {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  background: var(--sidebar);
+}
+.nx-agents > .nx-agents-list { border-right: 1px solid var(--border); }
+.nx-agents-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  height: 56px;
+  padding: 0 12px 0 16px;
+}
+.nx-agents-head h1 {
+  flex: 1;
+  margin: 0;
+  font-size: var(--text-title);
+  font-weight: 600;
+}
+.nx-agents-filters { flex: none; padding: 0 12px 8px; }
+/* Tabs grow from their content so all four fit a 280px column. */
+.nx-agents-filters .nx-seg { display: flex; width: 100%; }
+.nx-agents-filters .nx-seg__tab { flex: 1 1 auto; justify-content: center; }
+.nx-agents-count { font-size: var(--text-micro); color: var(--muted-foreground); }
+.nx-agents-scroll { flex: 1; min-height: 0; padding: 0 8px 12px; }
+
+.nx-agents-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+  border-radius: var(--radius);
+  color: var(--foreground);
+  text-decoration: none;
+  transition: background-color var(--duration-quick);
+}
+@media (hover: hover) {
+  .nx-agents-row:hover { background: var(--accent); }
+}
+.nx-agents-row:active { background: var(--muted); }
+/* Selection slides between rows (shared layout) instead of blinking. */
+.nx-agents-row__sel {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: var(--radius);
+  background: var(--selected);
+}
+.nx-agents-row > :not(.nx-agents-row__sel) { position: relative; z-index: 1; }
+.nx-agents-row--skel { pointer-events: none; }
+.nx-agents-row--skel .nx-agents-row__main { gap: 6px; }
+.nx-agents-row[data-departed] .nx-avatar,
+.nx-agents-gone { filter: grayscale(1); opacity: 0.7; }
+.nx-agents-row__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.nx-agents-row__top,
+.nx-agents-row__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.nx-agents-row__name {
+  flex: none;
+  max-width: 65%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+.nx-agents-row__role,
+.nx-agents-row__where {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-caption);
+  color: var(--muted-foreground);
+}
+.nx-agents-row__meta { font-size: var(--text-caption); color: var(--muted-foreground); }
+.nx-agents-row__meta > .nx-agents-state { flex: none; }
+.nx-agents-row__where::before { content: "·"; margin-right: 6px; }
+
+/* Status line: the shimmer carries "working", amber means "needs you". */
+.nx-agents-state {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: var(--text-caption);
+  color: var(--muted-foreground);
+}
+.nx-agents-state[data-s="avail"] { color: var(--live); }
+.nx-agents-state[data-s="waiting"] { color: var(--warn); }
+.nx-agents-state .nx-mono { font-size: var(--text-micro); }
+
+.nx-agents-note {
+  margin: 0;
+  padding: 4px 8px 8px;
+  font-size: var(--text-caption);
+  line-height: 1.5;
+  color: var(--muted-foreground);
+}
+.nx-agents-error { margin: 0; font-size: var(--text-caption); color: var(--destructive); }
+
+/* ── Profile ───────────────────────────────────────────────────────── */
+.nx-agents-detail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  background: var(--card);
+}
+.nx-agents-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  height: 56px;
+  padding: 0 12px;
+}
+.nx-agents-bar__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-title);
+  font-weight: 600;
+}
+.nx-agents-detail__scroll { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.nx-agents-fill { flex: 1; }
+.nx-agents-pick-icon { width: 24px; height: 24px; }
+.nx-agents-detail a.nx-btn,
+.nx-agents-list a.nx-btn { text-decoration: none; }
+/* `.nx-btn` leaves icon size to the caller. */
+.nx-agents-detail .nx-btn svg,
+.nx-agents-list .nx-btn svg { flex: none; width: 16px; height: 16px; }
+
+.nx-agents-profile {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 16px;
+}
+.nx-agents-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding-top: 8px;
+  text-align: center;
+}
+.nx-agents-hero h2 {
+  margin: 8px 0 0;
+  font-size: var(--text-kpi);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+.nx-agents-hero__role { color: var(--muted-foreground); }
+.nx-agents-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.nx-agents-actions .nx-agents-error { flex-basis: 100%; text-align: center; }
+
+.nx-agents-block { display: flex; flex-direction: column; gap: 8px; }
+.nx-agents-block > h3 {
+  margin: 0;
+  padding: 0 4px;
+  font-size: var(--text-caption);
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+.nx-agents-about {
+  margin: 0;
+  padding: 0 4px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.nx-agents-value {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.nx-agents-value small { font-size: var(--text-micro); color: var(--muted-foreground); }
+.nx-agents-value small[data-s="online"] { color: var(--live); }
+.nx-agents-tools { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 4px; }
+.nx-agents-email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-caption); }
+
+.nx-agents-autonomy { display: flex; flex-direction: column; gap: 8px; padding: 12px; }
+.nx-agents-autonomy__top { display: flex; justify-content: space-between; gap: 8px; }
+.nx-agents-range { width: 100%; margin: 0; accent-color: var(--primary); }
+
+/* ── Dialogs ───────────────────────────────────────────────────────── */
+.nx-agents-dialog-text { margin: 0; line-height: 1.6; }
+.nx-agents-dialog-text--muted { font-size: var(--text-caption); color: var(--muted-foreground); }
+.nx-agents-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.nx-btn.nx-agents-destroy { background: var(--destructive); color: var(--primary-foreground); }
+@media (hover: hover) {
+  .nx-btn.nx-agents-destroy:hover:not(:disabled) { background: color-mix(in oklch, var(--destructive) 88%, black); }
+}
+
+/*
+ * The classic AgentEditor is a whole modal: a fixed scrim (root div) around a
+ * card (header, scrolling body, footer). Inside the redesign's Dialog the
+ * scrim and card boxes dissolve (display: contents), the Dialog head replaces
+ * the classic header, and the editor body scrolls above a pinned footer.
+ * These selectors follow AgentEditor's markup: root > card > head/body/foot.
+ */
+html.nx .nx-dialog__body:has(> .nx-agents-editor) { padding: 0; overflow: hidden; }
+/* With content this tall, flex-shrink would squash the 48px Dialog head. */
+.nx-dialog:has(> .nx-dialog__body > .nx-agents-editor) > .nx-dialog__head { flex: none; }
+.nx-agents-editor { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.nx-agents-editor > div,
+.nx-agents-editor > div > div { display: contents; }
+.nx-agents-editor > div > div > div:first-child { display: none; }
+.nx-agents-editor > div > div > div:nth-child(2) { padding: 16px; }
+.nx-agents-editor > div > div > div:nth-child(3) {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: transparent;
+}
+@media not (pointer: coarse) {
+  .nx-dialog:has(> .nx-dialog__body > .nx-agents-editor) { width: min(560px, 100%); }
+}
+
+@media (pointer: coarse) {
+  .nx-agents-row { padding: 10px 8px; }
+  .nx-agents-row__name { font-size: var(--text-title); }
+  .nx-agents-row__role,
+  .nx-agents-row__meta,
+  .nx-agents-row__where,
+  .nx-agents-state { font-size: var(--text-body); }
+  .nx-agents-range { height: 44px; }
+  /* The shared small button stops at 36px on touch; these are primary targets. */
+  .nx-agents-list .nx-btn--sm,
+  .nx-agents-detail .nx-btn--sm { height: 44px; }
+}
