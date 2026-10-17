@@ -340,3 +340,19 @@ export async function freshenAttachmentUrl<T extends StoredAttachment | null | u
   if (url === att.url && att.key === key) return att
   return { ...att, url, key } as T
 }
+
+/** `freshenAttachmentUrl` for what an agent reads (its inbox, context and CLI
+ *  output). Agents fetch off the web app's origin, from a BYOA computer or a
+ *  pod, where local mode's `/uploads/<key>` path resolves to nothing, so it
+ *  becomes absolute on the server's public origin. That URL also still renders
+ *  when the agent posts it back into a message or document, which an internal
+ *  address such as the daemon's server URL would not. PUBLIC_HOST is not used:
+ *  it is the address OpenAI's fetcher needs (a tunnel in dev), while agents
+ *  reach the server where its users do. */
+export async function agentAttachmentUrl<T extends StoredAttachment | null | undefined>(
+  att: T,
+): Promise<T> {
+  const fresh = await freshenAttachmentUrl(att)
+  if (!fresh?.url?.startsWith('/uploads/')) return fresh
+  return { ...fresh, url: `${env.PUBLIC_ORIGIN}${fresh.url}` } as T
+}

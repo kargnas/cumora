@@ -15,8 +15,27 @@ import assert from 'node:assert/strict'
 
 process.env.CUMORA_RUNTIME_CLIENT = 'http'
 process.env.OPENAI_API_KEY ??= 'test-key'
+process.env.CUMORA_PUBLIC_ORIGIN = 'https://chat.example.com'
 
 const { attachmentNote } = await import('../agents/computer/daemon.js')
+const { agentAttachmentUrl } = await import('../storage.js')
+
+test('a local-storage upload reaches the agent as a URL it can fetch', async () => {
+  // Local storage serves uploads at `/uploads/<key>`, a path only the web app's
+  // own origin resolves. The note keeps http(s) URLs only, so the agent saw
+  // "image.png" and nothing it could open, and asked the user to retype the
+  // table that was in the screenshot.
+  const att = await agentAttachmentUrl({
+    url: '/uploads/attachments/01e6.png',
+    key: 'attachments/01e6.png',
+    kind: 'img',
+    mime: 'image/png',
+    name: 'image.png',
+    size: 205_859,
+  })
+  assert.equal(att.url, 'https://chat.example.com/uploads/attachments/01e6.png')
+  assert.match(attachmentNote(att), /https:\/\/chat\.example\.com\/uploads\/attachments\/01e6\.png\]$/)
+})
 
 test('the reported zip is now visible to the agent', () => {
   const note = attachmentNote({

@@ -11,7 +11,7 @@
 
 import { pool } from '../db/pool.js'
 import type { PoolClient } from 'pg'
-import { storage, freshenAttachmentUrl, type StoredAttachment } from '../storage.js'
+import { storage, agentAttachmentUrl, type StoredAttachment } from '../storage.js'
 import { env } from '../env.js'
 import type { CliResult, CliSideEffect } from './cli-result.js'
 import { fetchImageBytes } from './image-fetcher.js'
@@ -238,9 +238,9 @@ async function releaseTenantWork(
 async function freshenRowAttachment(row: { id: string; attachment: StoredAttachment | null }): Promise<void> {
   if (!row.attachment) return
   try {
-    row.attachment = await freshenAttachmentUrl(row.attachment)
+    row.attachment = await agentAttachmentUrl(row.attachment)
   } catch (e) {
-    console.warn(`[cli] freshenAttachmentUrl failed for message ${row.id}; falling back to stored URL`, e)
+    console.warn(`[cli] agentAttachmentUrl failed for message ${row.id}; falling back to stored URL`, e)
   }
 }
 
