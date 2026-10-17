@@ -7,6 +7,7 @@ import { api, ws, type ApiConveneSession, type ApiConveneTranscript, type WsEven
 import type { Participant } from '@/types'
 import { RichBody } from '@/components/Message'
 import { useLocale } from '@/lib/i18n'
+import { haptic } from '../../haptics'
 import { useNT } from '../../i18n'
 import { clock } from '../../format'
 import { href, navigate } from '../../router'
@@ -106,9 +107,11 @@ export default function ConveneSection({ route }: SectionProps) {
     setState((s) => ({ ...s, loading: true, error: null }))
     try {
       const session = await api.startConvene(selectedId, conversation.title || nt('convene.sessionTitleFallback'))
+      haptic('success')
       navigate(href({ section: 'convene', params: { conversation: selectedId } }))
       setState({ session, transcript: [], loading: false, error: null })
     } catch (error: unknown) {
+      haptic('error')
       setState((s) => ({ ...s, loading: false, error: error instanceof Error ? error.message : String(error) }))
     }
   }

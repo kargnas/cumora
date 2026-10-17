@@ -12,6 +12,7 @@ import { useParticipants } from '@/stores/participants'
 import { useSwipeBackProps } from '@/mobile/useSwipeBack'
 import { AgentEditor } from '@/components/AgentEditor'
 import type { SectionProps } from '../types'
+import { haptic } from '../../haptics'
 import { useNT } from '../../i18n'
 import { getRoute, goBack, linkClick, withRoute, type Route } from '../../router'
 import { Dialog, IconButton, SPRING_SHEET, Spinner, T_FAST } from '../../ui/primitives'
@@ -74,8 +75,10 @@ function OffboardDialog({ route, onDone }: { route: Route; onDone: () => Promise
     try {
       await api.offboardAgent(target.id)
       await onDone()
+      haptic('success')
       close()
     } catch (e) {
+      haptic('error')
       setError(errorText(e))
     } finally {
       setBusy(false)

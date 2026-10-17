@@ -14,6 +14,7 @@ import { useBoards } from '@/stores/boards'
 import { useParticipants } from '@/stores/participants'
 import { isMac } from '@/lib/runtime'
 import type { BoardCard, BoardColumn } from '@/types'
+import { haptic } from '../../haptics'
 import { useNT, type NT } from '../../i18n'
 import { getRoute, goBack, href, navigate, withRoute } from '../../router'
 import type { Layout } from '../../layout'
@@ -189,10 +190,12 @@ function CardComposer({ boardId, column, list, onDone }: {
     setError(null)
     try {
       await useBoards.getState().addCard(boardId, { columnId: column.id, title })
+      haptic('success')
       setDraft('')
       requestAnimationFrame(() => list.current?.scrollTo({ top: list.current.scrollHeight, behavior: 'smooth' }))
       if (leave.current) { onDone(); return }
     } catch (e) {
+      haptic('error')
       setError(errText(e))
       leave.current = false
     }

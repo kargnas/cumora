@@ -15,6 +15,7 @@ import type { Conversation, Participant } from '@/types'
 import { useNT } from '../i18n'
 import { href, linkClick } from '../router'
 import { listStamp } from '../format'
+import { haptic } from '../haptics'
 import { openPalette, useHold } from '../hooks'
 import { Avatar, AvatarStack } from '../ui/Avatar'
 import { Dialog, IconButton, Menu, MOD, Spinner, T_FAST, useCoarse, useMenu, type MenuAnchor, type MenuEntry } from '../ui/primitives'
@@ -184,12 +185,14 @@ function CategoryDialog({ open, initial = '', title, action, onClose, onSubmit }
           if (!value || busy) return
           const pending = onSubmit(value)
           if (!pending) {
+            haptic('tap')
             onClose()
             return
           }
           setBusy(true)
           setFailed(false)
           void pending.then((ok) => {
+            haptic(ok ? 'success' : 'error')
             setBusy(false)
             if (ok) onClose()
             else setFailed(true)
@@ -430,7 +433,7 @@ function GroupSection({ g, activeId }: { g: Group; activeId: string | null }) {
             type="button"
             className="nx-group__toggle"
             aria-expanded={!collapsed}
-            onClick={() => useRoomLayout.getState().toggleCollapsed(g.key)}
+            onClick={() => { haptic('select'); useRoomLayout.getState().toggleCollapsed(g.key) }}
             {...(g.category ? hold : {})}
           >
             <IChevronDown className="nx-group__chev" />

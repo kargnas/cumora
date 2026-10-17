@@ -5,6 +5,7 @@ import {
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { isMac } from '@/lib/runtime'
+import { haptic } from '../haptics'
 import { useNT } from '../i18n'
 import { IX } from './icons'
 
@@ -149,7 +150,7 @@ export function Segmented<K extends string>({ items, value, onChange, label }: {
             role="tab"
             aria-selected={on}
             className="nx-seg__tab"
-            onClick={() => onChange(it.key)}
+            onClick={() => { if (!on) haptic('select'); onChange(it.key) }}
           >
             {on && <motion.span layoutId={`seg-${id}`} className="nx-seg__pill" transition={T_FAST} />}
             {it.label}
@@ -176,7 +177,7 @@ export function Switch({ checked, onChange, label, disabled }: {
       aria-label={label}
       disabled={disabled}
       className="nx-switch"
-      onClick={() => onChange(!checked)}
+      onClick={() => { haptic('select'); onChange(!checked) }}
     />
   )
 }
@@ -253,7 +254,7 @@ export function Menu({ open, anchor, entries, onClose, header }: {
         data-highlighted={items[hi]?.key === e.key || undefined}
         className={e.danger ? 'nx-menu__item nx-menu__item--danger' : 'nx-menu__item'}
         onMouseEnter={() => setHi(items.findIndex((x) => x.key === e.key))}
-        onClick={() => { e.onSelect(); onClose() }}
+        onClick={() => { haptic('select'); e.onSelect(); onClose() }}
       >
         {e.icon}
         <span>{e.label}</span>

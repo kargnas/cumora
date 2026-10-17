@@ -15,6 +15,7 @@ import { useAuth } from '@/stores/auth'
 import { useParticipants } from '@/stores/participants'
 import { usePrefs } from '@/stores/preferences'
 import type { Participant } from '@/types'
+import { haptic } from '../../haptics'
 import { useNT, type NKey, type NT } from '../../i18n'
 import { getRoute, goBack, navigate, withRoute, type Route } from '../../router'
 import { Spinner, Switch } from '../../ui/primitives'
@@ -352,7 +353,8 @@ export function Choices<K extends string>({ label, items, value, onChange }: {
           role="radio"
           aria-checked={it.key === value}
           className="nx-me-row nx-me-choice"
-          onClick={() => onChange(it.key)}
+          // A radio group like Segmented: only a new pick is a change.
+          onClick={() => { if (it.key !== value) haptic('select'); onChange(it.key) }}
         >
           {it.icon && <span className="nx-me-choice__icon">{it.icon}</span>}
           <span className="nx-me-row__text">
@@ -413,7 +415,12 @@ export function CopyCode({ value }: { value: string }) {
         type="button"
         className="nx-btn nx-btn--outline nx-btn--sm"
         aria-live="polite"
-        onClick={() => { copyText(value).then(() => setState('copied'), () => setState('failed')) }}
+        onClick={() => {
+          copyText(value).then(
+            () => { haptic('success'); setState('copied') },
+            () => { haptic('error'); setState('failed') },
+          )
+        }}
       >
         {state === 'copied' ? <ICheck /> : <ICopy />}
         {state === 'copied' ? nt('me.copied') : nt('me.copy')}

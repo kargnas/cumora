@@ -24,9 +24,25 @@ Design and check every layout and every action for all three screens the app run
 
 An action that exists on one screen needs a way to do it on the others (a mouse drag needs a long-press menu entry on touch, a hover reveal needs a tap path). On the Fold 7 the cover screen stands in for the Fold 8 cover with `wm size 1248x1972` + `wm density 360`, and the main screen stands in for the unfolded one.
 
+## Haptics
+
+The phone app answers the finger with haptics the way a native app does. Use `haptic(kind)` from `haptics.ts`, never `@capacitor/haptics` or the classic helpers in `lib/native.ts`. On Android it plays the system's own effects through `NxHapticsPlugin` (`android/app/src/main/java/io/cumora/app/`), which follow the user's touch-feedback setting; `@capacitor/haptics` would play fixed vibration waveforms that feel like a buzz. On the web and in the desktop app it does nothing.
+
+| Kind | When |
+| --- | --- |
+| `select` | The finger changed what is chosen: a tab, a segment, a switch, a menu item, a reaction, a collapsed group, a picked day. |
+| `tap` | The finger committed a light action that shows at once: sending, dropping a card in a new place, a rename. |
+| `hold` | A press turned into a hold: a long-press menu, a drag lift. |
+| `success` / `error` | An action the user waited on (its button shows busy) or a copy to the clipboard finished or failed. |
+
+- No haptic for navigation, opening or closing a sheet, dialog or menu, scrolling, typing, hover, or anything that happens without a touch (store updates, WebSocket events, timers). A background failure the user did not just cause stays silent.
+- One haptic per interaction. An action that waits for the server fires only its outcome, not `tap` at the press as well. An action picked from a `Menu` already got `select` from the menu, so the action's function adds nothing.
+- Fire it at the interaction, in the same handler as the visual change, not inside a shared action, a store or an effect. The primitives already do it: `Segmented` and `Switch` fire `select` on change, `Menu` on every item, `useHold` fires `hold`.
+- When unsure, leave it out: a haptic on every tap stops meaning anything.
+
 ## Isolation
 
-- Everything lives in `src/next/`. Classic files are touched only at their seams: `App.tsx` (mount branch and sign-in fallback), `components/Message.tsx` (exported artifact cards), `components/AuthScreen.tsx` (exported `useSignIn` and parts), `stores/messages.ts` (keeps `createdAt`), `electron/main.cjs` (serves `index.html` for client-side routes), `components/AuthGate.tsx` (gives the session probe a deadline and retries network trouble, so a phone on a bad network neither hangs on "loading…" nor gets signed out). Every other classic file is read, never restyled. Each new seam is a future merge conflict with upstream, so add one only when there is no way around it.
+- Everything lives in `src/next/`. Classic files are touched only at their seams: `App.tsx` (mount branch and sign-in fallback), `components/Message.tsx` (exported artifact cards), `components/AuthScreen.tsx` (exported `useSignIn` and parts), `stores/messages.ts` (keeps `createdAt`), `electron/main.cjs` (serves `index.html` for client-side routes), `components/AuthGate.tsx` (gives the session probe a deadline and retries network trouble, so a phone on a bad network neither hangs on "loading…" nor gets signed out), `android/.../MainActivity.java` (registers `NxHapticsPlugin`). Every other classic file is read, never restyled. Each new seam is a future merge conflict with upstream, so add one only when there is no way around it.
 - CSS: tokens are scoped to `html.nx`, and every class starts with `nx-` (`nx-<section>-*` inside a section), so nothing leaks into the classic UI. No global selectors (`body`, `:root`, bare elements) outside `html.nx`.
 - Classic components reused inside the redesign pick up the new palette through the legacy token remap at the end of `styles/tokens.css`.
 - Strings: `useNT()` from `i18n.ts`. Core keys are in `locales/en.ts` and `locales/zh-CN.ts`, section keys in `sections/<name>/strings.ts` (prefixed `<name>.`). English is the source of truth. Delete a key in every locale when the last use goes.

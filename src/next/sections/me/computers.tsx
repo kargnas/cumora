@@ -14,6 +14,7 @@ import { useComputers } from '@/stores/computers'
 import { usePairingCodes } from '@/stores/pairing-codes'
 import { useParticipants } from '@/stores/participants'
 import type { Computer, ComputerKind, DetectedEngine, EngineId, Participant } from '@/types'
+import { haptic } from '../../haptics'
 import { useNT } from '../../i18n'
 import { getRoute, type Route } from '../../router'
 import { Dialog, IconButton, Menu, Segmented, Spinner, T_FAST, useMenu } from '../../ui/primitives'
@@ -373,8 +374,10 @@ function ModelsForm({ computer, engine }: { computer: Computer; engine: EngineId
     try {
       await api.updateEngineDefaults(computer.id, { [engine]: { model: main.trim() || null, fastModel: fast.trim() || null } })
       await useComputers.getState().refresh()
+      haptic('success')
       closeSheet('models')
     } catch (e) {
+      haptic('error')
       setError(errorText(e))
       setBusy(false)
     }
@@ -416,8 +419,10 @@ function PairingCodeBlock() {
     usePairingCodes.getState().clear()
     try {
       await api.rotatePairingCode()
+      haptic('success')
       setState('done')
     } catch (e) {
+      haptic('error')
       setError(errorText(e))
       setState('idle')
     }

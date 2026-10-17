@@ -9,6 +9,7 @@ import { copyText } from '@/lib/clipboard'
 import { useLocale } from '@/lib/i18n'
 import { useAuth, type AuthCompany } from '@/stores/auth'
 import { useParticipants } from '@/stores/participants'
+import { haptic } from '../../haptics'
 import { useNT } from '../../i18n'
 import type { Route } from '../../router'
 import { Avatar } from '../../ui/Avatar'
@@ -122,8 +123,10 @@ function Members({ company }: { company: AuthCompany }) {
     setActionError(null)
     try {
       await api.removeWorkspaceMember(company.id, m.id)
+      haptic('success')
       setMembers((cur) => cur && cur.filter((x) => x.id !== m.id))
     } catch (e) {
+      haptic('error')
       setActionError(errorText(e))
     } finally {
       setBusyId(null)
@@ -173,7 +176,10 @@ function CopyRef({ id }: { id: string }) {
       className="nx-btn nx-btn--sm"
       title={nt('me.invite.copyRefHint')}
       onClick={() => {
-        copyText(id).then(() => setCopied(true), (e) => console.warn('[me] copy failed', e))
+        copyText(id).then(
+          () => { haptic('success'); setCopied(true) },
+          (e) => { haptic('error'); console.warn('[me] copy failed', e) },
+        )
       }}
     >
       {copied && <ICheck />}
@@ -277,11 +283,13 @@ function InviteForm({ company, route, onCreated }: { company: AuthCompany; route
       const inv = await api.createInvitation(company.id, via === 'email'
         ? { email: address, role, note: note.trim() || null, sendEmail: emailCapable && sendEmail }
         : { multiUse: true, role, note: note.trim() || null })
+      haptic('success')
       setCreated(inv)
       setEmail('')
       setNote('')
       onCreated()
     } catch (e) {
+      haptic('error')
       setError(errorText(e))
     } finally {
       setBusy(false)
@@ -438,10 +446,12 @@ function NewWorkspaceForm() {
     setError(null)
     try {
       const created = await api.createCompany(trimmed)
+      haptic('success')
       // Joining switches workspace, which remounts the app at this URL.
       dropSheet()
       useAuth.getState().addCompany({ id: created.id, name: created.name, slug: created.slug, role: created.role })
     } catch (e) {
+      haptic('error')
       setError(errorText(e))
       setBusy(false)
     }
@@ -475,9 +485,11 @@ function DeleteWorkspaceForm({ company }: { company: AuthCompany }) {
     setError(null)
     try {
       const result = await api.deleteCompany(company.id, typed)
+      haptic('success')
       dropSheet()
       if (useAuth.getState().removeCompany(company.id, result.nextCompanyId)) ws.reconnect()
     } catch (e) {
+      haptic('error')
       setError(errorText(e))
       setBusy(false)
     }

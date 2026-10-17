@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '@/api/client'
 import { isMuted, useConversations } from '@/stores/conversations'
 import type { Conversation } from '@/types'
+import { haptic } from '../haptics'
 import { useNT } from '../i18n'
 import { href, navigate } from '../router'
 import { Spinner, Switch } from '../ui/primitives'
@@ -122,8 +123,10 @@ export function DetailsTab({ c }: { c: Conversation }) {
               setConvening(true)
               try {
                 await api.startConvene(c.id, c.title)
+                haptic('success')
                 navigate(href({ section: 'convene' }))
               } catch (e) {
+                haptic('error')
                 console.warn('[next] convene failed', e)
               } finally {
                 setConvening(false)

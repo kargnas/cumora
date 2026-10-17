@@ -8,10 +8,10 @@ import { useAuth } from '@/stores/auth'
 import { useDevtools } from '@/stores/devtools'
 import { isMuted, useConversations } from '@/stores/conversations'
 import { EmailComposer } from '@/components/EmailComposer'
-import { tapHaptic } from '@/lib/native'
 import { isElectron } from '@/lib/runtime'
 import { useAppearanceStore, type Appearance } from '@/lib/theme'
 import { initPushNotifications } from '@/lib/push'
+import { haptic } from './haptics'
 import { useNativeChrome, useNextDocument } from './document'
 import { bindLegacyWrites, goBack, href, linkClick, navigate, projectRoute, useRoute, type Route, type Section } from './router'
 import { useLayout, type Layout } from './layout'
@@ -188,7 +188,7 @@ function TabBar({ route }: { route: Route }) {
     <a
       key={section}
       href={href({ section })}
-      onClick={(e) => { void tapHaptic(); linkClick(e, { replace: true }) }}
+      onClick={(e) => { if (route.section !== section) haptic('select'); linkClick(e, { replace: true }) }}
       className="nx-tabbar__item"
       aria-current={route.section === section ? 'page' : undefined}
     >

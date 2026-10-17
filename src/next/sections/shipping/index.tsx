@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { api, type ShippingFeatureDetail, type ShippingFeatureStatus, type ShippingRelease, type ShippingVerification } from '@/api/client'
 import { useParticipants } from '@/stores/participants'
 import { useShipping } from '@/stores/shipping'
+import { haptic } from '../../haptics'
 import { useNT } from '../../i18n'
 import { goBack, href, linkClick, navigate, type Route } from '../../router'
 import { Dialog, Spinner, SPRING_SHEET } from '../../ui/primitives'
@@ -25,7 +26,8 @@ function Textarea({ value, onChange, placeholder }: { value: string; onChange: (
 function CreateFeature({ route, close }: { route: Route; close: () => void }) {
   const t = useNT(); const create = useShipping((s) => s.createFeature); const saving = useShipping((s) => s.saving)
   const [title, setTitle] = useState(''); const [problem, setProblem] = useState(''); const [outcome, setOutcome] = useState(''); const [contract, setContract] = useState('')
-  const submit = async (e: FormEvent) => { e.preventDefault(); if (!title.trim()) return; await create({ title: title.trim(), problem, desiredOutcome: outcome, contractSummary: contract }); navigate(path(route, useShipping.getState().selectedId), { replace: true }) }
+  // Rethrown: the store already shows the error; the haptic must not swallow it.
+  const submit = async (e: FormEvent) => { e.preventDefault(); if (!title.trim()) return; try { await create({ title: title.trim(), problem, desiredOutcome: outcome, contractSummary: contract }) } catch (err) { haptic('error'); throw err } haptic('success'); navigate(path(route, useShipping.getState().selectedId), { replace: true }) }
   return <Dialog open title={t('shipping.newTitle')} onClose={close} wide><form className="nx-shipping-form" onSubmit={(e) => void submit(e)}><Field label={t('shipping.featureTitle')}><input autoFocus className="nx-input" value={title} placeholder={t('shipping.titlePlaceholder')} onChange={(e) => setTitle(e.target.value)} /></Field><Field label={t('shipping.problem')}><Textarea value={problem} onChange={setProblem} /></Field><Field label={t('shipping.outcome')}><Textarea value={outcome} onChange={setOutcome} /></Field><Field label={t('shipping.contract')}><Textarea value={contract} onChange={setContract} /></Field><div className="nx-shipping-dialog-actions"><Button onClick={close}>{t('common.close')}</Button><Button type="submit" tone="primary" disabled={saving || !title.trim()}>{saving ? <Spinner /> : null}{t('shipping.create')}</Button></div></form></Dialog>
 }
 

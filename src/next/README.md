@@ -14,6 +14,10 @@ A second UI for cumora, served at `/next` on the same origin. `App.tsx` mounts `
 - Below them, rooms are grouped into your own categories, then Other, then Former (1:1 rooms whose other member has left: a deleted agent or a removed member). Other gets its header only once a category exists. Create a category from the + menu, drag a room onto a category (or onto "Drop here for a new category"), and click a category header to collapse it. On a phone, a room's long-press menu has "Move to".
 - Categories and collapsed groups are personal and stored in the fork's SQLite database on the server, so they follow you across devices.
 
+## Haptics
+
+In the phone app, a touch that changes something (switching a tab, picking from a menu, a long press, sending, dropping a card, a save that finished or failed) answers with a haptic. Android plays the system's own effects, so the phone's touch-feedback setting turns them off. The web and the desktop app have none.
+
 ## Local verification
 
 The redesign can run against a throwaway local backend:

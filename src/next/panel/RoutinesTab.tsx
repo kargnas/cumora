@@ -7,6 +7,7 @@ import { useCalendar } from '@/stores/calendar'
 import { useParticipants } from '@/stores/participants'
 import { useLocale } from '@/lib/i18n'
 import type { CalendarEvent, Conversation } from '@/types'
+import { haptic } from '../haptics'
 import { useNT, type NT } from '../i18n'
 import { href, linkClick } from '../router'
 import { Avatar } from '../ui/Avatar'
@@ -57,7 +58,8 @@ function RoutineRow({ e }: { e: CalendarEvent }) {
           disabled={busy !== null}
           onClick={async () => {
             setBusy('run')
-            try { await runNow(e.id); setRan(true); window.setTimeout(() => setRan(false), 2500) } finally { setBusy(null) }
+            // Rethrown: the haptic marks the failure, it does not swallow it.
+            try { await runNow(e.id); haptic('success'); setRan(true); window.setTimeout(() => setRan(false), 2500) } catch (err) { haptic('error'); throw err } finally { setBusy(null) }
           }}
         >
           {busy === 'run' ? <Spinner /> : null}

@@ -6,6 +6,7 @@ import { useSwipeBackProps } from '@/mobile/useSwipeBack'
 import { useLocale } from '@/lib/i18n'
 import type { ApiDocument } from '@/api/client'
 import { listStamp } from '../../format'
+import { haptic } from '../../haptics'
 import { useNT } from '../../i18n'
 import { goBack, href, linkClick, navigate, type Route } from '../../router'
 import type { SectionProps } from '../types'
@@ -36,8 +37,9 @@ function DocsList({ route }: { route: Route }) {
     setCreating(true); setError('')
     try {
       const doc = await create({ title: nt('docs.untitled') })
+      haptic('success')
       navigate(href({ section: 'docs', id: doc.id }))
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    } catch (e) { haptic('error'); setError(e instanceof Error ? e.message : String(e)) }
     finally { setCreating(false) }
   }
   const deleteDocument = async (doc: ApiDocument) => {

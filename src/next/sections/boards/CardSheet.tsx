@@ -11,6 +11,7 @@ import { useBoards } from '@/stores/boards'
 import { useParticipants } from '@/stores/participants'
 import { useLocale } from '@/lib/i18n'
 import type { BoardCard, BoardCardComment, BoardColumn, Participant } from '@/types'
+import { haptic } from '../../haptics'
 import { useNT } from '../../i18n'
 import { listStamp } from '../../format'
 import type { Layout } from '../../layout'
@@ -166,6 +167,9 @@ function AssigneeRow({ boardId, card }: { boardId: string; card: BoardCard }) {
   const choose = async (id: string | null) => {
     menu.close()
     if (id === card.assigneeId) return
+    // A pick from a list, like the Menu pickers: select at the pick, not on
+    // the save, whose own spinner and error line report the outcome.
+    haptic('select')
     setBusy(true)
     setError(null)
     try {
@@ -327,8 +331,10 @@ function Description({ boardId, card }: { boardId: string; card: BoardCard }) {
     setError(null)
     try {
       await useBoards.getState().patchCard(boardId, card.id, { description: next })
+      haptic('success')
       setEditing(false)
     } catch (e) {
+      haptic('error')
       setError(errText(e))
     } finally {
       setBusy(false)
@@ -393,7 +399,9 @@ const CommentRow = memo(function CommentRow({ boardId, cardId, c }: { boardId: s
       await api.deleteCardComment(boardId, cardId, c.id)
       // The list and the card's comment count both change.
       await Promise.all([useBoards.getState().loadComments(boardId, cardId), useBoards.getState().refreshBoard(boardId)])
+      haptic('success')
     } catch (e) {
+      haptic('error')
       setError(errText(e))
       setBusy(false)
     }
@@ -432,8 +440,10 @@ function CommentComposer({ boardId, cardId }: { boardId: string; cardId: string 
     setError(null)
     try {
       await useBoards.getState().addComment(boardId, cardId, body)
+      haptic('success')
       setDraft('')
     } catch (e) {
+      haptic('error')
       setError(errText(e))
     } finally {
       setBusy(false)
@@ -533,8 +543,10 @@ function DeleteCard({ boardId, card, onClose }: { boardId: string; card: BoardCa
     setError(null)
     try {
       await useBoards.getState().deleteCard(boardId, card.id)
+      haptic('success')
       onClose()
     } catch (e) {
+      haptic('error')
       setError(errText(e))
       setBusy(false)
     }

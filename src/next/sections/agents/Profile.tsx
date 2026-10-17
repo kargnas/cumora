@@ -11,6 +11,7 @@ import { useParticipants } from '@/stores/participants'
 import { usePrefs } from '@/stores/preferences'
 import { engineLabel } from '@/lib/engines'
 import type { Computer, Participant } from '@/types'
+import { haptic } from '../../haptics'
 import { useNT } from '../../i18n'
 import { linkClick, type Route } from '../../router'
 import { useOpenDirect } from '../../hooks'
@@ -51,6 +52,7 @@ function Actions({ p, route, onRefresh }: { p: Participant; route: Route; onRefr
     try {
       await fn()
     } catch (e) {
+      haptic('error')
       setError(nt(failKey, { error: errorText(e) }))
     } finally {
       setBusy(false)
@@ -64,7 +66,8 @@ function Actions({ p, route, onRefresh }: { p: Participant; route: Route; onRefr
           type="button"
           className="nx-btn nx-btn--primary"
           disabled={busy}
-          onClick={run(async () => { await api.rehireAgent(p.id); await onRefresh() }, 'agents.rehireFailed')}
+          // Success only here: Message's success is opening the DM, which is navigation.
+          onClick={run(async () => { await api.rehireAgent(p.id); await onRefresh(); haptic('success') }, 'agents.rehireFailed')}
         >
           {busy ? <Spinner /> : <IRepeat />}
           {nt('agents.rehire')}
@@ -139,7 +142,10 @@ function Email({ email }: { email: string }) {
           <button
             type="button"
             className="nx-btn nx-btn--sm"
-            onClick={() => navigator.clipboard.writeText(email).then(() => setCopied(true), (e) => console.warn('[next] copy failed', e))}
+            onClick={() => navigator.clipboard.writeText(email).then(
+              () => { haptic('success'); setCopied(true) },
+              (e) => { haptic('error'); console.warn('[next] copy failed', e) },
+            )}
           >
             {copied ? <ICheck /> : <ICopy />}
             {copied ? nt('agents.copied') : nt('agents.copy')}

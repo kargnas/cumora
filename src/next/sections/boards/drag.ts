@@ -17,9 +17,9 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { flushSync } from 'react-dom'
 import { animate, useMotionValue, type MotionValue } from 'framer-motion'
-import { mediumHaptic } from '@/lib/native'
 import { useBoards } from '@/stores/boards'
 import type { BoardCard, BoardSnapshot } from '@/types'
+import { haptic } from '../../haptics'
 import { T_FAST, T_QUICK } from '../../ui/primitives'
 
 const HOLD_MS = 350 // touch: how long a finger rests before the card lifts
@@ -193,7 +193,7 @@ export function useCardDrag(
     const lift = () => {
       if (!g || g.lifted) return
       g.lifted = true
-      if (g.touch) void mediumHaptic()
+      if (g.touch) haptic('hold')
       x.set(g.px - g.dx)
       y.set(g.py - g.dy)
       animate(scale, 1.03, T_QUICK)
@@ -257,6 +257,9 @@ export function useCardDrag(
       const gs = g
       if (!gs || !shown) { finish(); return }
       swallowNextClick()
+      // On the finger's lift, not after the settle animation, so the tick
+      // matches the moment the card is let go.
+      if (gs.touch && (shown.to !== gs.from || shown.index !== gs.origin)) haptic('tap')
       settle(() => {
         const v = shown
         // Same tick as finish(): the moved card mounts exactly where the

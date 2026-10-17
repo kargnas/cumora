@@ -1,6 +1,7 @@
 /** Projects: named, tinted bundles of related rooms. */
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { api, type ApiProject } from '@/api/client'
+import { haptic } from '../../haptics'
 import { useNT } from '../../i18n'
 import type { Route } from '../../router'
 import { Dialog, Spinner } from '../../ui/primitives'
@@ -24,7 +25,8 @@ const ProjectRow = memo(function ProjectRow({ p, sep, onArchive }: { p: ApiProje
           {count(nt, p.conversationCount, 'me.projects.roomOne', 'me.projects.rooms')}
         </span>
       </span>
-      <button type="button" className="nx-btn nx-btn--outline nx-btn--sm" onClick={() => onArchive(p)}>
+      {/* Archiving is optimistic (the row moves at once), so a tap, not success. */}
+      <button type="button" className="nx-btn nx-btn--outline nx-btn--sm" onClick={() => { haptic('tap'); onArchive(p) }}>
         {nt(archived ? 'me.projects.restore' : 'me.projects.archive')}
       </button>
     </div>
@@ -45,8 +47,10 @@ function NewProjectForm({ onCreated }: { onCreated: () => Promise<void> }) {
     try {
       await api.createProject({ name: trimmed, description: description.trim() })
       await onCreated()
+      haptic('success')
       closeSheet('new-project')
     } catch (e) {
+      haptic('error')
       setError(errorText(e))
       setBusy(false)
     }
@@ -120,7 +124,7 @@ export function ProjectsPage({ route }: { route: Route }) {
             type="button"
             className="nx-btn nx-btn--outline"
             aria-pressed={showArchived}
-            onClick={() => setParams(route, { archived: showArchived ? null : '1' })}
+            onClick={() => { haptic('select'); setParams(route, { archived: showArchived ? null : '1' }) }}
           >
             {nt(showArchived ? 'me.projects.hideArchived' : 'me.projects.showArchived', { n: archivedCount })}
           </button>

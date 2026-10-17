@@ -5,6 +5,7 @@ import { useMe } from '@/stores/auth'
 import { useConversations } from '@/stores/conversations'
 import { useParticipants } from '@/stores/participants'
 import type { Conversation, Participant } from '@/types'
+import { haptic } from '../haptics'
 import { useNT } from '../i18n'
 import { getRoute, navigate, withRoute } from '../router'
 import { useOpenDirect } from '../hooks'
@@ -33,7 +34,9 @@ function AddPeople({ c, onClose }: { c: Conversation; onClose: () => void }) {
     try {
       await api.addMember(c.id, p.id)
       await useConversations.getState().reload()
+      haptic('success')
     } catch (e) {
+      haptic('error')
       console.warn('[next] add member failed', e)
     } finally {
       setBusy(null)

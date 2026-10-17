@@ -30,9 +30,9 @@ interface LinkProps extends Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'
 
 /** `<a>` to the current route with some params changed. It reads the route
  *  itself so a link inside a memoized grid never carries stale params. */
-export function CalLink({ params, replace, ...rest }: LinkProps) {
+export function CalLink({ params, replace, onClick, ...rest }: LinkProps) {
   const route = useRoute()
-  return <a {...rest} href={withRoute(route, { params })} onClick={(e) => linkClick(e, { replace })} />
+  return <a {...rest} href={withRoute(route, { params })} onClick={(e) => { onClick?.(e); linkClick(e, { replace }) }} />
 }
 
 /** Opens an event's detail. Switching from one open event to another

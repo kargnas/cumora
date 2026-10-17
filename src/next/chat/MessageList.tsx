@@ -16,7 +16,6 @@ import { useMessages, toggleReaction, retryFailedMessage, discardFailedMessage, 
 import { useParticipants } from '@/stores/participants'
 import { useLocale } from '@/lib/i18n'
 import { copyText } from '@/lib/clipboard'
-import { tapHaptic } from '@/lib/native'
 import {
   RichBody, SystemRow, artifactKey, artifactRefsForMessage,
   DocumentArtifactCard, BoardArtifactCard, CardArtifactCard, CalendarArtifactCard,
@@ -25,6 +24,7 @@ import { PollBubble } from '@/components/PollBubble'
 import { LinkPreview, firstUrlInBody } from '@/components/LinkPreview'
 import { ImageViewer } from '@/components/ImageViewer'
 import type { Message, Participant } from '@/types'
+import { haptic } from '../haptics'
 import { useNT } from '../i18n'
 import { href, navigate, getRoute, withRoute } from '../router'
 import { bytes, clock, dayLabel, elapsed } from '../format'
@@ -70,7 +70,7 @@ function Reactions({ msg, mine }: { msg: Message; mine: boolean }) {
           className="nx-react"
           data-mine={r.mine || undefined}
           aria-pressed={!!r.mine}
-          onClick={() => { void tapHaptic(); void toggleReaction(msg.id, r.emoji) }}
+          onClick={() => { haptic('select'); void toggleReaction(msg.id, r.emoji) }}
         >
           <span aria-hidden>{r.emoji}</span>
           <span className="nx-mono">{r.count}</span>
@@ -152,7 +152,7 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, showName, f
   // Selects a string, so status churn on participants does not re-render the bubble.
   const quoteText = useParticipants((s) => quote?.body.replace(/@([A-Za-z][\w-]*)/g, (m, id: string) => (s.byId[id] ? `@${s.byId[id].name}` : m)))
 
-  const react = (emoji: string) => { void tapHaptic(); void toggleReaction(msg.id, emoji) }
+  const react = (emoji: string) => { haptic('select'); void toggleReaction(msg.id, emoji) }
   const reply = () => useApp.getState().setReplyingTo(msg.conversationId, msg.id)
   const thread = () => navigate(withRoute(getRoute(), { threadId: msg.id, peek: null }))
   const entries: MenuEntry[] = [
@@ -215,8 +215,10 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, showName, f
         {(msg.failed || msg.unconfirmed) && (
           <div className="nx-msg__failed">
             <span>{msg.unconfirmed ? nt('msg.unconfirmed') : nt('msg.failed')}</span>
-            <button type="button" onClick={() => void retryFailedMessage(msg.conversationId, msg.id)}>{nt('msg.retry')}</button>
-            <button type="button" onClick={() => discardFailedMessage(msg.conversationId, msg.id)}>{nt('msg.discard')}</button>
+            {/* Retry re-sends optimistically like the composer, discard drops the
+                row locally: both show at once, so both get the composer's tap. */}
+            <button type="button" onClick={() => { haptic('tap'); void retryFailedMessage(msg.conversationId, msg.id) }}>{nt('msg.retry')}</button>
+            <button type="button" onClick={() => { haptic('tap'); discardFailedMessage(msg.conversationId, msg.id) }}>{nt('msg.discard')}</button>
           </div>
         )}
       </div>

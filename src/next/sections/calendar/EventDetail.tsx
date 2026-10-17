@@ -16,6 +16,7 @@ import { useLocale } from '@/lib/i18n'
 import { nextOccurrenceOnOrAfter } from '@/lib/recurrence'
 import { useResolvedCalendarId } from '@/lib/useArtifactId'
 import type { CalendarDispatch, CalendarEvent } from '@/types'
+import { haptic } from '../../haptics'
 import { useNT, type NT } from '../../i18n'
 import { getRoute, href, linkClick, navigate, withRoute } from '../../router'
 import { Avatar } from '../../ui/Avatar'
@@ -132,10 +133,13 @@ function RunNow({ ev, onRan }: { ev: CalendarEvent; onRan: () => void }) {
           try {
             const r = await useCalendar.getState().runNow(ev.id)
             const state = runLabel(r.status, nt)
+            // Same split as the note below: anything but a dispatch is a failure.
+            haptic(r.status === 'dispatched' ? 'success' : 'error')
             setNote(r.status === 'dispatched'
               ? { ok: true, text: nt('calendar.started') }
               : { ok: false, text: nt('calendar.notStarted', { reason: r.error ? `${state}: ${r.error}` : state }) })
           } catch (e) {
+            haptic('error')
             setNote({ ok: false, text: errText(e) })
           } finally {
             setBusy(false)
@@ -167,8 +171,10 @@ function DeleteButton({ ev, onDeleted }: { ev: CalendarEvent; onDeleted: () => v
           setError(null)
           try {
             await useCalendar.getState().remove(ev.id)
+            haptic('success')
             onDeleted()
           } catch (e) {
+            haptic('error')
             setError(errText(e))
             setBusy(false)
           }

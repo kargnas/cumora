@@ -1,9 +1,9 @@
 import { useCallback, useRef, useSyncExternalStore } from 'react'
 import { api } from '@/api/client'
-import { mediumHaptic } from '@/lib/native'
 import { getMeId } from '@/stores/auth'
 import { useConversations } from '@/stores/conversations'
 import type { Conversation, Participant } from '@/types'
+import { haptic } from './haptics'
 import { href, navigate } from './router'
 
 /* One shared 1 Hz clock for every elapsed-time label, instead of an
@@ -88,7 +88,7 @@ export function useHold(onHold: (x: number, y: number) => void) {
       clear()
       timer.current = window.setTimeout(() => {
         fired.current = true
-        void mediumHaptic()
+        haptic('hold')
         onHold(start.current.x, start.current.y)
       }, 420)
     },

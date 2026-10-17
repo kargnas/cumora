@@ -4,6 +4,7 @@ import { api, getServerOrigin } from '@/api/client'
 import { teardownPushNotifications } from '@/lib/push'
 import type { AppUpdateInfo } from '@/lib/runtime'
 import { useAuth } from '@/stores/auth'
+import { haptic } from '../../haptics'
 import { useNT } from '../../i18n'
 import type { Route } from '../../router'
 import { Avatar } from '../../ui/Avatar'
@@ -99,10 +100,12 @@ function DeleteAccountForm() {
     try {
       await api.deleteAccount()
     } catch (e) {
+      haptic('error')
       setError(errorText(e))
       setBusy(false)
       return
     }
+    haptic('success')
     // The server has ended every session already; push cleanup is best effort.
     useAuth.getState().clear()
     await teardownPushNotifications()

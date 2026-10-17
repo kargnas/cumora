@@ -7,6 +7,7 @@ import { useAuth } from '@/stores/auth'
 import { useLocale } from '@/lib/i18n'
 import { MobileCalendar } from '@/mobile/MobileCalendar'
 import { listStamp } from '../../format'
+import { haptic } from '../../haptics'
 import { useNT } from '../../i18n'
 import { href, navigate, type Route } from '../../router'
 import type { SectionProps } from '../types'
@@ -39,14 +40,16 @@ function LibraryItems({ tab, route }: { tab: Tab; route: Route }) {
     try {
       if (tab === 'documents') {
         const doc = await useDocuments.getState().create({ title: nt('library.untitledDocument') })
+        haptic('success')
         navigate(href({ section: 'library', peek: { kind: 'doc', id: doc.id }, params: { tab } }))
       } else if (tab === 'boards') {
         const id = await useBoards.getState().createBoard(nt('library.untitledBoard'))
+        haptic('success')
         navigate(href({ section: 'library', peek: { kind: 'board', id, cardId: null }, params: { tab } }))
       } else {
         navigate(href({ section: 'library', params: { tab, create: 'event' } }))
       }
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    } catch (e) { haptic('error'); setError(e instanceof Error ? e.message : String(e)) }
     finally { setBusy(false) }
   }
   const openDoc = (id: string) => navigate(href({ section: 'library', peek: { kind: 'doc', id }, params: { tab } }))
@@ -77,7 +80,7 @@ export default function LibrarySection({ route }: SectionProps) {
   return <section className="nx-library">
     <header className="nx-library__head"><div><h1>{nt('library.title')}</h1><p>{nt('library.subtitle')}</p></div></header>
     <nav className="nx-library__tabs" aria-label={nt('library.tabs')}>
-      {TABS.map((key) => <button type="button" key={key} aria-current={tab === key ? 'page' : undefined} className="nx-library__tab" onClick={() => navigate(href({ section: 'library', params: { tab: key } }))}>{icons[key]}{labels[key]}</button>)}
+      {TABS.map((key) => <button type="button" key={key} aria-current={tab === key ? 'page' : undefined} className="nx-library__tab" onClick={() => { if (tab !== key) haptic('select'); navigate(href({ section: 'library', params: { tab: key } })) }}>{icons[key]}{labels[key]}</button>)}
     </nav>
     <LibraryItems key={tab} tab={tab} route={route} />
   </section>

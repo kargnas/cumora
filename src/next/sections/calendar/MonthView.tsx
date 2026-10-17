@@ -6,6 +6,7 @@
  */
 import { memo, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { useLocale } from '@/lib/i18n'
+import { haptic } from '../../haptics'
 import { useNT } from '../../i18n'
 import { navigate } from '../../router'
 import { Menu, useMenu } from '../../ui/primitives'
@@ -196,6 +197,9 @@ export const MonthCompact = memo(function MonthCompact({ cursor, range, occs, lo
             data-today={sameDay(d, today) || undefined}
             aria-current={i === picked ? 'date' : undefined}
             aria-label={dtf(locale, DAY_LONG).format(d)}
+            // Picking a day here changes the list below in place (replace),
+            // so it is a selection, not a navigation.
+            onClick={i === picked ? undefined : () => haptic('select')}
           >
             <span className="nx-calendar-mini__num nx-mono">{d.getDate()}</span>
             <span className="nx-calendar-mini__dots" aria-hidden>

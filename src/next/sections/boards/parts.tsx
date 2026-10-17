@@ -17,6 +17,7 @@ import { isImeComposing } from '@/lib/keyboard'
 import { boardDueStatus, localCalendarDay } from '@/lib/board-due-date'
 import { useResolvedBoardId, useResolvedCalendarId, useResolvedCardId, useResolvedDocumentId } from '@/lib/useArtifactId'
 import type { BoardColumn, Participant } from '@/types'
+import { haptic } from '../../haptics'
 import { useNT } from '../../i18n'
 import { href, linkClick, navigate } from '../../router'
 import { Avatar } from '../../ui/Avatar'
@@ -456,8 +457,10 @@ export function InlineEdit({ initial = '', label, placeholder, onSave, onDone, c
     setError(null)
     try {
       await onSave(v)
+      haptic('success')
       close()
     } catch (e) {
+      haptic('error')
       setError(errText(e))
       setBusy(false)
     }
