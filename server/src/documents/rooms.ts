@@ -423,8 +423,9 @@ function shouldRefreshDocumentImageUrl(src: string, key: string): boolean {
   const srcKey = storageKeyFromPublicUrl(src)
   if (!srcKey) return true
   if (srcKey !== key) return true
-  if (src.startsWith('/uploads/')) return storage.mode === 'r2'
-  if (!src.includes('exp=') && !src.includes('sig=')) return storage.mode === 'r2' && key.startsWith('attachments/')
+  if (src.startsWith('/uploads/') && storage.mode === 'r2') return true
+  // Local mode signs attachments as R2 does, so an unsigned one needs a fresh URL in either mode.
+  if (!src.includes('exp=') && !src.includes('sig=')) return key.startsWith('attachments/')
   return signedUrlExpiresSoon(src)
 }
 

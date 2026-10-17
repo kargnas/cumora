@@ -22,7 +22,7 @@
  */
 import { writeFile, mkdir, readdir, stat, unlink } from 'node:fs/promises'
 import { join, resolve, dirname } from 'node:path'
-import { createHmac } from 'node:crypto'
+import { createHmac, timingSafeEqual } from 'node:crypto'
 import {
   S3Client, PutObjectCommand, GetObjectCommand,
   DeleteObjectCommand, ListObjectsV2Command,
@@ -38,7 +38,8 @@ import {
 export { normalizeStorageKey }
 
 /** Keys under these prefixes get HMAC-signed URLs when a signing secret is
- *  configured. The R2 worker serves only `avatars/` without a signature;
+ *  configured, and always in local mode, where `localUploadRefusal` checks
+ *  them. The R2 worker serves only `avatars/` without a signature;
  *  every other key is rejected at the edge until it is signed. Keep this
  *  list, `PUBLIC_PREFIXES` in `workers/r2-gate/src/index.ts`, and
  *  `STORAGE_KEY_PREFIXES` in `storage-keys.ts` in agreement — the prefix
@@ -48,8 +49,43 @@ function needsSignature(key: string): boolean {
   return SIGNED_PREFIXES.some((p) => key.startsWith(p))
 }
 
+/** Local mode signs the same `<key>:<exp>` message as the R2 gate, with a key
+ *  derived from AGENT_RUNTIME_SECRET so a deployment needs no extra secret.
+ *  Deriving keeps the two uses apart: an upload signature can never stand in
+ *  for a runtime token, nor the reverse. */
+const LOCAL_UPLOAD_SIGNING_KEY = createHmac('sha256', env.AGENT_RUNTIME_SECRET)
+  .update('cumora:local-upload-url')
+  .digest()
+
+function localUploadSignature(key: string, exp: string | number): string {
+  return createHmac('sha256', LOCAL_UPLOAD_SIGNING_KEY).update(`${key}:${exp}`).digest('hex')
+}
+
+/** Why local mode must not serve `/uploads<path>`, or null to serve it. The R2
+ *  gate worker's rules: storage keys only, and a signed prefix needs an
+ *  unexpired `exp`/`sig` from publicUrl, at most a day ahead so a leaked URL
+ *  cannot be stretched into a permanent one. */
+export function localUploadRefusal(path: string, exp: unknown, sig: unknown): string | null {
+  const key = normalizeStorageKey(path)
+  if (!key) return 'not a storage key'
+  if (!needsSignature(key)) return null
+  if (typeof exp !== 'string' || typeof sig !== 'string') return 'missing exp/sig'
+  const expNum = Number(exp)
+  const now = Math.floor(Date.now() / 1000)
+  if (!Number.isFinite(expNum)) return 'bad exp'
+  if (expNum < now) return 'expired'
+  if (expNum - now > 86_400) return 'exp too far'
+  const expected = Buffer.from(localUploadSignature(key, exp))
+  const given = Buffer.from(sig)
+  return given.length === expected.length && timingSafeEqual(given, expected) ? null : 'bad sig'
+}
+
 export function storageKeyFromPublicUrl(raw: string): string | null {
-  return storageKeyFromPublicUrlForBase(raw, env.R2_PUBLIC_BASE)
+  // Agents read local uploads as absolute URLs (agentAttachmentUrl). A copy
+  // they post back into a message or document must still map to its key, so
+  // it is re-signed on read instead of breaking when its signature expires.
+  const local = raw.startsWith(`${env.PUBLIC_ORIGIN}/uploads/`) ? raw.slice(env.PUBLIC_ORIGIN.length) : raw
+  return storageKeyFromPublicUrlForBase(local, env.R2_PUBLIC_BASE)
 }
 
 export function messageAttachmentStorageKey(input: { key?: unknown; url?: unknown }): string | null {
@@ -58,7 +94,8 @@ export function messageAttachmentStorageKey(input: { key?: unknown; url?: unknow
 
 export function signedUrlExpiresSoon(raw: string, leewaySeconds = 300): boolean {
   try {
-    const exp = Number(new URL(raw).searchParams.get('exp') ?? 0)
+    // The base only lets local mode's relative `/uploads/…` URLs parse.
+    const exp = Number(new URL(raw, 'http://relative.invalid').searchParams.get('exp') ?? 0)
     return Number.isFinite(exp) && exp > 0 && exp <= Math.floor(Date.now() / 1000) + leewaySeconds
   } catch {
     return false
@@ -108,8 +145,9 @@ class LocalStorage implements Storage {
     const path = join(UPLOAD_DIR, key)
     await mkdir(dirname(path), { recursive: true })
     await writeFile(path, body)
-    // Existing static handler mounts UPLOAD_DIR at /uploads/.
-    return `/uploads/${key}`
+    // The static handler mounts UPLOAD_DIR at /uploads/ and checks the
+    // signature publicUrl adds, so the URL handed back must carry one.
+    return this.publicUrl(key)
   }
 
   // Local mode has no real presign — the browser still goes through
@@ -121,7 +159,9 @@ class LocalStorage implements Storage {
   }
 
   async publicUrl(key: string): Promise<string> {
-    return `/uploads/${key}`
+    if (!needsSignature(key)) return `/uploads/${key}`
+    const exp = Math.floor(Date.now() / 1000) + env.R2_URL_TTL_SECONDS
+    return `/uploads/${key}?exp=${exp}&sig=${localUploadSignature(key, exp)}`
   }
 
   async listObjectsByPrefix(prefix: string): Promise<StorageObject[]> {

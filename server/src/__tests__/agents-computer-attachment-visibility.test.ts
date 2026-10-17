@@ -33,8 +33,8 @@ test('a local-storage upload reaches the agent as a URL it can fetch', async () 
     name: 'image.png',
     size: 205_859,
   })
-  assert.equal(att.url, 'https://chat.example.com/uploads/attachments/01e6.png')
-  assert.match(attachmentNote(att), /https:\/\/chat\.example\.com\/uploads\/attachments\/01e6\.png\]$/)
+  assert.match(att.url, /^https:\/\/chat\.example\.com\/uploads\/attachments\/01e6\.png\?exp=\d+&sig=[0-9a-f]{64}$/)
+  assert.ok(attachmentNote(att).endsWith(` ${att.url}]`))
 })
 
 test('the reported zip is now visible to the agent', () => {

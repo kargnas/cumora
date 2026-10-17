@@ -8,7 +8,7 @@ import { env } from './env.js'
 import { verifySchemaWithBootRetry } from './db/schema-version.js'
 import { seedIfEmpty } from './seed.js'
 import { api } from './api/router.js'
-import { storage, UPLOAD_DIR } from './storage.js'
+import { localUploadRefusal, storage, UPLOAD_DIR } from './storage.js'
 import { attachWebSocket, resetHumanPresenceOnBoot } from './ws.js'
 import { bootDocumentBus } from './documents/rooms.js'
 import { healthPool, pool } from './db/pool.js'
@@ -109,7 +109,14 @@ async function main() {
   app.use('/webhooks/email', inboundEmailRouter)
 
   if (storage.mode === 'local') {
-    app.use('/uploads', express.static(UPLOAD_DIR, {
+    // Whoever holds an upload URL can open it without signing in, so the URL
+    // has to expire. Like the R2 gate worker, refuse anything but a storage
+    // key with a valid signature (portraits excepted) before reading a file.
+    app.use('/uploads', (req, res, next) => {
+      const refusal = localUploadRefusal(req.path, req.query.exp, req.query.sig)
+      if (refusal) { res.status(403).type('text/plain').send(refusal); return }
+      next()
+    }, express.static(UPLOAD_DIR, {
       fallthrough: false,
       maxAge: '1h',
       setHeaders: (res, filePath) => {
