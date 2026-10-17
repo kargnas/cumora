@@ -69,8 +69,11 @@ The persistent app-server and model discovery read the runtime's `config.toml`;
 add any needed `model` or
 `model_providers` settings there. Secure `exec` ignores user config.
 
-Main threads resume after daemon restarts: macOS/Linux use app-server, while
-Windows and app-server fallbacks use `exec --json` / `exec resume <thread-id>`.
+Main threads resume after daemon restarts: secure macOS/Linux runs use the
+persistent app-server, while compatibility mode, Windows, and app-server
+fallbacks use `exec --json` / `exec resume <thread-id>`. Compatibility mode
+keeps the legacy `cumora` PATH shim outside the app-server sandbox so it can
+reach the daemon-owned IPC bridge.
 Triage and doctor use ephemeral sessions.
 
 **Upgrading existing agents:** file-backed personal logins are reused automatically;
