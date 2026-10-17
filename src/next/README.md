@@ -10,9 +10,19 @@ A second UI for cumora, served at `/next` on the same origin. `App.tsx` mounts `
 
 ## Chat list
 
-- Pinned rooms sit at the top as tiles that wrap onto new rows. Pin from a room's menu, or drag a room onto the tiles; drag a tile back into the list to unpin it.
-- Below them, rooms are grouped into your own categories, then Other, then Former (1:1 rooms whose other member has left: a deleted agent or a removed member). Other gets its header only once a category exists. Create a category from the + menu, drag a room onto a category (or onto "Drop here for a new category"), and click a category header to collapse it. On a phone, a room's long-press menu has "Move to".
-- Categories and collapsed groups are personal and stored in the fork's SQLite database on the server, so they follow you across devices.
+- Pinned rooms sit at the top as tiles that wrap onto new rows. Pin from a room's menu, or drag a room onto the tiles: while a room is dragged, a Pin slot (or a "Drop here to pin" zone when the last line is full) shows where. Drag a tile onto another to reorder the tiles, or back into the list to unpin it; on a phone, a tile's long-press menu has Move left and Move right. A pin is shared with the room's other members; the tile order is yours.
+- Below them, rooms are grouped into your own categories, then Other. Other gets its header only once a category exists. A 1:1 room whose other member has left (a deleted agent or a removed member) is not listed. Create a category from the + menu, drag a room onto a category (or onto "Drop here for a new category"), and click a category header to collapse it. Drag a header to reorder the categories; every group folds while it moves. Right-click a header (long-press on a phone) for Rename, Move up, Move down, Mark all as read, Hide and Delete; Other's menu has Mark all as read. A hidden category leaves the list: the "N hidden" row at the bottom carries its unread count and opens it, and its menu has Show. On a phone, a room's long-press menu has "Move to".
+- Categories, their order, hidden categories, collapsed groups and the tile order are personal and stored in the fork's SQLite database on the server, so they follow you across devices.
+
+## Activity tab
+
+The room panel's Activity tab shows what the agents in the room are doing now (live cards) and what their recent runs did that the chat does not show. Each run card has the agent, when it ran, how long it took and what it cost (`~` marks an estimated price), then:
+
+- **Changed**: cards created, moved, edited or deleted, card comments, boards, docs created or edited, calendar events, and posts in other rooms you are in. Each one opens the card, board, doc, event or message.
+- **Went wrong**: a failed or stalled run with its error, the run's error events, failed steps, and routines that should have posted into the room and could not.
+- **Show all steps**: the tool calls, only for engines that report them (cloud agents; BYOA engines report none). The command text of a step shows to workspace owners and admins only, because it can quote any room.
+
+The data comes from `GET /api/fork/rooms/:conversationId/activity` (`server/src/fork/activity.ts`, which also holds the run and history limits), for members of the room only. Card moves, card edits and deletions reach back only as long as the realtime outbox keeps its rows (`COMPLETED_RETENTION_HOURS` in `server/src/realtime-outbox.ts`), because it is the only place that records who made them. The tab loads when it opens and polls (`panel/activity.ts`) while an agent in the room is live or a run is still open. Text in the response is redacted for tokens, keys and passwords, and capped.
 
 ## Haptics
 

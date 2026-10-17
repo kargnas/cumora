@@ -1,6 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express'
 import type { AuthedRequest } from '../auth.js'
 import { ForkLimitError, getForkStore } from './store.js'
+import { roomActivity } from './activity.js'
 
 type CompanyContext = { userId: string; companyId: string }
 
@@ -33,6 +34,8 @@ export function createForkRouter(deps: ForkRouterDeps): Router {
     res.json((await getForkStore()).layout(companyId, userId))
   })
 
+  router.get('/rooms/:conversationId/activity', (req, res) => roomActivity(deps.requireCompany, req, res))
+
   router.post('/categories', async (req, res) => {
     const { userId, companyId } = await deps.requireCompany(req)
     const name = categoryName(req.body?.name)
@@ -42,13 +45,17 @@ export function createForkRouter(deps: ForkRouterDeps): Router {
   router.patch('/categories/:id', async (req, res) => {
     const { userId, companyId } = await deps.requireCompany(req)
     const body = req.body ?? {}
-    const patch: { name?: string; position?: number } = {}
+    const patch: { name?: string; position?: number; hidden?: boolean } = {}
     if (body.name !== undefined) patch.name = categoryName(body.name)
     if (body.position !== undefined) {
       if (typeof body.position !== 'number' || !Number.isFinite(body.position)) {
         throw new ForkError(400, 'position must be a finite number')
       }
       patch.position = body.position
+    }
+    if (body.hidden !== undefined) {
+      if (typeof body.hidden !== 'boolean') throw new ForkError(400, 'hidden must be a boolean')
+      patch.hidden = body.hidden
     }
     if (!(await getForkStore()).updateCategory(companyId, userId, req.params.id, patch)) {
       throw new ForkError(404, 'category not found')
@@ -74,6 +81,18 @@ export function createForkRouter(deps: ForkRouterDeps): Router {
     if (!(await getForkStore()).setRoomCategory(companyId, userId, conversationId, categoryId)) {
       throw new ForkError(404, 'category not found')
     }
+    res.json({ ok: true })
+  })
+
+  router.put('/pin-order', async (req, res) => {
+    const { userId, companyId } = await deps.requireCompany(req)
+    const ids: unknown = req.body?.conversationIds
+    if (!Array.isArray(ids) || !ids.every((id) => typeof id === 'string')) {
+      throw new ForkError(400, 'conversationIds must be an array of strings')
+    }
+    if (new Set(ids).size !== ids.length) throw new ForkError(400, 'conversationIds must not repeat')
+    const store = await getForkStore()
+    store.setPinOrder(companyId, userId, ids.map((id) => routeKey(id, 'conversationId')))
     res.json({ ok: true })
   })
 

@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 
-export interface RoomCategory { id: string; name: string; position: number }
+export interface RoomCategory { id: string; name: string; position: number; hidden: boolean }
 
 /** One user's chat-list layout inside one company. */
 export interface RoomLayout {
@@ -20,8 +20,11 @@ export interface RoomLayout {
   categories: RoomCategory[]
   /** conversationId -> categoryId; rooms without an entry sit in no category. */
   rooms: Record<string, string>
-  /** Collapsed group keys: category ids or the client's built-in section keys. */
+  /** Collapsed group keys: category ids or the client's built-in section key. */
   collapsed: string[]
+  /** Pinned rooms in the order this user arranged their tiles. Pinning itself is
+   *  upstream's shared conversations.pinned column; only the order is personal. */
+  pinOrder: string[]
 }
 
 // Same convention as UPLOAD_DIR in storage.ts: relative to the server's cwd
@@ -33,9 +36,10 @@ export const FORK_DB_FILE = resolve(process.cwd(), 'server/data/fork.sqlite')
 // one user must not be able to grow it without bound.
 export const MAX_CATEGORIES = 100
 export const MAX_ROOM_ASSIGNMENTS = 5000
-// The client's built-in sections (OTHER_GROUP and FORMER_GROUP in
-// src/next/chat/roomLayout.ts); every other collapsed key is a category id.
-const BUILT_IN_GROUPS = ['other', 'former']
+export const MAX_PIN_ORDER = 500
+// The client's built-in section (OTHER_GROUP in src/next/chat/roomLayout.ts);
+// every other collapsed key is a category id.
+const BUILT_IN_GROUPS = ['other']
 
 /** A write would take a user past MAX_CATEGORIES or MAX_ROOM_ASSIGNMENTS. */
 export class ForkLimitError extends Error {}
@@ -65,6 +69,20 @@ const MIGRATIONS = [
      user_id TEXT NOT NULL,
      group_key TEXT NOT NULL,
      PRIMARY KEY (company_id, user_id, group_key)
+   );`,
+
+  // The client dropped its 'former' section; its collapsed rows would stay
+  // behind as keys nothing reads.
+  `DELETE FROM collapsed_groups WHERE group_key = 'former';`,
+
+  // Categories the user put out of sight, and the order of their pinned tiles.
+  `ALTER TABLE room_categories ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;
+   CREATE TABLE pin_order (
+     company_id TEXT NOT NULL,
+     user_id TEXT NOT NULL,
+     conversation_id TEXT NOT NULL,
+     position INTEGER NOT NULL,
+     PRIMARY KEY (company_id, user_id, conversation_id)
    );`,
 ]
 
@@ -114,16 +132,18 @@ export async function openForkStore(file: string) {
       const owner = [companyId, userId]
       return {
         categories: rows(
-          `SELECT id, name, position FROM room_categories
+          `SELECT id, name, position, hidden FROM room_categories
             WHERE company_id = ? AND user_id = ? ORDER BY position, id`,
           owner,
-        ).map(([id, name, position]) => ({ id: String(id), name: String(name), position: Number(position) })),
+        ).map(([id, name, position, hidden]) => ({ id: String(id), name: String(name), position: Number(position), hidden: Number(hidden) === 1 })),
         rooms: Object.fromEntries(
           rows('SELECT conversation_id, category_id FROM room_assignments WHERE company_id = ? AND user_id = ?', owner)
             .map(([conversationId, categoryId]) => [String(conversationId), String(categoryId)]),
         ),
         collapsed: rows('SELECT group_key FROM collapsed_groups WHERE company_id = ? AND user_id = ?', owner)
           .map(([key]) => String(key)),
+        pinOrder: rows('SELECT conversation_id FROM pin_order WHERE company_id = ? AND user_id = ? ORDER BY position', owner)
+          .map(([id]) => String(id)),
       }
     },
 
@@ -143,14 +163,15 @@ export async function openForkStore(file: string) {
         [id, companyId, userId, name, position],
       )
       save()
-      return { id, name, position }
+      return { id, name, position, hidden: false }
     },
 
-    updateCategory(companyId: string, userId: string, id: string, patch: { name?: string; position?: number }): boolean {
+    updateCategory(companyId: string, userId: string, id: string, patch: { name?: string; position?: number; hidden?: boolean }): boolean {
       db.run(
-        `UPDATE room_categories SET name = COALESCE(?, name), position = COALESCE(?, position)
+        `UPDATE room_categories
+            SET name = COALESCE(?, name), position = COALESCE(?, position), hidden = COALESCE(?, hidden)
           WHERE id = ? AND company_id = ? AND user_id = ?`,
-        [patch.name ?? null, patch.position ?? null, id, companyId, userId],
+        [patch.name ?? null, patch.position ?? null, patch.hidden === undefined ? null : Number(patch.hidden), id, companyId, userId],
       )
       if (db.getRowsModified() === 0) return false
       save()
@@ -194,7 +215,18 @@ export async function openForkStore(file: string) {
       return true
     },
 
-    /** False when the key is neither a built-in section nor one of this user's categories. */
+    /** Replaces this user's tile order. Ids of rooms that are not pinned do no
+     *  harm (the client only sorts pinned rooms by it), so they are not checked. */
+    setPinOrder(companyId: string, userId: string, conversationIds: string[]): void {
+      if (conversationIds.length > MAX_PIN_ORDER) throw new ForkLimitError(`at most ${MAX_PIN_ORDER} pinned rooms can be ordered`)
+      db.run('DELETE FROM pin_order WHERE company_id = ? AND user_id = ?', [companyId, userId])
+      conversationIds.forEach((id, position) => {
+        db.run('INSERT INTO pin_order (company_id, user_id, conversation_id, position) VALUES (?, ?, ?, ?)', [companyId, userId, id, position])
+      })
+      save()
+    },
+
+    /** False when the key is neither the built-in section nor one of this user's categories. */
     setCollapsed(companyId: string, userId: string, groupKey: string, collapsed: boolean): boolean {
       if (!BUILT_IN_GROUPS.includes(groupKey) && !ownsCategory(companyId, userId, groupKey)) return false
       db.run(

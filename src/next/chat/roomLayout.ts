@@ -1,11 +1,12 @@
 /**
- * The chat list's personal layout: custom categories, which category each
- * room sits in, and which groups are collapsed. It lives in the fork's own
+ * The chat list's personal layout: custom categories (their order and whether
+ * they are hidden), which category each room sits in, which groups are
+ * collapsed, and the order of the pinned tiles. It lives in the fork's own
  * SQLite store (server/src/fork) behind /api/fork, so upstream's Postgres
  * schema never changes for it.
  *
- * Renames, deletes, moves and collapses apply locally first and are sent
- * after; a failed one reloads the server's copy so the list never keeps a
+ * Renames, deletes, moves, hides, collapses and tile moves apply locally first
+ * and are sent after; a failed one reloads the server's copy so the list never keeps a
  * state the server does not have. Creating a category waits for the server,
  * which assigns the id the room is then filed under.
  */
@@ -13,29 +14,36 @@ import { create } from 'zustand'
 import { http } from '@/api/client'
 import { useAuth } from '@/stores/auth'
 
-export interface Category { id: string; name: string; position: number }
+export interface Category { id: string; name: string; position: number; hidden: boolean }
 
 interface RoomLayout {
   categories: Category[]
   rooms: Record<string, string>
   collapsed: string[]
+  /** Pinned room ids in tile order. Pins themselves live upstream. */
+  pinOrder: string[]
 }
 
-/** Group keys of the built-in sections, collapsible like categories. */
+/** Group key of the built-in section for rooms in no category, collapsible like a category. */
 export const OTHER_GROUP = 'other'
-export const FORMER_GROUP = 'former'
 
 interface State extends RoomLayout {
   status: 'idle' | 'ready' | 'error'
   /** The room being dragged with a mouse, so drop zones can show themselves. */
   dragging: string | null
+  /** The category whose header is being dragged with a mouse. */
+  draggingCategory: string | null
   load: () => Promise<void>
   createCategory: (name: string) => Promise<Category | null>
   renameCategory: (id: string, name: string) => void
+  moveCategory: (id: string, position: number) => void
+  setHidden: (id: string, hidden: boolean) => void
   deleteCategory: (id: string) => void
   moveRoom: (conversationId: string, categoryId: string | null) => void
   toggleCollapsed: (key: string) => void
+  setPinOrder: (ids: string[]) => void
   setDragging: (id: string | null) => void
+  setDraggingCategory: (id: string | null) => void
 }
 
 const json = (body: unknown): RequestInit => ({ body: JSON.stringify(body) })
@@ -80,22 +88,30 @@ export const useRoomLayout = create<State>((set, get) => {
   // The layout belongs to one person in one workspace. Drop it the moment
   // either changes, so the next workspace never paints the old categories.
   useAuth.subscribe((s, prev) => {
-    if (s.contextEpoch !== prev.contextEpoch) set({ categories: [], rooms: {}, collapsed: [], status: 'idle', dragging: null })
+    if (s.contextEpoch !== prev.contextEpoch) set({ categories: [], rooms: {}, collapsed: [], pinOrder: [], status: 'idle', dragging: null, draggingCategory: null })
   })
 
   /** Native drag and drop holds back mouse events until it ends, so a
    *  buttonless mousemove means the drag is over, even when the source row
    *  remounted mid-drag and its dragend never reached React. */
   const endStaleDrag = (e: MouseEvent) => {
-    if (e.buttons === 0) get().setDragging(null)
+    if (e.buttons !== 0) return
+    set({ dragging: null, draggingCategory: null })
+    window.removeEventListener('mousemove', endStaleDrag)
+  }
+  const watchDrag = (active: boolean) => {
+    if (active) window.addEventListener('mousemove', endStaleDrag)
+    else window.removeEventListener('mousemove', endStaleDrag)
   }
 
   return {
     categories: [],
     rooms: {},
     collapsed: [],
+    pinOrder: [],
     status: 'idle',
     dragging: null,
+    draggingCategory: null,
 
     async load() {
       const since = writes
@@ -111,7 +127,7 @@ export const useRoomLayout = create<State>((set, get) => {
         const s = get()
         // Most foreground returns bring back the same layout; skipping the
         // update keeps every row and tile from re-rendering for nothing.
-        if (s.status === 'ready' && JSON.stringify([s.categories, s.rooms, s.collapsed]) === JSON.stringify([layout.categories, layout.rooms, layout.collapsed])) return
+        if (s.status === 'ready' && JSON.stringify([s.categories, s.rooms, s.collapsed, s.pinOrder]) === JSON.stringify([layout.categories, layout.rooms, layout.collapsed, layout.pinOrder])) return
         set({ ...layout, status: 'ready' })
       } catch (e) {
         if (e === SWITCHED) return
@@ -135,6 +151,18 @@ export const useRoomLayout = create<State>((set, get) => {
     renameCategory(id, name) {
       set((s) => ({ categories: s.categories.map((c) => (c.id === id ? { ...c, name } : c)) }))
       send(`/fork/categories/${encodeURIComponent(id)}`, { method: 'PATCH', ...json({ name }) })
+    },
+
+    moveCategory(id, position) {
+      set((s) => ({
+        categories: s.categories.map((c) => (c.id === id ? { ...c, position } : c)).sort((a, b) => a.position - b.position || a.id.localeCompare(b.id)),
+      }))
+      send(`/fork/categories/${encodeURIComponent(id)}`, { method: 'PATCH', ...json({ position }) })
+    },
+
+    setHidden(id, hidden) {
+      set((s) => ({ categories: s.categories.map((c) => (c.id === id ? { ...c, hidden } : c)) }))
+      send(`/fork/categories/${encodeURIComponent(id)}`, { method: 'PATCH', ...json({ hidden }) })
     },
 
     deleteCategory(id) {
@@ -163,10 +191,19 @@ export const useRoomLayout = create<State>((set, get) => {
       send(`/fork/groups/${encodeURIComponent(key)}/collapsed`, { method: 'PUT', ...json({ collapsed }) })
     },
 
+    setPinOrder(ids) {
+      set({ pinOrder: ids })
+      send('/fork/pin-order', { method: 'PUT', ...json({ conversationIds: ids }) })
+    },
+
     setDragging(id) {
       set({ dragging: id })
-      if (id) window.addEventListener('mousemove', endStaleDrag)
-      else window.removeEventListener('mousemove', endStaleDrag)
+      watchDrag(id !== null)
+    },
+
+    setDraggingCategory(id) {
+      set({ draggingCategory: id })
+      watchDrag(id !== null)
     },
   }
 })

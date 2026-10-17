@@ -1,75 +1,45 @@
 /**
- * What the agents in this room are doing and have done.
+ * What the agents in this room are doing, and what their runs did that the
+ * chat does not show.
  *
- * Today's sources: live status (`participants.status`), typing and token
- * streams per room, and tool/thought messages when an engine posts them.
- * Owners/admins with developer tools on also get the server's run records
- * (stage, tool count, tokens, events). Local (BYOA) engines do not report
- * individual tool calls yet, so for them a turn shows its timing and result.
+ * Live cards come from participant status and the room's typing and token
+ * streams. Below them, each recent run of an agent in the room says what it
+ * changed (cards, docs, events, posts in other rooms), what went wrong, and
+ * its time and cost. Steps sit behind a toggle and exist only when the engine
+ * reported them: cloud agents do, BYOA engines do not. The runs come from
+ * server/src/fork/activity.ts through ./activity.ts.
  */
-import { memo, useEffect, useMemo, useState } from 'react'
+import { memo, useMemo, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { api, type ApiAgentEvent, type ApiAgentRun } from '@/api/client'
 import { useApp } from '@/stores/app'
-import { useDevtools } from '@/stores/devtools'
+import { useConversations } from '@/stores/conversations'
 import { useMessages } from '@/stores/messages'
 import { useParticipants } from '@/stores/participants'
 import { useLocale } from '@/lib/i18n'
-import type { Conversation, Message, Participant } from '@/types'
+import type { Conversation, Participant } from '@/types'
+import { haptic } from '../haptics'
 import { useNT } from '../i18n'
-import { clock, duration, elapsed } from '../format'
+import { clock, duration, elapsed, listStamp } from '../format'
 import { useNow } from '../hooks'
+import { getRoute, href, navigate, withRoute, type Peek } from '../router'
 import { Avatar } from '../ui/Avatar'
 import { Spinner, T_MEDIUM } from '../ui/primitives'
-import { ICheck, IChevronDown, IX } from '../ui/icons'
-import { createdAt } from '../chat/model'
+import {
+  IAgents, IArrowRight, IBoard, ICalendar, IChat, ICheck, IChevronDown, IDoc, IPencil, IRepeat, IThread, ITrash, IX,
+} from '../ui/icons'
 import { useRoomAgents } from '../chat/ChatView'
-
-const EMPTY: Message[] = []
-const TURN_LIMIT = 12
-
-interface Turn {
-  key: string
-  author: string
-  reply: Message
-  steps: Message[]
-  /** Last human message before the reply: what the agent was answering. */
-  askedAt: Date | null
-  at: Date
-}
-
-/** Pair each agent reply with the tool/thought rows it produced and the
- *  human message it answered, newest first. */
-function useTurns(c: Conversation, byId: Record<string, Participant>): Turn[] {
-  const messages = useMessages((s) => s.byConvo[c.id] ?? EMPTY)
-  return useMemo(() => {
-    const out: Turn[] = []
-    const work = new Map<string, Message[]>()
-    let asked: Date | null = null
-    for (const m of messages) {
-      const who = byId[m.authorId]
-      if (m.kind === 'tool' || m.kind === 'thought') {
-        work.set(m.authorId, [...(work.get(m.authorId) ?? []), m])
-        continue
-      }
-      if (m.kind === 'system' || m.kind === 'whisper-link') continue
-      if (who?.kind === 'human') { asked = createdAt(m); continue }
-      if (who?.kind !== 'agent') continue
-      const at = createdAt(m)
-      out.push({ key: m.id, author: m.authorId, reply: m, steps: work.get(m.authorId) ?? [], askedAt: asked, at })
-      work.delete(m.authorId)
-    }
-    return out.slice(-TURN_LIMIT).reverse()
-  }, [messages, byId])
-}
+import {
+  useRoomActivity, usd,
+  type ActivityEffect, type ActivityProblem, type ActivityRun, type EffectKind, type EffectRef, type RoutineFailure,
+} from './activity'
 
 /* ── Live ───────────────────────────────────────────────────────────── */
-function LiveCard({ p, convoId, run }: { p: Participant; convoId: string; run: ApiAgentRun | undefined }) {
+function LiveCard({ p, convoId }: { p: Participant; convoId: string }) {
   const nt = useNT()
   const now = useNow()
   const typingHere = useMessages((s) => (s.typing[convoId] ?? []).includes(p.id))
   const streamingHere = useMessages((s) => Object.values(s.streaming).some((x) => x.conversationId === convoId && x.authorId === p.id))
-  const since = run ? new Date(run.startedAt).getTime() : p.statusUpdatedAt ? new Date(p.statusUpdatedAt).getTime() : now
+  const since = p.statusUpdatedAt ? new Date(p.statusUpdatedAt).getTime() : now
   const state = streamingHere ? nt('activity.writing')
     : typingHere ? nt('activity.composing')
       : p.status === 'thinking' ? nt('activity.thinking')
@@ -82,164 +52,270 @@ function LiveCard({ p, convoId, run }: { p: Participant; convoId: string; run: A
           <b>{p.name}</b>
           <span className="nx-mono">{elapsed(now - since)}</span>
         </div>
-        <div className="nx-shimmer">{run?.stage ? `${state} · ${run.stage}` : state}</div>
-        {run && (run.toolCallCount > 0 || run.tokenCount > 0) && (
-          <div className="nx-live__meta nx-mono">
-            {run.toolCallCount > 0 && <span>{nt('activity.tools', { n: run.toolCallCount })}</span>}
-            {run.tokenCount > 0 && <span>{nt('activity.tokens', { n: Math.round(run.tokenCount / 100) / 10 })}</span>}
-          </div>
-        )}
+        <div className="nx-shimmer">{state}</div>
       </div>
     </motion.div>
   )
 }
 
-/* ── History ────────────────────────────────────────────────────────── */
-const TurnCard = memo(function TurnCard({ turn, author }: { turn: Turn; author: Participant | undefined }) {
-  const nt = useNT()
-  const locale = useLocale()
-  const [open, setOpen] = useState(false)
-  const took = turn.askedAt ? turn.at.getTime() - turn.askedAt.getTime() : null
-  const preview = turn.reply.body.replace(/\s+/g, ' ').trim()
-  return (
-    <div className="nx-turn">
-      <button type="button" className="nx-turn__head" onClick={() => useApp.getState().jumpToMessage(turn.reply.id)}>
-        {author && <Avatar p={author} size={20} />}
-        <b>{author?.name ?? nt('msg.someone')}</b>
-        <span className="nx-turn__took">{took !== null && took > 0 && took < 6 * 3600_000 ? nt('activity.repliedIn', { t: duration(took) }) : nt('activity.replied')}</span>
-        <time className="nx-mono" dateTime={turn.at.toISOString()}>{clock(turn.at, locale)}</time>
-      </button>
-      {preview && <p className="nx-turn__preview">{preview}</p>}
-      {turn.steps.length > 0 && (
-        <>
-          <button type="button" className="nx-turn__toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-            <IChevronDown style={{ transform: open ? 'rotate(180deg)' : undefined }} />
-            {nt('activity.steps', { n: turn.steps.length })}
-          </button>
-          {/* transitions-dev 21: accordion on grid rows, no height measuring. */}
-          <div className="nx-acc" data-open={open || undefined}>
-            <ol className="nx-steps">
-              {turn.steps.map((s) => (
-                <li key={s.id} className="nx-step">
-                  <span className="nx-step__icon" data-ok={s.kind === 'tool' && !/error|fail|forbidden|invalid/i.test(s.tool?.status ?? '') ? '' : undefined}>
-                    {s.kind === 'tool' ? <ICheck /> : <span className="nx-step__dot" />}
-                  </span>
-                  <span className="nx-step__text">
-                    <span>{s.kind === 'tool' ? s.tool?.name ?? nt('activity.tool') : nt('activity.thought')}</span>
-                    <span className="nx-step__detail nx-mono">{s.kind === 'tool' ? [s.tool?.arg, s.tool?.status].filter(Boolean).join(' · ') : s.body}</span>
-                  </span>
-                </li>
-              ))}
-            </ol>
-          </div>
-        </>
-      )}
-    </div>
-  )
-})
+/* ── Runs ───────────────────────────────────────────────────────────── */
 
-/* ── Runs (developer tools) ─────────────────────────────────────────── */
-function RunRow({ run }: { run: ApiAgentRun }) {
+/** When each card was first shown. A card animates in only during its first
+ *  ENTRANCE_MS, so reopening the tab or a poll never replays the entrance. */
+const firstSeen = new Map<string, number>()
+const ENTRANCE_MS = 700
+function entering(id: string): boolean {
+  const t = firstSeen.get(id)
+  if (t === undefined) { firstSeen.set(id, performance.now()); return true }
+  return performance.now() - t < ENTRANCE_MS
+}
+
+const EFFECT_ICON: Record<EffectKind, typeof IBoard> = {
+  'card.created': IBoard,
+  'card.moved': IArrowRight,
+  'card.updated': IPencil,
+  'card.deleted': ITrash,
+  'comment.created': IThread,
+  'board.created': IBoard,
+  'doc.created': IDoc,
+  'doc.edited': IPencil,
+  'doc.deleted': ITrash,
+  'event.created': ICalendar,
+  'message.posted': IChat,
+}
+
+function openRef(ref: EffectRef): void {
+  if (ref.type === 'room') {
+    navigate(href({ section: 'chats', id: ref.id }))
+    // ChatView consumes this once the transcript is mounted.
+    useApp.getState().jumpToMessage(ref.messageId)
+    return
+  }
+  const peek: Peek = ref.type === 'board' ? { kind: 'board', id: ref.id, cardId: ref.cardId }
+    : ref.type === 'doc' ? { kind: 'doc', id: ref.id }
+      : { kind: 'event', id: ref.id }
+  navigate(withRoute(getRoute(), { peek }))
+}
+
+function Effect({ e }: { e: ActivityEffect }) {
+  const nt = useNT()
+  const roomId = e.ref?.type === 'room' ? e.ref.id : null
+  const room = useConversations((s) => (roomId ? s.list.find((c) => c.id === roomId) : undefined))
+  const Icon = EFFECT_ICON[e.kind]
+  // A direct room is titled after the other member, and the agent that posted
+  // in the viewer's direct room is that member: "Posted in Atlas" would read wrong.
+  const text = room?.kind === 'direct' ? nt('activity.effect.message.direct')
+    : nt(`activity.effect.${e.kind}`, {
+      title: e.title ?? '',
+      where: e.kind === 'message.posted' ? room?.title ?? nt('activity.otherRoom') : e.where ?? '',
+    })
+  const body = (
+    <>
+      <Icon aria-hidden />
+      <span className="nx-run__text">{text}</span>
+      {e.count > 1 && (e.kind === 'message.posted' || e.kind === 'comment.created') && <span className="nx-run__count nx-mono">×{e.count}</span>}
+    </>
+  )
+  const ref = e.ref
+  return (
+    <li>
+      {ref
+        ? <button type="button" className="nx-run__item" onClick={() => openRef(ref)}>{body}</button>
+        : <div className="nx-run__item">{body}</div>}
+    </li>
+  )
+}
+
+function Problem({ p, since }: { p: ActivityProblem; since: string }) {
   const nt = useNT()
   const locale = useLocale()
-  const [open, setOpen] = useState(false)
-  const [events, setEvents] = useState<ApiAgentEvent[] | null>(null)
-  useEffect(() => {
-    if (!open || events) return
-    api.getAgentRunEvents(run.id).then(setEvents).catch(() => setEvents([]))
-  }, [open, events, run.id])
-  const failed = run.status === 'failed' || run.status === 'stalled'
+  const head = p.kind === 'failed' ? nt('activity.problem.failed')
+    : p.kind === 'stalled' ? nt('activity.problem.stalled', { time: clock(new Date(since), locale) })
+      : p.kind === 'step' ? nt('activity.problem.step', { name: p.title ?? '' })
+        : p.title ?? nt('activity.problem.failed')
   return (
-    <div className="nx-run" data-status={run.status}>
-      <button type="button" className="nx-run__head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        <span className="nx-run__state">{run.status === 'running' ? <Spinner /> : failed ? <IX /> : <ICheck />}</span>
-        <span className="nx-run__text">
-          <b>{run.agentName}</b>
-          <span>{run.error ?? run.summary ?? run.stage ?? nt(`run.${run.status}`)}</span>
-        </span>
-        <span className="nx-run__meta nx-mono">
-          {run.status === 'running' ? clock(new Date(run.startedAt), locale) : duration(run.durationMs)}
-        </span>
-      </button>
-      <div className="nx-acc" data-open={open || undefined}>
-        <div className="nx-run__body">
-          <div className="nx-run__facts nx-mono">
-            <span>{nt('activity.tools', { n: run.toolCallCount })}</span>
-            <span>{nt('activity.tokens', { n: Math.round(run.tokenCount / 100) / 10 })}</span>
-            {typeof run.trigger.engine === 'string' && <span>{run.trigger.engine}</span>}
-          </div>
-          {events === null && open && <Spinner />}
-          {events && events.length > 0 && (
-            <ol className="nx-steps">
-              {events.map((e) => (
-                <li key={e.id} className="nx-step" data-level={e.level}>
-                  <span className="nx-step__icon"><span className="nx-step__dot" /></span>
-                  <span className="nx-step__text">
-                    <span>{e.title}</span>
-                    <span className="nx-step__detail nx-mono">{clock(new Date(e.createdAt), locale)} · {e.kind}</span>
-                  </span>
-                </li>
-              ))}
-            </ol>
-          )}
+    <li className="nx-run__item nx-run__item--bad">
+      <IX aria-hidden />
+      <span className="nx-run__text">
+        <span>{head}</span>
+        {p.text && <span className="nx-run__detail">{p.text}</span>}
+      </span>
+    </li>
+  )
+}
+
+function stepTime(ms: number): string {
+  return ms < 1000 ? `${ms}ms` : duration(ms)
+}
+
+/** Avatar, name and `meta` on the top row, `sub` under the name. */
+function Head({ agentId, glyph, meta, sub }: { agentId: string | null; glyph: ReactNode; meta?: ReactNode; sub: ReactNode }) {
+  const nt = useNT()
+  const agent = useParticipants((s) => (agentId ? s.byId[agentId] : undefined))
+  return (
+    <div className="nx-run__head">
+      {agent ? <Avatar p={agent} size={24} /> : <span className="nx-run__glyph">{glyph}</span>}
+      <div className="nx-run__main">
+        <div className="nx-run__top">
+          <b>{agent?.name ?? nt('msg.someone')}</b>
+          {meta}
         </div>
+        <div className="nx-run__sub">{sub}</div>
       </div>
     </div>
   )
 }
 
-/** Runs of this room's agents whose inbox included a message from this room. */
-function useRoomRuns(c: Conversation, agentIds: string[], liveKey: string): ApiAgentRun[] | null {
-  const enabled = useDevtools((s) => s.enabled)
-  const messages = useMessages((s) => s.byConvo[c.id] ?? EMPTY)
-  const [runs, setRuns] = useState<ApiAgentRun[] | null>(null)
-  const ids = useMemo(() => new Set(messages.map((m) => m.id)), [messages])
-  const agentKey = agentIds.join(',')
-  useEffect(() => {
-    if (!enabled || agentIds.length === 0) { setRuns(null); return }
-    let cancelled = false
-    const load = () => Promise.all(agentIds.map((id) => api.getAgentRuns({ agentId: id, limit: 8 }).catch(() => [] as ApiAgentRun[])))
-      .then((lists) => { if (!cancelled) setRuns(lists.flat()) })
-    void load()
-    // While someone works, keep the open run's stage and counters fresh.
-    const timer = liveKey ? window.setInterval(load, 8000) : undefined
-    return () => { cancelled = true; if (timer) window.clearInterval(timer) }
-    // agentKey stands in for agentIds, which is a new array on every render.
-  }, [enabled, agentKey, liveKey])
-  return useMemo(() => {
-    if (!runs) return null
-    return runs
-      .filter((r) => r.status === 'running' || r.inputMessageIds.some((id) => ids.has(id)))
-      .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
-      .slice(0, 10)
-  }, [runs, ids])
+const RunCard = memo(function RunCard({ run }: { run: ActivityRun }) {
+  const nt = useNT()
+  const locale = useLocale()
+  const [stepsOpen, setStepsOpen] = useState(false)
+  const skipped = run.status === 'skipped'
+  const cost = run.costUsd > 0 ? `${run.costEstimated ? '~' : ''}${usd(run.costUsd)}` : null
+  return (
+    <article className="nx-run" data-status={run.status} data-enter={entering(run.id) || undefined}>
+      <Head
+        agentId={run.agentId}
+        glyph={<IAgents />}
+        meta={!skipped && <span className="nx-mono">{duration(run.durationMs)}{cost && ` · ${cost}`}</span>}
+        sub={(
+          <>
+            <time className="nx-mono" dateTime={run.startedAt}>{listStamp(run.startedAt, locale)}</time>
+            {run.status !== 'completed' && <span className="nx-run__state">{nt(`run.${run.status}`)}</span>}
+            {run.model && <span className="nx-run__model nx-mono">{run.model}</span>}
+          </>
+        )}
+      />
+      {skipped && run.summary && <p className="nx-run__note">{run.summary}</p>}
+      {run.effects.length > 0 && (
+        <div className="nx-run__part">
+          <h4 className="nx-run__label">{nt('activity.changed')}</h4>
+          <ul className="nx-run__list">{run.effects.map((e, i) => <Effect key={i} e={e} />)}</ul>
+        </div>
+      )}
+      {run.problems.length > 0 && (
+        <div className="nx-run__part">
+          <h4 className="nx-run__label">{nt('activity.wentWrong')}</h4>
+          <ul className="nx-run__list">{run.problems.map((p, i) => <Problem key={i} p={p} since={run.updatedAt} />)}</ul>
+        </div>
+      )}
+      {run.stepCount > 0 && (
+        <>
+          <button
+            type="button"
+            className="nx-run__toggle"
+            aria-expanded={stepsOpen}
+            onClick={() => { haptic('select'); setStepsOpen((v) => !v) }}
+          >
+            <IChevronDown aria-hidden />
+            {stepsOpen ? nt('activity.hideSteps') : nt('activity.showSteps', { n: run.stepCount })}
+          </button>
+          {/* Shown at once rather than grown open: height is never animated
+              here (AGENTS.md, smoothness), only the list fades in. */}
+          {stepsOpen && (
+            <ol className="nx-steps">
+              {run.steps.map((s, i) => (
+                <li key={i} className="nx-step" data-state={s.ok === null ? 'running' : s.ok ? 'ok' : 'failed'}>
+                  <span className="nx-step__icon">{s.ok === null ? <Spinner /> : s.ok ? <ICheck aria-hidden /> : <IX aria-hidden />}</span>
+                  <span className="nx-step__text">
+                    <span>{s.name}{s.ok === false && s.status && <span className="nx-mono"> · {s.status}</span>}</span>
+                    {s.text && <span className="nx-step__detail nx-mono">{s.text}</span>}
+                  </span>
+                  {s.durationMs !== null && <span className="nx-step__time nx-mono">{stepTime(s.durationMs)}</span>}
+                </li>
+              ))}
+              {run.stepCount > run.steps.length && (
+                <li className="nx-step nx-step__more">{nt('activity.stepsCapped', { n: run.steps.length, total: run.stepCount })}</li>
+              )}
+            </ol>
+          )}
+        </>
+      )}
+    </article>
+  )
+})
+
+const RoutineCard = memo(function RoutineCard({ r }: { r: RoutineFailure }) {
+  const nt = useNT()
+  const locale = useLocale()
+  return (
+    <article className="nx-run" data-status="failed" data-enter={entering(r.id) || undefined}>
+      <Head
+        agentId={r.agentId}
+        glyph={<IRepeat />}
+        sub={(
+          <>
+            <time className="nx-mono" dateTime={r.at}>{listStamp(r.at, locale)}</time>
+            <span>{nt('activity.routine')}</span>
+          </>
+        )}
+      />
+      <div className="nx-run__part">
+        <h4 className="nx-run__label">{nt('activity.wentWrong')}</h4>
+        <ul className="nx-run__list">
+          <li className="nx-run__item nx-run__item--bad">
+            <IX aria-hidden />
+            <span className="nx-run__text">
+              <span>{nt('activity.problem.routine', { title: r.title ?? '' })}</span>
+              {r.text && <span className="nx-run__detail">{r.text}</span>}
+            </span>
+          </li>
+        </ul>
+      </div>
+    </article>
+  )
+})
+
+function Skeleton() {
+  return (
+    <div className="nx-activity__skel" aria-busy="true">
+      {[0, 1].map((i) => (
+        <div key={i} className="nx-run">
+          <div className="nx-run__head">
+            <span className="nx-skel" style={{ width: 24, height: 24, borderRadius: 999 }} />
+            <div className="nx-run__main">
+              <span className="nx-skel" style={{ width: '40%', height: 12 }} />
+              <span className="nx-skel" style={{ width: '25%', height: 10 }} />
+            </div>
+          </div>
+          <span className="nx-skel" style={{ width: '70%', height: 10 }} />
+        </div>
+      ))}
+    </div>
+  )
 }
+
+type Item = { at: string; run: ActivityRun; routine?: never } | { at: string; routine: RoutineFailure; run?: never }
 
 export function ActivityTab({ c }: { c: Conversation }) {
   const nt = useNT()
-  const byId = useParticipants((s) => s.byId)
   const { agents, live } = useRoomAgents(c)
-  const turns = useTurns(c, byId)
   const liveKey = live.map((p) => p.id).join(',')
-  const runs = useRoomRuns(c, agents.map((p) => p.id), liveKey)
-  const runningBy = useMemo(() => new Map((runs ?? []).filter((r) => r.status === 'running').map((r) => [r.agentId, r])), [runs])
+  const { data, failed, retry } = useRoomActivity(c.id, live.length > 0)
+
+  const items = useMemo(() => {
+    if (!data) return []
+    // A live agent's open run is its live card above; it joins the list once it ends.
+    const liveIds = new Set(liveKey.split(','))
+    const list: Item[] = [
+      ...data.runs.filter((r) => !(r.status === 'running' && liveIds.has(r.agentId))).map((run) => ({ at: run.startedAt, run })),
+      ...data.routines.map((routine) => ({ at: routine.at, routine })),
+    ]
+    return list.sort((a, b) => b.at.localeCompare(a.at))
+  }, [data, liveKey])
 
   return (
     <div className="nx-activity">
       <AnimatePresence initial={false}>
-        {live.map((p) => <LiveCard key={p.id} p={p} convoId={c.id} run={runningBy.get(p.id)} />)}
+        {live.map((p) => <LiveCard key={p.id} p={p} convoId={c.id} />)}
       </AnimatePresence>
-      {live.length === 0 && turns.length === 0 && (
+      {failed && <button type="button" className="nx-activity__error" onClick={retry}>{nt('activity.loadFailed')}</button>}
+      {!data && !failed && <Skeleton />}
+      {data && live.length === 0 && items.length === 0 && (
         <div className="nx-empty">{agents.length > 0 ? nt('activity.idle') : nt('activity.noAgents')}</div>
       )}
-      {turns.length > 0 && <h3 className="nx-group-label">{nt('activity.recent')}</h3>}
-      {turns.map((t) => <TurnCard key={t.key} turn={t} author={byId[t.author]} />)}
-      {runs && runs.length > 0 && (
-        <>
-          <h3 className="nx-group-label">{nt('activity.runs')}</h3>
-          {runs.map((r) => <RunRow key={r.id} run={r} />)}
-        </>
-      )}
+      {items.length > 0 && <h3 className="nx-group-label">{nt('activity.runs')}</h3>}
+      {items.map((i) => (i.run ? <RunCard key={i.run.id} run={i.run} /> : <RoutineCard key={i.routine.id} r={i.routine} />))}
     </div>
   )
 }

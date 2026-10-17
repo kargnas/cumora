@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState, type DragEvent } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type RefObject } from 'react'
 import { motion } from 'framer-motion'
 import { create } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
@@ -19,12 +19,81 @@ import { haptic } from '../haptics'
 import { openPalette, useHold } from '../hooks'
 import { Avatar, AvatarStack } from '../ui/Avatar'
 import { Dialog, IconButton, Menu, MOD, Spinner, T_FAST, useCoarse, useMenu, type MenuAnchor, type MenuEntry } from '../ui/primitives'
-import { IBellOff, IChevronDown, ICompose, IFolder, IHash, IMail, IPencil, IPin, IPlus, ISearch, ITrash, IUsers, IExit } from '../ui/icons'
-import { FORMER_GROUP, OTHER_GROUP, useRoomLayout, type Category } from './roomLayout'
+import {
+  IArrowDown, IArrowLeft, IArrowRight, IArrowUp, IBellOff, IChecks, IChevronDown, ICompose, IEye, IEyeOff, IFolder, IHash, IMail,
+  IPencil, IPin, IPlus, ISearch, ITrash, IUsers, IExit,
+} from '../ui/icons'
+import { OTHER_GROUP, useRoomLayout, type Category } from './roomLayout'
 
-/** Our own drag payload, so files or text dragged over the list are ignored. */
+/** Our own drag payloads, so files or text dragged over the list are ignored,
+ *  and a dragged category header never lands where a room would. */
 const ROOM_MIME = 'application/x-nx-room'
+const CATEGORY_MIME = 'application/x-nx-category'
 const carriesRoom = (e: DragEvent) => e.dataTransfer.types.includes(ROOM_MIME)
+const carriesCategory = (e: DragEvent) => e.dataTransfer.types.includes(CATEGORY_MIME)
+
+type Side = 'before' | 'after'
+/** Where a dragged tile or category header would land: before or after the
+ *  hovered one. A tiny store, so only the hovered item re-renders its line. */
+const useTileDrop = create<{ id: string | null; side: Side | null }>(() => ({ id: null, side: null }))
+const useCategoryDrop = create<{ key: string | null; side: Side | null }>(() => ({ key: null, side: null }))
+/** Left or right half of a tile, top or bottom half of a header. Read in a
+ *  dragover handler, never in a render or an animation frame. */
+const sideOf = (e: DragEvent, axis: 'x' | 'y'): Side => {
+  const r = e.currentTarget.getBoundingClientRect()
+  return axis === 'x' ? (e.clientX < r.left + r.width / 2 ? 'before' : 'after') : (e.clientY < r.top + r.height / 2 ? 'before' : 'after')
+}
+
+/** Rooms the chat list shows: no whispers, and no 1:1 room whose other
+ *  member has left. Deleting an agent off-boards it, and a removed member
+ *  leaves too; their rooms keep their history on the server, and re-hiring
+ *  the agent clears departedAt, which brings its room back. */
+function listed(c: Conversation, gone: (participantId: string) => boolean): boolean {
+  return c.kind !== 'whisper' && !(c.kind === 'direct' && c.members.some(gone))
+}
+
+/** Pinned rooms in tile order: the person's own order first, then pins it does
+ *  not know yet (pinned on another device, or by another member, since a pin
+ *  is shared) in the list's own order. */
+function byTileOrder(pinned: Conversation[], order: string[]): Conversation[] {
+  const rank = new Map(order.map((id, i) => [id, i]))
+  return pinned
+    .map((c, i) => ({ c, rank: rank.get(c.id) ?? order.length + i }))
+    .sort((a, b) => a.rank - b.rank)
+    .map((x) => x.c)
+}
+
+/** The tiles' ids as they are on screen right now. */
+function tileIds(): string[] {
+  const byId = useParticipants.getState().byId
+  const pinned = useConversations.getState().list.filter((c) => c.pinned && listed(c, (m) => Boolean(byId[m]?.departedAt)))
+  return byTileOrder(pinned, useRoomLayout.getState().pinOrder).map((c) => c.id)
+}
+
+/** Move a category to `index` among the visible categories, counted without
+ *  it. Positions are REAL on the server, so the move writes one row: the
+ *  midpoint of its new neighbours. */
+function moveCategoryTo(id: string, index: number): void {
+  const rest = useRoomLayout.getState().categories.filter((c) => !c.hidden && c.id !== id)
+  const before = rest[index - 1]?.position
+  const after = rest[index]?.position
+  // ponytail: each midpoint halves a gap, so about 50 moves into the same gap
+  // exhaust a double's precision; renumber every position if anyone gets there.
+  const position = before === undefined
+    ? (after === undefined ? 1 : after - 1)
+    : (after === undefined ? before + 1 : (before + after) / 2)
+  useRoomLayout.getState().moveCategory(id, position)
+}
+
+/** Clear the unread badge of every listed room, locally first, like opening each. */
+function markAllRead(ids: string[]): void {
+  const s = useConversations.getState()
+  for (const id of ids) {
+    if (!s.list.find((c) => c.id === id)?.unread) continue
+    s.markLocallyRead(id)
+    void api.markRead(id).catch((e) => console.warn('[next] mark read failed', e))
+  }
+}
 // React 18 drops an unknown boolean prop; an empty string reaches the DOM, and
 // inert keeps focus and clicks out of a collapsed group.
 const INERT = { inert: '' } as Record<string, string>
@@ -68,11 +137,31 @@ function prefetch(id: string): void {
 
 /** Pin state is a conversation column on the server; flip it locally first so
  *  a drop lands instantly, then let the reload confirm it. */
-function setPinned(id: string, pinned: boolean): void {
+function flipPin(id: string, pinned: boolean): void {
   useConversations.setState((s) => ({ list: s.list.map((c) => (c.id === id ? { ...c, pinned } : c)) }))
   void api.togglePin(id, pinned)
     .catch((e) => console.warn('[next] pin failed', e))
     .finally(() => void useConversations.getState().reload())
+}
+
+/** Put a room at `index` among the tiles (counted without it), pinning it
+ *  first when it is not pinned yet. */
+function placeTile(id: string, index: number): void {
+  const order = tileIds().filter((x) => x !== id)
+  order.splice(index, 0, id)
+  useRoomLayout.getState().setPinOrder(order)
+  if (!useConversations.getState().list.find((c) => c.id === id)?.pinned) flipPin(id, true)
+}
+
+/** A new pin lands at the end of the tiles; an unpinned room leaves the order. */
+function setPinned(id: string, pinned: boolean): void {
+  const order = tileIds().filter((x) => x !== id)
+  if (pinned) {
+    placeTile(id, order.length)
+    return
+  }
+  useRoomLayout.getState().setPinOrder(order)
+  flipPin(id, false)
 }
 
 /** File a room under a category (null for Other), out of the pinned row. */
@@ -87,8 +176,9 @@ function fileRoom(id: string, categoryId: string | null): void {
  *  out instead of unmounting them with it. */
 interface ListMenuState {
   /** What the menu and dialogs act on. It outlives the menu, so a dialog the
-   *  menu opened still knows its room or category. */
-  target: { room: string; former: boolean } | { category: string } | null
+   *  menu opened still knows its room or category. A group (a category, or
+   *  Other) carries its rooms and their unread total from when it was opened. */
+  target: { room: string } | { group: string; rooms: string[]; unread: number } | null
   anchor: MenuAnchor | null
   dialog: 'group' | 'category' | 'rename' | null
 }
@@ -100,10 +190,10 @@ let dragFrame = 0
 
 /** Drag source props for rooms and tiles. Touch has no mouse drag; it moves
  *  rooms from the hold menu instead, which keeps long-press free for that. */
-function useDragSource(id: string, enabled: boolean) {
+function useDragSource(id: string) {
   const coarse = useCoarse()
   const dragging = useRoomLayout((s) => s.dragging === id)
-  if (coarse || !enabled) return {}
+  if (coarse) return {}
   return {
     draggable: true,
     'data-dragging': dragging || undefined,
@@ -122,8 +212,39 @@ function useDragSource(id: string, enabled: boolean) {
     },
     onDragEnd: () => {
       cancelAnimationFrame(dragFrame)
+      useTileDrop.setState({ id: null, side: null })
       useRoomLayout.getState().setDragging(null)
     },
+  }
+}
+
+const endCategoryDrag = () => {
+  cancelAnimationFrame(dragFrame)
+  useCategoryDrop.setState({ key: null, side: null })
+  useRoomLayout.getState().setDraggingCategory(null)
+}
+
+/** Drag source props for a category header. Mouse only, like rooms: touch
+ *  moves a category from its header's long-press menu. */
+function useCategoryDragSource(id: string | null) {
+  const coarse = useCoarse()
+  const dragging = useRoomLayout((s) => id !== null && s.draggingCategory === id)
+  if (coarse || id === null) return {}
+  return {
+    draggable: true,
+    'data-dragging': dragging || undefined,
+    onDragStart: (e: DragEvent) => {
+      e.dataTransfer.clearData()
+      e.dataTransfer.setData(CATEGORY_MIME, id)
+      const r = e.currentTarget.getBoundingClientRect()
+      e.dataTransfer.setDragImage(e.currentTarget, e.clientX - r.left, e.clientY - r.top)
+      e.dataTransfer.effectAllowed = 'move'
+      // Every group folds to its header while one moves, so the whole order
+      // fits on screen. The fold waits a frame for the same reason a room drag
+      // does: the browser takes the drag image right after this handler.
+      dragFrame = requestAnimationFrame(() => useRoomLayout.getState().setDraggingCategory(id))
+    },
+    onDragEnd: endCategoryDrag,
   }
 }
 
@@ -220,6 +341,17 @@ function CategoryDialog({ open, initial = '', title, action, onClose, onSubmit }
   )
 }
 
+/** Menu entries that move a tile one place along the tile row. */
+function tileMoves(id: string, nt: ReturnType<typeof useNT>): MenuEntry[] {
+  const order = tileIds()
+  const at = order.indexOf(id)
+  if (at < 0) return []
+  return [
+    ...(at > 0 ? [{ key: 'left', label: nt('chats.moveLeft'), icon: <IArrowLeft />, onSelect: () => placeTile(id, at - 1) }] : []),
+    ...(at < order.length - 1 ? [{ key: 'right', label: nt('chats.moveRight'), icon: <IArrowRight />, onSelect: () => placeTile(id, at + 1) }] : []),
+  ]
+}
+
 /** The shared host for room and category menus (see `useListMenu`). */
 function ListMenu() {
   const nt = useNT()
@@ -227,10 +359,9 @@ function ListMenu() {
   const me = useMe()
   const { target, anchor, dialog } = useListMenu()
   const roomId = target && 'room' in target ? target.room : null
-  const former = target !== null && 'room' in target && target.former
-  const categoryId = target && 'category' in target ? target.category : null
+  const group = target && 'group' in target ? target : null
   const room = useConversations((s) => (roomId ? s.list.find((c) => c.id === roomId) : undefined))
-  const category = useRoomLayout((s) => (categoryId ? s.categories.find((k) => k.id === categoryId) : undefined))
+  const category = useRoomLayout((s) => (group ? s.categories.find((k) => k.id === group.group) : undefined))
   const categories = useRoomLayout((s) => s.categories)
   const current = useRoomLayout((s) => (roomId ? s.rooms[roomId] ?? null : null))
   const close = useCallback(() => useListMenu.setState({ anchor: null }), [])
@@ -244,6 +375,8 @@ function ListMenu() {
     const c = room
     entries = [
       { key: 'pin', label: c.pinned ? t('convo.unpin') : t('convo.pin'), icon: <IPin />, onSelect: () => setPinned(c.id, !c.pinned) },
+      // Touch has no tile drag, so a tile moves from its long-press menu.
+      ...(c.pinned ? tileMoves(c.id, nt) : []),
       ...(isMuted(c)
         ? [{ key: 'unmute', label: t('convo.unmute'), icon: <IBellOff />, onSelect: run(() => api.setMute(c.id, false, null)) }]
         : [
@@ -251,12 +384,12 @@ function ListMenu() {
             { key: 'm2', label: nt('chats.muteTomorrow'), icon: <IBellOff />, onSelect: run(() => api.setMute(c.id, true, muteUntil('tomorrow').toISOString())) },
             { key: 'm3', label: nt('chats.muteForever'), icon: <IBellOff />, onSelect: run(() => api.setMute(c.id, true, null)) },
           ]),
-      ...(c.pinned || former
+      ...(c.pinned
         ? []
         : [
             'sep' as const,
             { label: nt('chats.moveTo') },
-            ...categories.filter((k) => k.id !== current).map((k) => ({ key: `cat-${k.id}`, label: k.name, icon: <IFolder />, onSelect: () => fileRoom(c.id, k.id) })),
+            ...categories.filter((k) => k.id !== current).map((k) => ({ key: `cat-${k.id}`, label: k.name, icon: k.hidden ? <IEyeOff /> : <IFolder />, onSelect: () => fileRoom(c.id, k.id) })),
             ...(current ? [{ key: 'cat-other', label: nt('chats.other'), icon: <IFolder />, onSelect: () => fileRoom(c.id, null) }] : []),
             { key: 'cat-new', label: nt('chats.newCategory'), icon: <IPlus />, onSelect: () => useListMenu.setState({ dialog: 'category' }) },
           ]),
@@ -269,14 +402,30 @@ function ListMenu() {
           } }]
         : []),
     ]
-  } else if (category) {
+  } else if (group) {
     const k = category
-    entries = [
-      { key: 'rename', label: nt('chats.renameCategory'), icon: <IPencil />, onSelect: () => useListMenu.setState({ dialog: 'rename' }) },
-      { key: 'delete', label: nt('chats.deleteCategory'), icon: <ITrash />, danger: true, onSelect: () => {
-        if (window.confirm(nt('chats.deleteCategoryConfirm', { name: k.name }))) useRoomLayout.getState().deleteCategory(k.id)
-      } },
-    ]
+    const visible = categories.filter((x) => !x.hidden)
+    const at = k ? visible.findIndex((x) => x.id === k.id) : -1
+    const read: MenuEntry[] = group.unread > 0
+      ? [{ key: 'read', label: nt('chats.markAllRead'), icon: <IChecks />, onSelect: () => markAllRead(group.rooms) }]
+      : []
+    // Other has no name to change and always sits last, so it only gets Mark all as read.
+    entries = k
+      ? [
+          { key: 'rename', label: nt('chats.renameCategory'), icon: <IPencil />, onSelect: () => useListMenu.setState({ dialog: 'rename' }) },
+          ...(at > 0 ? [{ key: 'up', label: nt('chats.moveUp'), icon: <IArrowUp />, onSelect: () => moveCategoryTo(k.id, at - 1) }] : []),
+          ...(at >= 0 && at < visible.length - 1 ? [{ key: 'down', label: nt('chats.moveDown'), icon: <IArrowDown />, onSelect: () => moveCategoryTo(k.id, at + 1) }] : []),
+          ...read,
+          'sep',
+          k.hidden
+            ? { key: 'show', label: nt('chats.showCategory'), icon: <IEye />, onSelect: () => useRoomLayout.getState().setHidden(k.id, false) }
+            : { key: 'hide', label: nt('chats.hideCategory'), icon: <IEyeOff />, onSelect: () => useRoomLayout.getState().setHidden(k.id, true) },
+          'sep',
+          { key: 'delete', label: nt('chats.deleteCategory'), icon: <ITrash />, danger: true, onSelect: () => {
+            if (window.confirm(nt('chats.deleteCategoryConfirm', { name: k.name }))) useRoomLayout.getState().deleteCategory(k.id)
+          } },
+        ]
+      : read
   }
 
   const renaming = dialog === 'rename'
@@ -306,9 +455,46 @@ function ListMenu() {
   )
 }
 
+/** A tile is a drop target too: a dragged room or tile lands before or after
+ *  it, which pins the room there or moves the tile. */
+function useTileTarget(id: string) {
+  const coarse = useCoarse()
+  const dragging = useRoomLayout((s) => s.dragging !== null)
+  const side = useTileDrop((s) => (s.id === id ? s.side : null))
+  if (coarse) return { side: null, props: {} }
+  return {
+    side: dragging ? side : null,
+    props: {
+      onDragOver: (e: DragEvent) => {
+        if (!carriesRoom(e)) return
+        e.preventDefault()
+        e.stopPropagation()
+        e.dataTransfer.dropEffect = 'move'
+        const next = useRoomLayout.getState().dragging === id ? null : sideOf(e, 'x')
+        const now = useTileDrop.getState()
+        if (now.id !== id || now.side !== next) useTileDrop.setState({ id, side: next })
+      },
+      onDragLeave: (e: DragEvent) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null) && useTileDrop.getState().id === id) useTileDrop.setState({ id: null, side: null })
+      },
+      onDrop: (e: DragEvent) => {
+        e.preventDefault()
+        e.stopPropagation()
+        const moved = e.dataTransfer.getData(ROOM_MIME)
+        const after = useTileDrop.getState().side === 'after' ? 1 : 0
+        useTileDrop.setState({ id: null, side: null })
+        // The moved tile remounts in its new place, so its own dragend may not fire.
+        useRoomLayout.getState().setDragging(null)
+        if (moved && moved !== id) placeTile(moved, tileIds().filter((x) => x !== moved).indexOf(id) + after)
+      },
+    },
+  }
+}
+
 const RoomTile = memo(function RoomTile({ c, active }: { c: Conversation; active: boolean }) {
-  const hold = useHold((x, y) => openListMenu({ room: c.id, former: false }, x, y))
-  const drag = useDragSource(c.id, true)
+  const hold = useHold((x, y) => openListMenu({ room: c.id }, x, y))
+  const drag = useDragSource(c.id)
+  const target = useTileTarget(c.id)
   const unread = c.unread ?? 0
   const muted = isMuted(c)
   return (
@@ -318,8 +504,10 @@ const RoomTile = memo(function RoomTile({ c, active }: { c: Conversation; active
       className="nx-tile"
       title={c.title}
       aria-current={active ? 'page' : undefined}
+      data-drop-side={target.side ?? undefined}
       {...hold}
       {...drag}
+      {...target.props}
       onPointerEnter={() => prefetch(c.id)}
       onTouchStart={(e) => { prefetch(c.id); hold.onTouchStart(e) }}
     >
@@ -332,33 +520,71 @@ const RoomTile = memo(function RoomTile({ c, active }: { c: Conversation; active
   )
 })
 
-/** Pinned rooms sit on top as tiles and wrap onto new rows as they grow.
- *  While a room is dragged the row is a drop target that pins it; with
- *  nothing pinned, a zone floats over the top of the list instead, so no row
- *  moves under the pointer. */
-function PinnedTiles({ rooms, activeId }: { rooms: Conversation[]; activeId: string | null }) {
+/** A room or tile dropped on the tile row itself (not on one tile) goes to the end. */
+function dropOnTiles(e: DragEvent): void {
+  const id = e.dataTransfer.getData(ROOM_MIME)
+  if (id) placeTile(id, tileIds().filter((x) => x !== id).length)
+}
+
+/** The pin target that floats over the top of the list while a room is
+ *  dragged, either alone (nothing pinned yet) or under a tile row whose last
+ *  line is full. Its anchor is sticky and zero-height, so no row moves. */
+function PinDropZone() {
   const nt = useNT()
-  const dragging = useRoomLayout((s) => s.dragging !== null)
-  const drop = useDropTarget((e) => {
-    const id = e.dataTransfer.getData(ROOM_MIME)
-    if (id && !useConversations.getState().list.find((c) => c.id === id)?.pinned) setPinned(id, true)
-  })
-  if (rooms.length === 0) {
-    if (!dragging) return null
-    return (
-      <div className="nx-pin-drop">
-        <div className="nx-pin-drop__zone" data-drop={drop.over || undefined} {...drop.props}>{nt('chats.dropToPin')}</div>
-      </div>
-    )
-  }
+  const drop = useDropTarget(dropOnTiles)
   return (
-    <section className="nx-tiles" aria-label={nt('chats.pinned')} data-drop={drop.over || undefined} {...drop.props}>
-      {rooms.map((c) => <RoomTile key={c.id} c={c} active={c.id === activeId} />)}
-    </section>
+    <div className="nx-pin-drop">
+      <div className="nx-pin-drop__zone" data-drop={drop.over || undefined} {...drop.props}>{nt('chats.dropToPin')}</div>
+    </div>
   )
 }
 
-const RoomRow = memo(function RoomRow({ c, active, former }: { c: Conversation; active: boolean; former: boolean }) {
+/** How many tiles fit on a line, from the grid's computed tracks. Measured
+ *  when the row resizes, never during a drag. */
+function useGridColumns(ref: RefObject<HTMLElement>): number {
+  const [cols, setCols] = useState(4)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setCols(Math.max(1, getComputedStyle(el).gridTemplateColumns.split(' ').length)))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [ref])
+  return cols
+}
+
+/** Pinned rooms sit on top as tiles and wrap onto new lines as they grow.
+ *  While a room is dragged, the row shows where a drop pins it: a Pin slot in
+ *  the last line's free space, or the floating zone when that line is full. */
+function PinnedTiles({ rooms, activeId }: { rooms: Conversation[]; activeId: string | null }) {
+  const dragging = useRoomLayout((s) => s.dragging !== null)
+  if (rooms.length === 0) return dragging ? <PinDropZone /> : null
+  return <TileRow rooms={rooms} activeId={activeId} dragging={dragging} />
+}
+
+function TileRow({ rooms, activeId, dragging }: { rooms: Conversation[]; activeId: string | null; dragging: boolean }) {
+  const nt = useNT()
+  const ref = useRef<HTMLElement>(null)
+  const cols = useGridColumns(ref)
+  const drop = useDropTarget(dropOnTiles)
+  const slot = rooms.length % cols !== 0
+  return (
+    <>
+      <section ref={ref} className="nx-tiles" aria-label={nt('chats.pinned')} data-drop={drop.over || undefined} {...drop.props}>
+        {rooms.map((c) => <RoomTile key={c.id} c={c} active={c.id === activeId} />)}
+        {dragging && slot && (
+          <span className="nx-tile nx-tile--slot" aria-hidden="true">
+            <span className="nx-tile__face"><IPin /></span>
+            <span className="nx-tile__name">{nt('chats.pinSlot')}</span>
+          </span>
+        )}
+      </section>
+      {dragging && !slot && <PinDropZone />}
+    </>
+  )
+}
+
+const RoomRow = memo(function RoomRow({ c, active }: { c: Conversation; active: boolean }) {
   const nt = useNT()
   const t = useT()
   const locale = useLocale()
@@ -367,8 +593,8 @@ const RoomRow = memo(function RoomRow({ c, active, former }: { c: Conversation; 
     const id = typingIds?.find((x) => s.byId[x]?.kind === 'agent')
     return id ? s.byId[id]?.name : undefined
   })
-  const hold = useHold((x, y) => openListMenu({ room: c.id, former }, x, y))
-  const drag = useDragSource(c.id, !former)
+  const hold = useHold((x, y) => openListMenu({ room: c.id }, x, y))
+  const drag = useDragSource(c.id)
   const muted = isMuted(c)
   const unread = c.unread ?? 0
 
@@ -411,33 +637,82 @@ interface Group {
   label: string | null
   rooms: Conversation[]
   category?: Category
-  former?: boolean
+}
+
+/** A header is where a dragged category lands: before or after it, or, on
+ *  Other's header, at the end of the categories (Other always stays last). */
+function useCategoryTarget(g: Group) {
+  const side = useCategoryDrop((s) => (s.key === g.key ? s.side : null))
+  const accepts = g.category ? !g.category.hidden : g.key === OTHER_GROUP
+  if (!accepts) return { side: null, props: {} }
+  return {
+    side,
+    props: {
+      onDragOver: (e: DragEvent) => {
+        if (!carriesCategory(e)) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+        const next = !g.category ? 'before' : useRoomLayout.getState().draggingCategory === g.key ? null : sideOf(e, 'y')
+        const now = useCategoryDrop.getState()
+        if (now.key !== g.key || now.side !== next) useCategoryDrop.setState({ key: g.key, side: next })
+      },
+      onDragLeave: (e: DragEvent) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null) && useCategoryDrop.getState().key === g.key) useCategoryDrop.setState({ key: null, side: null })
+      },
+      onDrop: (e: DragEvent) => {
+        e.preventDefault()
+        const id = e.dataTransfer.getData(CATEGORY_MIME)
+        const after = useCategoryDrop.getState().side === 'after' ? 1 : 0
+        // Re-sorting moves the dragged header in the DOM, so its dragend may not fire.
+        endCategoryDrag()
+        if (!id || id === g.key) return
+        const rest = useRoomLayout.getState().categories.filter((c) => !c.hidden && c.id !== id)
+        moveCategoryTo(id, g.category ? rest.findIndex((c) => c.id === g.key) + after : rest.length)
+      },
+    },
+  }
 }
 
 function GroupSection({ g, activeId }: { g: Group; activeId: string | null }) {
   const nt = useNT()
   const coarse = useCoarse()
-  const collapsed = useRoomLayout((s) => g.label !== null && s.collapsed.includes(g.key))
-  const hold = useHold((x, y) => { if (g.category) openListMenu({ category: g.category.id }, x, y) })
+  // While a category header is dragged every group folds to its header, so the
+  // whole order fits on screen; the stored collapsed state is left alone.
+  const collapsed = useRoomLayout((s) => g.label !== null && (s.draggingCategory !== null || s.collapsed.includes(g.key)))
+  const unread = g.rooms.reduce((n, c) => n + (isMuted(c) ? 0 : c.unread ?? 0), 0)
+  const hold = useHold((x, y) => {
+    const total = g.rooms.reduce((n, c) => n + (c.unread ?? 0), 0)
+    // Other's menu has nothing but Mark all as read.
+    if (g.category || total > 0) openListMenu({ group: g.key, rooms: g.rooms.map((c) => c.id), unread: total }, x, y)
+  })
+  const drag = useCategoryDragSource(g.category && !g.category.hidden ? g.category.id : null)
+  const headTarget = useCategoryTarget(g)
   const drop = useDropTarget((e) => {
     const id = e.dataTransfer.getData(ROOM_MIME)
     if (id) fileRoom(id, g.category?.id ?? null)
   })
-  const unread = g.rooms.reduce((n, c) => n + (isMuted(c) ? 0 : c.unread ?? 0), 0)
-  const target = g.former ? {} : drop.props
   return (
-    <section className="nx-group" aria-label={g.label ?? undefined} data-collapsed={collapsed || undefined} data-drop={drop.over || undefined} {...target}>
+    <section
+      className="nx-group"
+      aria-label={g.label ?? undefined}
+      data-collapsed={collapsed || undefined}
+      data-hidden={g.category?.hidden || undefined}
+      data-drop={drop.over || undefined}
+      {...drop.props}
+    >
       {g.label !== null && (
-        <h2 className="nx-group__head">
+        <h2 className="nx-group__head" data-drop-side={headTarget.side ?? undefined} {...headTarget.props}>
           <button
             type="button"
             className="nx-group__toggle"
             aria-expanded={!collapsed}
             onClick={() => { haptic('select'); useRoomLayout.getState().toggleCollapsed(g.key) }}
-            {...(g.category ? hold : {})}
+            {...hold}
+            {...drag}
           >
             <IChevronDown className="nx-group__chev" />
             <span className="nx-group__label">{g.label}</span>
+            {g.category?.hidden && <IEyeOff className="nx-group__hidden" />}
             {collapsed && unread > 0 && <span className="nx-badge">{unread > 99 ? '99+' : unread}</span>}
           </button>
         </h2>
@@ -446,7 +721,7 @@ function GroupSection({ g, activeId }: { g: Group; activeId: string | null }) {
           height without a JS measurement (a layout pass per frame, see shell.css). */}
       <div className="nx-group__body" {...(collapsed ? INERT : {})}>
         <div className="nx-group__inner">
-          {g.rooms.map((c) => <RoomRow key={c.id} c={c} active={c.id === activeId} former={!!g.former} />)}
+          {g.rooms.map((c) => <RoomRow key={c.id} c={c} active={c.id === activeId} />)}
           {/* Touch has no mouse drag; rooms move from their long-press menu. */}
           {g.rooms.length === 0 && <div className="nx-group__empty">{nt(coarse ? 'chats.holdToMove' : 'chats.dragHere')}</div>}
         </div>
@@ -455,12 +730,32 @@ function GroupSection({ g, activeId }: { g: Group; activeId: string | null }) {
   )
 }
 
+/** Hidden categories leave the list; this one quiet row at its foot counts
+ *  them, carries their unread total and opens them below itself. */
+function HiddenGroups({ groups, activeId }: { groups: Group[]; activeId: string | null }) {
+  const nt = useNT()
+  const [open, setOpen] = useState(false)
+  if (groups.length === 0) return null
+  const unread = groups.reduce((n, g) => n + g.rooms.reduce((m, c) => m + (isMuted(c) ? 0 : c.unread ?? 0), 0), 0)
+  return (
+    <>
+      <button type="button" className="nx-hidden-row" aria-expanded={open} onClick={() => { haptic('select'); setOpen((v) => !v) }}>
+        <IEyeOff />
+        <span className="nx-hidden-row__label">{nt('chats.hiddenCount', { n: groups.length })}</span>
+        {unread > 0 && <span className="nx-badge nx-badge--muted">{unread > 99 ? '99+' : unread}</span>}
+        <IChevronDown className="nx-hidden-row__chev" />
+      </button>
+      {open && groups.map((g) => <GroupSection key={g.key} g={g} activeId={activeId} />)}
+    </>
+  )
+}
+
 /** Dropping a room here asks for a name and files the room under it. */
 function NewCategoryDrop() {
   const nt = useNT()
   const drop = useDropTarget((e) => {
     const id = e.dataTransfer.getData(ROOM_MIME)
-    if (id) useListMenu.setState({ target: { room: id, former: false }, dialog: 'category' })
+    if (id) useListMenu.setState({ target: { room: id }, dialog: 'category' })
   })
   const dragging = useRoomLayout((s) => s.dragging !== null)
   if (!dragging) return null
@@ -493,34 +788,32 @@ function LayoutRetry() {
 
 function RoomList({ activeId }: { activeId: string | null }) {
   const nt = useNT()
-  const me = useMe()
   const list = useConversations((s) => s.list)
   const loaded = useConversations((s) => s.loaded)
-  const layout = useRoomLayout(useShallow((s) => ({ status: s.status, categories: s.categories, rooms: s.rooms })))
+  const layout = useRoomLayout(useShallow((s) => ({ status: s.status, categories: s.categories, rooms: s.rooms, pinOrder: s.pinOrder })))
   const dragging = useRoomLayout((s) => s.dragging !== null)
-  // Deleting an agent off-boards it: the 1:1 room and its history stay, so
-  // those rooms move to a Former group at the bottom instead of vanishing.
   const departed = useParticipants(useShallow((s) => Object.values(s.byId).filter((p) => p.departedAt).map((p) => p.id)))
 
-  const { pinned, groups } = useMemo(() => {
+  const { pinned, groups, hidden } = useMemo(() => {
     const gone = new Set(departed)
-    const isFormer = (c: Conversation) => c.kind === 'direct' && c.members.some((m) => m !== me && gone.has(m))
-    const rooms = list.filter((c) => c.kind !== 'whisper')
-    const live = rooms.filter((c) => !isFormer(c))
+    const rooms = list.filter((c) => listed(c, (m) => gone.has(m)))
     const byCategory = new Map(layout.categories.map((k) => [k.id, [] as Conversation[]]))
     const other: Conversation[] = []
-    for (const c of live) {
+    for (const c of rooms) {
       if (c.pinned) continue
       const bucket = byCategory.get(layout.rooms[c.id] ?? '')
       if (bucket) bucket.push(c)
       else other.push(c)
     }
-    const former = rooms.filter(isFormer)
-    const out: Group[] = layout.categories.map((k) => ({ key: k.id, label: k.name, rooms: byCategory.get(k.id) ?? [], category: k }))
+    const toGroup = (k: Category): Group => ({ key: k.id, label: k.name, rooms: byCategory.get(k.id) ?? [], category: k })
+    const out = layout.categories.filter((k) => !k.hidden).map(toGroup)
     out.push({ key: OTHER_GROUP, label: layout.categories.length > 0 ? nt('chats.other') : null, rooms: other })
-    if (former.length > 0) out.push({ key: FORMER_GROUP, label: nt('chats.former'), rooms: former, former: true })
-    return { pinned: live.filter((c) => c.pinned), groups: out }
-  }, [list, layout, departed, me, nt])
+    return {
+      pinned: byTileOrder(rooms.filter((c) => c.pinned), layout.pinOrder),
+      groups: out,
+      hidden: layout.categories.filter((k) => k.hidden).map(toGroup),
+    }
+  }, [list, layout, departed, nt])
 
   // Hold the skeleton until the layout arrives too, so rooms never jump into
   // their categories after first paint.
@@ -552,6 +845,7 @@ function RoomList({ activeId }: { activeId: string | null }) {
           .filter((g) => g.rooms.length > 0 || g.category || (dragging && g.key === OTHER_GROUP))
           .map((g) => <GroupSection key={g.key} g={g} activeId={activeId} />)}
         <NewCategoryDrop />
+        <HiddenGroups groups={hidden} activeId={activeId} />
       </div>
     </>
   )

@@ -241,8 +241,9 @@ body.keyboard-open .nx-tabbar { display: none; }
   border-radius: var(--radius);
 }
 .nx-tiles[data-drop] { background: var(--accent); }
-/* With nothing pinned, the pin target floats over the top of the list while a
-   room is dragged. Its anchor is sticky and zero-height, so no row moves. */
+/* With nothing pinned, or with the tile row's last line full, the pin target
+   floats over the top of the list while a room is dragged. Its anchor is sticky
+   and zero-height, so no row moves. */
 .nx-pin-drop { position: sticky; top: 0; z-index: 2; height: 0; }
 .nx-pin-drop__zone {
   position: absolute;
@@ -258,16 +259,49 @@ body.keyboard-open .nx-tabbar { display: none; }
   animation: nx-fade var(--duration-quick) var(--ease-smooth-out);
   transition: background-color var(--duration-quick), color var(--duration-quick);
 }
-.nx-pin-drop__zone[data-drop] { background: var(--accent); color: var(--foreground); }
+/* Opaque even when lit: the zone floats over rows that must not show through. */
+.nx-pin-drop__zone[data-drop] { background: color-mix(in oklch, var(--foreground) 4%, var(--popover)); color: var(--foreground); }
+/* The Pin slot a room drag adds to the free space on the tile row's last line.
+   The row underneath takes the drop, so the slot only shows it. */
+.nx-tile--slot { color: var(--muted-foreground); pointer-events: none; animation: nx-fade var(--duration-quick) var(--ease-smooth-out); }
+.nx-tile--slot .nx-tile__face {
+  width: 40px;
+  height: 40px;
+  border: 1px dashed var(--input);
+  border-radius: 999px;
+  transition: border-color var(--duration-quick);
+}
+.nx-tile--slot .nx-tile__face svg { width: 16px; height: 16px; }
+.nx-tiles[data-drop] .nx-tile--slot { color: var(--primary); }
+.nx-tiles[data-drop] .nx-tile--slot .nx-tile__face { border-color: var(--primary); }
+/* Where a dragged tile or category header lands: a line drawn outside the
+   flow, so nothing under the pointer moves while it follows the pointer. */
+.nx-tile { position: relative; }
+.nx-tile[data-drop-side]::after,
+.nx-group__head[data-drop-side]::after {
+  content: '';
+  position: absolute;
+  border-radius: 2px;
+  background: var(--primary);
+  pointer-events: none;
+}
+.nx-tile[data-drop-side]::after { top: 8px; bottom: 8px; width: 2px; }
+.nx-tile[data-drop-side="before"]::after { left: -3px; }
+.nx-tile[data-drop-side="after"]::after { right: -3px; }
 .nx-tile[aria-current="page"] { background: var(--selected); }
 .nx-tile__face { position: relative; display: grid; place-items: center; }
 .nx-tile .nx-room-glyph { width: 40px; height: 40px; }
 .nx-tile__badge { position: absolute; top: -4px; right: -8px; }
 
-/* Room groups: a custom category, Other, or Former. */
+/* Room groups: a custom category or Other. */
 .nx-group { border-radius: var(--radius); transition: background-color var(--duration-quick); }
 .nx-group[data-drop] { background: var(--accent); }
-.nx-group__head { margin: 0; }
+.nx-group__head { position: relative; margin: 0; }
+.nx-group__head[data-drop-side]::after { left: 8px; right: 8px; height: 2px; }
+.nx-group__head[data-drop-side="before"]::after { top: 4px; }
+.nx-group__head[data-drop-side="after"]::after { bottom: -2px; }
+.nx-group__toggle[data-dragging] { opacity: 0.4; }
+.nx-group__hidden { flex: none; width: 12px; height: 12px; }
 .nx-group__toggle {
   display: flex;
   align-items: center;
@@ -343,14 +377,36 @@ html.nx .nx-room:focus-visible { outline-offset: -2px; }
   font: 500 var(--text-caption) / 1.4 var(--font-sans);
   text-align: left;
 }
+/* The foot row that counts hidden categories and opens them below itself. */
+.nx-hidden-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin: 8px 0 0;
+  padding: 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--muted-foreground);
+  font: 500 var(--text-caption) / 1.2 var(--font-sans);
+  text-align: left;
+  transition: background-color var(--duration-quick), color var(--duration-quick);
+}
+.nx-hidden-row svg { flex: none; width: 14px; height: 14px; }
+.nx-hidden-row__label { flex: 1; min-width: 0; }
+.nx-hidden-row__chev { transition: transform var(--duration-fast) var(--ease-smooth-out); }
+.nx-hidden-row[aria-expanded="true"] .nx-hidden-row__chev { transform: rotate(180deg); }
 .nx-category-form { display: flex; flex-direction: column; gap: 12px; }
 .nx-category-form__actions { display: flex; justify-content: flex-end; gap: 8px; }
 .nx-category-form__error { margin: 0; font-size: var(--text-caption); color: var(--destructive); }
 @media (hover: hover) {
+  .nx-hidden-row:hover { background: var(--accent); color: var(--foreground); }
   .nx-group__toggle:hover { color: var(--foreground); }
   .nx-group-error:hover { color: var(--foreground); }
 }
 @media (pointer: coarse) {
+  .nx-hidden-row { min-height: 44px; }
   .nx-group__toggle { min-height: 44px; padding-top: 16px; }
 }
 
