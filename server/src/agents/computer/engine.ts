@@ -32,8 +32,8 @@ import { StringDecoder } from 'node:string_decoder'
 import { stripLoneSurrogates } from '../text-safety.js'
 import { isCustomAnthropicEndpoint, readClaudeUserSettings, withClaudeUserSettingsEnv } from './claude-user-settings.js'
 import { isCliVersionAtLeast, probeEngineVersion, probeLocalEngineVersionWithRetry, versionCommandInvocation } from './cli-version.js'
-import { discoverEngineModelCatalog, type EngineModelCatalog } from './model-catalog.js'
 import { CODEX_RUNTIME_CONFIG_ARGS, codexAuthFingerprint, codexRuntimeEnv } from './codex-runtime.js'
+import { discoverEngineModelCatalog, type EngineModelCatalog } from './model-catalog.js'
 
 const IS_WIN = process.platform === 'win32'
 
@@ -2470,7 +2470,13 @@ class CodexAdapter implements EngineAdapter {
     // Windows .cmd transport, custom args and explicit opt-outs use exec resume.
     if (unsafeEngineArgs('CUMORA_CODEX_ARGS').length
         || process.env.CUMORA_CODEX_NO_APP_SERVER === '1'
-        || IS_WIN) return null
+        || IS_WIN
+        // Compatibility mode exposes the legacy `cumora` PATH shim. Codex's
+        // persistent app-server still launches Linux shell commands inside its
+        // bubblewrap profile, which cannot reach the daemon-owned IPC directory
+        // outside the agent home; the one-shot bypass path is the intended
+        // compatibility boundary and keeps the shim usable.
+        || allowUnsandboxedByoa()) return null
     args = { ...args, env: codexRuntimeEnv(args.env) }
     try { ensureGitRepoForCodex(args.home) }
     catch (err) { args.onLog(`[codex] could not init git repo for app-server (${err instanceof Error ? err.message : String(err)}) — falling back to one-shot exec`); return null }
