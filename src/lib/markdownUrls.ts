@@ -7,8 +7,8 @@
  * also swallow a Markdown closing delimiter when prose follows it without a
  * space (for example `**https://example.com**（说明）`).
  *
- * Keep this policy in one place so the Markdown renderer and link-preview
- * extractor agree on the URL that a user can actually open.
+ * Keep this policy in one place so the Markdown renderer and the plain-text
+ * tokenizer (`parseBody`) agree on the URL that a user can actually open.
  */
 
 /** Characters that conventionally end a URL in CJK prose.  A literal URL
@@ -18,8 +18,6 @@ const CJK_PROSE_BOUNDARY_RE = /[，。；：！？、（）【】《》〈〉“
 
 const TRAILING_PUNCTUATION = new Set(['.', ',', ';', ':', '!', '?', '"', "'"])
 const BRACKET_PAIRS: Record<string, string> = { ')': '(', ']': '[', '}': '{', '>': '<' }
-
-const HTTP_URL_CANDIDATE_RE = /\bhttps?:\/\/[^\s<>"'`]+/g
 
 export interface SplitHttpUrlOptions {
   /** A Markdown delimiter known to close immediately after the URL. */
@@ -61,18 +59,4 @@ export function splitHttpUrlCandidate(
   }
 
   return { url: raw.slice(0, end), trail: raw.slice(end) }
-}
-
-const MARKDOWN_URL_WRAPPERS = ['**', '__', '~~', '*', '_'] as const
-
-/** Return the first HTTP(S) URL represented by a chat Markdown body. */
-export function firstHttpUrlInMarkdown(body: string): string | null {
-  HTTP_URL_CANDIDATE_RE.lastIndex = 0
-  const match = HTTP_URL_CANDIDATE_RE.exec(body)
-  if (!match) return null
-
-  const prefix = body.slice(0, match.index)
-  const closingMarker = MARKDOWN_URL_WRAPPERS.find((marker) => prefix.endsWith(marker))
-  const { url } = splitHttpUrlCandidate(match[0], { closingMarker })
-  return url || null
 }

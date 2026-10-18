@@ -212,6 +212,8 @@ export const en = {
   'chat.everyone': 'Everyone',
   'chat.everyoneHint': 'Notify all members of this room',
   'chat.send': 'Send',
+  'chat.stop': 'Stop',
+  'chat.stopAgent': 'Stop {name}',
   'chat.gathering': 'Gathering messages…',
   'chat.loadFailed': "Couldn't load messages",
   'chat.retrying': 'Retrying…',

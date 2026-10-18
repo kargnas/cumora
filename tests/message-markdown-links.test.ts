@@ -4,7 +4,6 @@ import type { Root } from 'mdast'
 import remarkGfm from 'remark-gfm'
 import remarkParse from 'remark-parse'
 import { unified } from 'unified'
-import { firstHttpUrlInMarkdown } from '../src/lib/markdownUrls'
 import { remarkCumora } from '../src/lib/remarkCumora'
 
 async function parse(markdown: string): Promise<Root> {
@@ -66,16 +65,5 @@ describe('chat Markdown links', () => {
     if (link.type !== 'link') return
     assert.equal(link.url, 'http://127.0.0.1:4182')
     assert.equal(link.children[0].type === 'text' ? link.children[0].value : null, '本机预览')
-  })
-
-  it('uses the same URL boundary for link previews', () => {
-    assert.equal(
-      firstHttpUrlInMarkdown('浏览器打开 **http://127.0.0.1:4182**（本机 preview）'),
-      'http://127.0.0.1:4182',
-    )
-    assert.equal(
-      firstHttpUrlInMarkdown('详见 https://example.com/path（说明）'),
-      'https://example.com/path',
-    )
   })
 })

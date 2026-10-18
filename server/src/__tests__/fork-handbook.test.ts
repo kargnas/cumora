@@ -9,8 +9,8 @@ import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildHandbook, type Attribution, type Handbook, type HandbookFile } from '../fork/handbook.js'
-import { createRecorder, MAX_FILE_BYTES } from '../fork/recorder.js'
+import { buildHandbook, ownedVersions, type Attribution, type Handbook, type HandbookFile } from '../fork/handbook.js'
+import { createRecorder, MAX_FILE_BYTES, MAX_HOME_FILES } from '../fork/recorder.js'
 import { openForkStore, type FileVersion } from '../fork/store.js'
 
 const dir = mkdtempSync(join(tmpdir(), 'fork-handbook-'))
@@ -126,6 +126,41 @@ test('sections run instructions, memory, then own and shared skills, with secret
   assert.equal(file(h, '~/.agents/skills/git-lore/SKILL.md')?.shared, true)
 })
 
+test('a private key reads as one line in every version, so the edits around it line up', () => {
+  const key = (body: string) => `-----BEGIN OPENSSH PRIVATE KEY-----\n${body}\n-----END OPENSSH PRIVATE KEY-----`
+  const vs = ordered([
+    version('atlas', 'memory/deploy.md', '01:00', `Deploy key:\n${key('b3BlbnNzaC1rZXktdjEAAAAA\nQyNTUxOQAAACD')}\nUse it for prod\n`, true),
+    // The key is rotated (a different number of lines) and the last line edited.
+    version('atlas', 'memory/deploy.md', '02:00', `Deploy key:\n${key('AAAAC3NzaC1lZDI1NTE5AAAA\nIHRoaXMgaXMgbmV3\nZm9yIHN0YWdpbmc=')}\nUse it for staging\n`),
+  ])
+  const h = buildHandbook(vs, { since: null, at: null }, new Map())
+  assert.deepEqual(file(h, 'memory/deploy.md')?.parts, [
+    { same: ['Deploy key:', '-----BEGIN OPENSSH PRIVATE KEY-----[redacted]-----END OPENSSH PRIVATE KEY-----'] },
+    { change: 1, lines: [{ op: 'edit', segs: [['=', 'Use it for '], ['-', 'prod'], ['+', 'staging']] }] },
+  ])
+})
+
+test('an agent id used again does not bring back the files of the agent that had it before', () => {
+  // atlas of a hard-deleted workspace kept notes; another workspace's atlas joined its first room at 04:00.
+  const vs = ordered([
+    version('atlas', 'CLAUDE.md', '01:00', '# Old workspace rules\n', true),
+    version('atlas', 'memory/MEMORY.md', '01:00', '- [Acme](acme.md)\n', true),
+    version('atlas', 'memory/acme.md', '02:00', 'Acme renews in May\n'),
+    version('atlas', 'memory/acme.md', '03:00', null),
+    version('atlas', 'CLAUDE.md', '05:00', '# New rules\n'),
+    version('', 'git-lore/SKILL.md', '01:00', 'shared\n', true),
+  ])
+  const h = buildHandbook(ownedVersions(vs, T('04:00')), { since: null, at: null }, new Map())
+  assert.ok(h.available)
+  assert.ok(!/Old workspace|Acme/.test(JSON.stringify(h)), 'nothing of the earlier agent shows')
+  assert.deepEqual(h.changes.map((c) => [c.n, c.path, c.kind]), [[1, 'CLAUDE.md', 'created']])
+  assert.deepEqual(files(h).map((f) => f.path), ['CLAUDE.md', '~/.agents/skills/git-lore/SKILL.md'])
+
+  // An agent in no room of the workspace owns none of its own files' versions.
+  const roomless = buildHandbook(ownedVersions(vs, null), { since: null, at: null }, new Map())
+  assert.deepEqual(files(roomless).map((f) => f.path), ['~/.agents/skills/git-lore/SKILL.md'])
+})
+
 test('changes carry the run and the instruction they were matched to', () => {
   const edit = version('atlas', 'CLAUDE.md', '02:00', 'b\n')
   const attribution = new Map<number, Attribution>([[edit.id, {
@@ -205,4 +240,20 @@ test('the recorder stores what the computer holds and nothing it must not read',
 
   // A fresh recorder over the same store picks up where the last one stopped.
   assert.equal(createRecorder(store, roots, () => clock)(), 0)
+})
+
+test('the recorder scans a bounded number of files in a home, the files every agent has first', async () => {
+  const roots = { agents: join(dir, 'full', 'agents'), skills: join(dir, 'full', 'skills') }
+  const home = join(roots.agents, 'atlas')
+  mkdirSync(join(home, 'memory', 'notes'), { recursive: true })
+  writeFileSync(join(home, 'CLAUDE.md'), '# Atlas\n')
+  writeFileSync(join(home, 'memory', 'MEMORY.md'), '- index\n')
+  for (let i = 0; i < MAX_HOME_FILES + 50; i++) writeFileSync(join(home, 'memory', 'notes', `${i}.md`), `note ${i}\n`)
+
+  const store = await openForkStore(join(dir, 'full.sqlite'))
+  createRecorder(store, roots, () => Date.parse(T('10:00')))()
+  const paths = store.fileVersions(['atlas'], null).map((v) => v.path)
+  assert.ok(paths.includes('CLAUDE.md') && paths.includes('memory/MEMORY.md'))
+  // CLAUDE.md, AGENTS.md and MEMORY.md are looked up by name, outside the scan's budget.
+  assert.ok(paths.length <= MAX_HOME_FILES + 3, `${paths.length} files recorded`)
 })

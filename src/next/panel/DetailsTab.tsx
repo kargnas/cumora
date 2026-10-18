@@ -138,7 +138,8 @@ function AgentGroup({ agents }: { agents: Participant[] }) {
         value={a.systemPrompt ?? ''}
         multiline
         rows={6}
-        onSave={(v) => save({ systemPrompt: v })}
+        // An empty style blanks the agent's persona in every room; the full editor refuses it too.
+        onSave={(v) => (v ? save({ systemPrompt: v }) : Promise.reject(new Error(nt('details.agentStyleRequired'))))}
       />
       <div className="nx-rows">
         <a className="nx-row nx-row--link" href={withRoute(route, { params: { [AGENT_EDIT_PARAM]: a.id } })} onClick={linkClick}>

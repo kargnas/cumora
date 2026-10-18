@@ -21,7 +21,6 @@ import {
   DocumentArtifactCard, BoardArtifactCard, CardArtifactCard, CalendarArtifactCard,
 } from '@/components/Message'
 import { PollBubble } from '@/components/PollBubble'
-import { LinkPreview, firstUrlInBody } from '@/components/LinkPreview'
 import { ImageViewer } from '@/components/ImageViewer'
 import type { Message, Participant } from '@/types'
 import { haptic } from '../haptics'
@@ -146,7 +145,6 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, showName, f
   const menu = useMenu()
   const hold = useHold((x, y) => menu.openAt({ x, y }))
   const hasText = msg.body.trim().length > 0 && msg.kind !== 'poll'
-  const linkUrl = hasText && msg.kind === 'text' ? firstUrlInBody(msg.body) : null
   const tail = pos === 'single' || pos === 'last'
   const quote = msg.quoted
   const quoteAuthor = useParticipants((s) => (quote ? s.byId[quote.authorId]?.name : undefined))
@@ -204,7 +202,6 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, showName, f
             <IconButton small label={nt('msg.more')} onClick={(e) => menu.toggleFrom(e.currentTarget, mine ? 'end' : 'start')}><IMore /></IconButton>
           </div>
         </div>
-        {linkUrl && <div className="nx-msg__extra"><LinkPreview url={linkUrl} /></div>}
         <Artifacts msg={msg} />
         <Reactions msg={msg} mine={mine} />
         {(msg.replyCount ?? 0) > 0 && (

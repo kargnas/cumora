@@ -135,6 +135,7 @@ const core = {
   'composer.mention': 'Mention someone',
   'composer.everyone': 'Everyone in this room',
   'composer.send': 'Send',
+  'composer.stop': 'Stop {name}',
   'composer.emoji': 'Emoji',
   'composer.emojiStandard': 'Emoji',
   'composer.emojiSkype': 'Skype',
@@ -213,6 +214,7 @@ const core = {
   'details.agentRole': 'Role',
   'details.agentBio': 'Bio',
   'details.agentStyle': 'Style',
+  'details.agentStyleRequired': 'An agent needs a style.',
   'details.agentMore': 'Model, computer and avatar',
 
   'files.none': 'No files or documents in this conversation yet.',

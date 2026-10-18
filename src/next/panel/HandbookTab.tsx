@@ -331,9 +331,19 @@ function Scrubber({ changes, at }: { changes: HandbookChange[]; at: string | nul
   const n = changes.length
   const [draft, setDraft] = useState<number | null>(null)
   const timer = useRef<number | undefined>(undefined)
+  const input = useRef<HTMLInputElement>(null)
   // The URL caught up with the drag.
   useEffect(() => setDraft(null), [at])
   useEffect(() => () => window.clearTimeout(timer.current), [])
+  // On the phone the panel's swipe-back layer claims any sideways touch from
+  // its own native listener; a drag that starts on the scrubber is the scrubber's.
+  useEffect(() => {
+    const el = input.current
+    if (!el) return
+    const keep = (e: TouchEvent) => e.stopPropagation()
+    el.addEventListener('touchstart', keep, { passive: true })
+    return () => el.removeEventListener('touchstart', keep)
+  }, [])
   const value = Math.min(draft ?? stepOf(changes, at), n)
   const label = value >= n ? nt('handbook.now')
     : value === 0 ? nt('handbook.beforeFirst')
@@ -342,6 +352,9 @@ function Scrubber({ changes, at }: { changes: HandbookChange[]; at: string | nul
     // Step 0 is the document just before the first change.
     const iso = step >= n ? null : step === 0 ? new Date(Date.parse(changes[0].at) - 1).toISOString() : changes[step - 1].at
     navigate(withRoute(getRoute(), { params: { at: iso } }), { replace: true })
+    // A drag that ends where it started leaves the URL as it was, so `at` never
+    // changes to clear the draft; clear it here.
+    setDraft(null)
   }
   return (
     <div className="nx-hb-scrub">
@@ -351,6 +364,7 @@ function Scrubber({ changes, at }: { changes: HandbookChange[]; at: string | nul
           {changes.map((c, i) => <i key={c.n} style={{ left: `${((i + 1) / n) * 100}%` }} data-on={i < value || undefined} />)}
         </div>
         <input
+          ref={input}
           type="range"
           className="nx-hb-scrub__input"
           min={0}

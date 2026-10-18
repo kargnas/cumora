@@ -45,10 +45,11 @@ import { redis, sub as redisSub } from '../../redis.js'
  *            DB round-trip. The message is ALSO in the messages
  *            table — that's the fallback path when the pod is
  *            idle / disconnected. */
-export type WakeEvent = WakeEventBase & (WakeKindWake | WakeKindSteer)
+export type WakeEvent = WakeEventBase & (WakeKindWake | WakeKindSteer | WakeKindInterrupt)
 type WakeEventPayload =
   | Omit<WakeEventBase & WakeKindWake, 'id' | 'at'>
   | Omit<WakeEventBase & WakeKindSteer, 'id' | 'at'>
+  | Omit<WakeEventBase & WakeKindInterrupt, 'id' | 'at'>
 
 interface WakeEventBase {
   /** Fresh id for logs. The Pod does not dedupe on it. */
@@ -125,6 +126,15 @@ interface WakeKindSteer {
   authorName: string
   /** The raw message body the model needs to see. */
   body: string
+}
+
+/** A person pressed Stop for this agent in a room. A BYOA daemon stops the
+ *  running turn and stands the agent down; runtimes without a stop ignore it. */
+interface WakeKindInterrupt {
+  kind: 'interrupt'
+  conversationId: string
+  byId: string
+  byName: string
 }
 
 /** Per-agent Redis channel. Keep the prefix short — every PUBLISH
@@ -243,6 +253,13 @@ export async function deliverSteer(
   payload: Omit<Extract<WakeEvent, { kind: 'steer' }>, 'id' | 'at' | 'kind'>,
 ): Promise<number> {
   return deliver(agentId, { kind: 'steer', ...payload })
+}
+
+export async function deliverInterrupt(
+  agentId: string,
+  payload: Omit<Extract<WakeEvent, { kind: 'interrupt' }>, 'id' | 'at' | 'kind'>,
+): Promise<number> {
+  return deliver(agentId, { kind: 'interrupt', ...payload })
 }
 
 /** Diagnostic — agent ids with at least one LOCAL live subscriber.

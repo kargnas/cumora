@@ -292,7 +292,6 @@
 }
 .nx-msg__failed { display: flex; gap: 8px; align-items: center; font-size: var(--text-caption); color: var(--destructive); }
 .nx-msg__failed button { border: 0; padding: 0; background: none; color: inherit; font-weight: 600; text-decoration: underline; }
-.nx-msg__extra,
 .nx-artifacts { max-width: 100%; display: flex; flex-direction: column; gap: 4px; }
 
 /* Entrances. Sent messages rise from the composer; replies reveal top-down,
@@ -498,6 +497,7 @@ html.nx .nx-composer__input:focus-visible { outline: none; }
 }
 .nx-send svg { width: 16px; height: 16px; }
 .nx-send[data-ready] { background: var(--primary); color: var(--primary-foreground); animation: nx-pop var(--duration-fast) var(--ease-bounce); }
+.nx-send[data-stop] { background: var(--foreground); color: var(--background); }
 .nx-send:active:not(:disabled) { transform: scale(0.9); }
 @media (pointer: coarse) {
   .nx-chat__composer { padding: 8px 8px calc(8px + var(--safe-bottom)); }
