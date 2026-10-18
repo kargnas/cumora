@@ -136,6 +136,7 @@ const core = {
   'composer.mention': 'Mention someone',
   'composer.everyone': 'Everyone in this room',
   'composer.send': 'Send',
+  'composer.stop': 'Stop {name}',
   'composer.emoji': 'Emoji',
   'composer.emojiStandard': 'Emoji',
   'composer.emojiSkype': 'Skype',

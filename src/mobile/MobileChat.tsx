@@ -18,6 +18,7 @@ import { api, type ApiAttachment } from '@/api/client'
 import type { Message, Participant } from '@/types'
 import { cn } from '@/lib/utils'
 import { isImeComposing } from '@/lib/keyboard'
+import { useAgentStop } from '@/lib/agentStop'
 import { tapHaptic } from '@/lib/native'
 import { COMPOSER_EMOJIS } from '@/lib/emoji'
 import { SKYPE_EMOJIS, findSkypeByShortcode } from '@/lib/skypeEmojis'
@@ -80,6 +81,8 @@ export function MobileChat() {
   const [attachment, setAttachment] = useState<ApiAttachment | null>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
+  // Fork: an empty box turns Send into Stop while an agent works in this room.
+  const agentStop = useAgentStop(convoId)
   // Per-convo "replying to" pointer, lifted from the global app store so
   // it persists across mounts and matches the desktop composer's UX.
   const replyingToId = useApp((s) => convoId ? s.replyingTo[convoId] : undefined)
@@ -481,6 +484,7 @@ export function MobileChat() {
     }
   }
   const canSend = (draft.trim().length > 0 || attachment !== null) && !uploading
+  const stoppable = !canSend && !uploading && agentStop.agents.length > 0
   const memberPs = c.members
     .map((m) => byId[m])
     .filter((p): p is Participant => Boolean(p))
@@ -821,21 +825,34 @@ export function MobileChat() {
               }}
             />
           </div>
-          <Pressable
-            onClick={send}
-            disabled={!canSend}
-            scale={0.9}
-            className="w-10 h-10 grid place-items-center rounded-full text-white shrink-0 disabled:opacity-40"
-            style={{
-              background: canSend
-                ? 'linear-gradient(135deg, var(--skype), var(--skype-deep))'
-                : 'var(--ink-200)',
-              boxShadow: canSend ? '0 4px 12px -3px rgba(0, 168, 240, 0.5)' : 'none',
-            }}
-            aria-label={t('mobchat.sendAria')}
-          >
-            <ISend className="w-[18px] h-[18px]" strokeWidth={2} />
-          </Pressable>
+          {stoppable ? (
+            <Pressable
+              onClick={() => void agentStop.stop()}
+              disabled={agentStop.busy}
+              scale={0.9}
+              className="w-10 h-10 grid place-items-center rounded-full shrink-0 disabled:opacity-60"
+              style={{ background: 'var(--ink-900)', color: 'var(--paper)' }}
+              aria-label={t('chat.stopAgent', { name: agentStop.names })}
+            >
+              <span aria-hidden className="w-3 h-3 rounded-[3px] bg-current" />
+            </Pressable>
+          ) : (
+            <Pressable
+              onClick={send}
+              disabled={!canSend}
+              scale={0.9}
+              className="w-10 h-10 grid place-items-center rounded-full text-white shrink-0 disabled:opacity-40"
+              style={{
+                background: canSend
+                  ? 'linear-gradient(135deg, var(--skype), var(--skype-deep))'
+                  : 'var(--ink-200)',
+                boxShadow: canSend ? '0 4px 12px -3px rgba(0, 168, 240, 0.5)' : 'none',
+              }}
+              aria-label={t('mobchat.sendAria')}
+            >
+              <ISend className="w-[18px] h-[18px]" strokeWidth={2} />
+            </Pressable>
+          )}
         </div>
         <div className="flex items-center gap-1 pt-1.5 pb-0.5">
           <Pressable

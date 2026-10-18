@@ -146,6 +146,7 @@ export const zhCN: Partial<Record<keyof typeof en, string>> = {
   'composer.mention': '提及某人',
   'composer.everyone': '群里所有人',
   'composer.send': '发送',
+  'composer.stop': '停止 {name}',
   'composer.emoji': '表情',
   'composer.emojiStandard': '表情',
   'composer.emojiSkype': 'Skype',
