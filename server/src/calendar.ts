@@ -27,7 +27,7 @@ export { nextOccurrenceOnOrAfter, type RecurrenceRule } from './recurrence.js'
 import { nextOccurrenceOnOrAfter, type RecurrenceRule } from './recurrence.js'
 
 const TICK_INTERVAL_MS = 60_000
-const CALENDAR_SYSTEM_AUTHOR_ID = 'calendar'
+export const CALENDAR_SYSTEM_AUTHOR_ID = 'calendar'
 /** A dispatch is "due" any time `scheduled_for <= now`. We cap how far in
  *  the past we'll still fire so a long server outage doesn't unleash a
  *  pile-up of catch-up dispatches the moment we come back. Events whose

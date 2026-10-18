@@ -32,7 +32,7 @@ import { useHold, useNow } from '../hooks'
 import { Avatar } from '../ui/Avatar'
 import { IconButton, Menu, Spinner, useMenu, type MenuEntry } from '../ui/primitives'
 import { IArrowDown, ICopy, IDownload, IFile, IMore, IReply, ISpark, IThread, IWhisper } from '../ui/icons'
-import { buildItems, type Item, type Pos } from './model'
+import { buildItems, createdAt, type Item, type Pos } from './model'
 
 const EMPTY: Message[] = []
 const QUICK = ['👍', '❤️', '😂', '👀', '✅', '🔥']
@@ -419,20 +419,31 @@ export function MessageList({ convoId, group, bottomInset, find }: { convoId: st
   const pendingJump = useApp((s) => s.pendingJumpMessageId)
   useEffect(() => {
     if (!pendingJump) return
-    const index = items.findIndex((it) => it.type !== 'work' && it.msg.id === pendingJump)
-    if (index < 0) return
+    let index = items.findIndex((it) => it.type !== 'work' && it.msg.id === pendingJump)
+    if (index < 0) {
+      // A Calendar firing has no line of its own (buildItems leaves it out),
+      // so a jump to one lands on what came after it: what the run produced.
+      const hidden = raw.find((m) => m.id === pendingJump)
+      if (!hidden) return
+      const t = createdAt(hidden).getTime()
+      index = items.findIndex((it) => createdAt(it.type === 'work' ? it.msgs[0] : it.msg).getTime() >= t)
+      if (index < 0) index = items.length - 1
+      if (index < 0) return
+    }
+    const target = items[index]
+    const targetId = target.type === 'work' ? target.msgs[0].id : target.msg.id
     useApp.getState().clearPendingJump()
     ref.current?.scrollToIndex({ index, align: 'center', behavior: 'smooth' })
     const deadline = Date.now() + 1200
     const flash = () => {
-      const el = document.getElementById(`m-${pendingJump}`)
+      const el = document.getElementById(`m-${targetId}`)
       if (el) {
         el.classList.add('nx-flash')
         window.setTimeout(() => el.classList.remove('nx-flash'), 1400)
       } else if (Date.now() < deadline) window.setTimeout(flash, 60)
     }
     window.setTimeout(flash, 80)
-  }, [pendingJump, items])
+  }, [pendingJump, items, raw])
 
   // In-room search over the loaded transcript, newest hit first.
   const q = find?.q.trim().toLowerCase() ?? ''

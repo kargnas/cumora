@@ -48,11 +48,20 @@ export function lastMessageFromWs(m: ApiMessage): NonNullable<ApiConversation['l
 }
 
 /**
- * Sidebar order, mirroring the server's `ORDER BY c.pinned DESC,
- * c.updated_at DESC`. Applied after a patch so a freshly-active row rises to
- * where a refetch would have put it.
+ * Sidebar order, mirroring the server's `ORDER BY c.pinned DESC, <last
+ * message time, else c.updated_at> DESC`. Applied after a patch so a
+ * freshly-active row rises to where a refetch would have put it.
  */
 export function bySidebarOrder(a: Conversation, b: Conversation): number {
   if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
   return (b.lastAtIso ?? '').localeCompare(a.lastAtIso ?? '')
+}
+
+/** Author of the system row a Calendar firing posts (server/src/calendar.ts).
+ *  It wakes the assignee; for people it is not a message: no badge, no
+ *  preview, no line in the redesign's transcript. */
+const CALENDAR_AUTHOR_ID = 'calendar'
+
+export function isCalendarNotice(m: { kind: string; authorId: string }): boolean {
+  return m.kind === 'system' && m.authorId === CALENDAR_AUTHOR_ID
 }

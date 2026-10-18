@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { api, ws, type ApiConversation, type ApiMessage } from '@/api/client'
 import type { Conversation } from '@/types'
-import { bySidebarOrder, lastMessageFromWs, timeFromIso } from '@/lib/conversationRow'
+import { bySidebarOrder, isCalendarNotice, lastMessageFromWs, timeFromIso } from '@/lib/conversationRow'
 import { useApp } from '@/stores/app'
 import { commitIfContextCurrent, useAuth } from '@/stores/auth'
 import { useMessages } from '@/stores/messages'
@@ -232,6 +232,9 @@ export const useConversations = create<ConversationsState>((set, get) => ({
     // A conversation we've never seen — a group just created, or one we were
     // added to. There is no row to patch, so fall back to a fetch.
     if (!existing) { void get().reload(); return false }
+    // The list query leaves Calendar firings out of the preview, the badge
+    // and the order, so the patch leaves the row alone too.
+    if (isCalendarNotice(message)) return true
 
     const last = lastMessageFromWs(message)
     // The server counts unread as `author_id <> me AND created_at > last_read`.

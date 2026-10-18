@@ -1,3 +1,4 @@
+import { isCalendarNotice } from '@/lib/conversationRow'
 import type { Message } from '@/types'
 
 /** Messages a bubble can show. Tool/thought rows are work, not conversation. */
@@ -32,11 +33,13 @@ function sameDay(a: Date, b: Date): boolean {
  * single work item per author, the first item of each calendar day carries
  * the day separator, and bubbles from one author in quick succession get
  * first/middle/last positions so corners and avatars group like a messenger.
+ * Calendar firings are left out: the room panel's Routines tab tracks runs.
  */
 export function buildItems(messages: Message[], meId: string | null): Item[] {
   const out: Item[] = []
   let prevDay: Date | null = null
   for (const m of messages) {
+    if (isCalendarNotice(m)) continue
     const at = createdAt(m)
     const day = prevDay && sameDay(prevDay, at) ? null : at
     prevDay = at

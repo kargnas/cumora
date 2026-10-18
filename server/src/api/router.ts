@@ -3367,6 +3367,10 @@ const CONVERSATION_LIST_LIMIT = 500
 
 api.get('/conversations', async (req, res) => {
   const { userId: me, companyId: tenant } = await requireCompany(req)
+  // A Calendar firing is a system row that wakes the assignee. For people it
+  // is not news: it neither counts as unread, nor becomes the preview, nor
+  // moves the room up the list (the run shows in the room's Routines tab).
+  const { CALENDAR_SYSTEM_AUTHOR_ID } = await import('../calendar.js')
   const { rows } = await pool.query(
     `SELECT
         c.id, c.kind,
@@ -3403,7 +3407,7 @@ api.get('/conversations', async (req, res) => {
          LIMIT 1
       ) other_participant ON c.kind = 'direct'
       LEFT JOIN LATERAL (
-        SELECT json_build_object(
+        SELECT m.created_at, json_build_object(
           'id', m.id,
           'authorId', m.author_id,
           'kind', m.kind,
@@ -3427,6 +3431,7 @@ api.get('/conversations', async (req, res) => {
         ) AS payload
           FROM messages m
          WHERE m.conversation_id = c.id
+           AND m.author_id <> $3
          ORDER BY m.sequence DESC
          LIMIT 1
       ) last_message ON true
@@ -3435,6 +3440,7 @@ api.get('/conversations', async (req, res) => {
           FROM messages m
          WHERE m.conversation_id = c.id
            AND m.author_id <> $1
+           AND m.author_id <> $3
            AND m.created_at > COALESCE(cr.last_read_at, '1970-01-01T00:00:00Z'::timestamptz)
       ) unread ON true
       WHERE c.company_id = $2
@@ -3449,9 +3455,11 @@ api.get('/conversations', async (req, res) => {
              AND cm.company_id = c.company_id
              AND cm.participant_id = $1
         )
-      ORDER BY c.pinned DESC, c.updated_at DESC
+      -- The last message's time, like the client orders a row a message.new
+      -- patched; updated_at alone would lift a room for a Calendar firing.
+      ORDER BY c.pinned DESC, COALESCE(last_message.created_at, c.updated_at) DESC
       LIMIT ${CONVERSATION_LIST_LIMIT}`,
-    [me, tenant],
+    [me, tenant, CALENDAR_SYSTEM_AUTHOR_ID],
   )
   if (rows.length === CONVERSATION_LIST_LIMIT) {
     console.warn(`[conversations] ${tenant} hit the ${CONVERSATION_LIST_LIMIT}-row sidebar ceiling; older rows are being withheld`)
