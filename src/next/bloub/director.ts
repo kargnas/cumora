@@ -86,7 +86,13 @@ const shapeOf = (look: BloubLook) => SHAPE_BY_ID.get(look.shape)?.radii ?? null
 const expressionOf = (look: BloubLook) => EXPRESSION_BY_ID.get(look.expression) ?? null
 const easeOut = (k: number) => 1 - (1 - Math.min(1, Math.max(0, k))) ** 3
 
+/** Modes the editor's preview stage plays (sections/agents/LookStudio.tsx), by
+ *  the stage's own id, which no participant has. */
+const staged = new Map<string, Mode>()
+
 function modeFor(id: string): Mode {
+  const forced = staged.get(id)
+  if (forced) return forced
   const p = useParticipants.getState().byId[id]
   if (!p) return 'idle'
   return modeOf(p, p.computerId ? useComputers.getState().byId[p.computerId] : undefined)
@@ -180,13 +186,17 @@ function requestMode(bot: Bot, mode: Mode) {
   else bot.timer = window.setTimeout(() => applyMode(bot), wait * 1000)
 }
 
-function posted(message: Message) {
-  const bot = bots.get(message.authorId)
-  if (!bot || !SPOKEN.has(message.kind) || still()) return
+function wink(bot: Bot) {
+  if (still()) return
   // burst and comet already mark the turn; a wink would cut them short.
   const current = bot.head.program.steps[bot.head.index][0]
   if (current === 'burst' || current === 'comet') return
   play(bot, { program: flash(POSTED, bot.mode, bot.appliedTool), index: 0, since: timeOf(bot) })
+}
+
+function posted(message: Message) {
+  const bot = bots.get(message.authorId)
+  if (bot && SPOKEN.has(message.kind)) wink(bot)
 }
 
 /** The kind of tool comes as a hint beside the status, and often before it:
@@ -272,6 +282,23 @@ export function attach(agentId: string, svg: SVGSVGElement, look: BloubLook): ()
     window.clearTimeout(owner.timer)
     bots.delete(agentId)
   }
+}
+
+/** Plays `mode` on the preview stage `id` in place of an agent's status, and
+ *  with `posted` the wink of a message. `unstage` lets the id go. */
+export function stage(id: string, mode: Mode, posted = false): void {
+  staged.set(id, mode)
+  const bot = bots.get(id)
+  if (!bot) return
+  // A click answers at once: the hold only keeps a flapping status from flashing.
+  window.clearTimeout(bot.timer)
+  bot.wanted = mode
+  applyMode(bot)
+  if (posted) wink(bot)
+}
+
+export function unstage(id: string): void {
+  staged.delete(id)
 }
 
 /** A new shape or face morphs in; the colour is CSS on each view. */

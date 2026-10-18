@@ -1,15 +1,16 @@
 /**
  * The full agent editor (model, computer, avatar and the rest), opened from
- * the Details tab with `?agent-edit=<id>`. It is the classic AgentEditor the
- * Agents section opens; agents.css folds its own modal frame into the Dialog.
+ * the Details tab with `?agent-edit=<id>`. It is the editor the Agents section
+ * opens (the classic AgentEditor with the Look Studio as its avatar fields);
+ * agents.css folds its own modal frame into the Dialog.
  */
 import { useCallback, useEffect, useRef } from 'react'
-import { AgentEditor } from '@/components/AgentEditor'
 import { useConversations } from '@/stores/conversations'
 import { useParticipants } from '@/stores/participants'
 import { useNT } from '../i18n'
 import { getRoute, goBack, useRoute, withRoute } from '../router'
 import { Dialog } from '../ui/primitives'
+import { LookEditor } from '../sections/agents/LookStudio'
 import '../sections/agents/agents.css'
 
 export const AGENT_EDIT_PARAM = 'agent-edit'
@@ -36,7 +37,7 @@ export function AgentEditDialog() {
   return (
     <Dialog open={editing !== null} onClose={close} title={editing ? nt('agents.editAgent', { name: editing.name }) : ''}>
       <div className="nx-agents-editor">
-        {editing && <AgentEditor key={editing.id} agent={editing} onClose={close} onSaved={saved} />}
+        {editing && <LookEditor key={editing.id} agent={editing} onClose={close} onSaved={saved} />}
       </div>
     </Dialog>
   )

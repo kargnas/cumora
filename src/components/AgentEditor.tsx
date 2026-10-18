@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { api, getPairingServerOrigin, type AgentInput } from '@/api/client'
 import { isNativePlatform } from '@/lib/native'
 import { useParticipants } from '@/stores/participants'
@@ -35,11 +35,31 @@ function initialEngineChoice(agent: Participant | null, computer: { kind: string
   return engine === advertised[0] ? INHERIT_ENGINE : engine
 }
 
-const PALETTE = [
+export const PALETTE = [
   '#FFB088', '#FFD9D2', '#FFB7AF', '#F4B740',
   '#7C5CFF', '#A593FF', '#4FC2F4', '#41B5DC',
   '#4FC2A1', '#6EC56A', '#E9A0E9', '#FF7AB6',
 ]
+
+/** The editor's portrait state, handed to an avatar slot. */
+export interface PortraitState {
+  avatarBg: string
+  setAvatarBg: (color: string) => void
+  avatarUrl: string | null
+  setAvatarUrl: (url: string | null) => void
+  /** Saves the pending edits, paints a portrait, and says whether it worked. */
+  generate: () => Promise<boolean>
+  generating: boolean
+  error: string | null
+}
+
+/** cumora fork: an avatar section drawn in place of the colour and portrait
+ *  fields, on this editor's portrait state. `save` runs after the profile is
+ *  saved, with the agent's id (new or edited). */
+export interface AvatarSlot {
+  render: (portrait: PortraitState) => ReactNode
+  save: (agentId: string) => Promise<void>
+}
 
 interface Props {
   /** if provided, edit mode; otherwise create mode */
@@ -47,9 +67,11 @@ interface Props {
   onClose: () => void
   /** Called after a successful save, once the modal is already closed. */
   onSaved?: () => void
+  /** cumora fork: the redesign's avatar section (src/next/sections/agents/LookStudio.tsx). */
+  avatar?: AvatarSlot
 }
 
-export function AgentEditor({ agent, onClose, onSaved }: Props) {
+export function AgentEditor({ agent, onClose, onSaved, avatar }: Props) {
   const t = useT()
   const editing = agent !== null
   const [name, setName] = useState(agent?.name ?? '')
@@ -266,6 +288,7 @@ export function AgentEditor({ agent, onClose, onSaved }: Props) {
           throw new Error(t('agent.enginePinRejected', { engine: engineLabel(pinned) }))
         }
       }
+      if (avatar && agentId) await avatar.save(agentId)
       onClose()
       if (onSaved) {
         onSaved()
@@ -282,8 +305,8 @@ export function AgentEditor({ agent, onClose, onSaved }: Props) {
 
   const initial = (name || agent?.id || '?').charAt(0).toUpperCase()
 
-  const generateAvatar = async () => {
-    if (!editing || !agent) return
+  const generateAvatar = async (): Promise<boolean> => {
+    if (!editing || !agent) return false
     setAvatarErr(null)
     setGeneratingAvatar(true)
     try {
@@ -292,8 +315,10 @@ export function AgentEditor({ agent, onClose, onSaved }: Props) {
       const r = await api.generateAgentAvatar(agent.id)
       setAvatarUrl(r.url)
       await useParticipants.getState().refresh()
+      return true
     } catch (e) {
       setAvatarErr(e instanceof Error ? e.message : String(e))
+      return false
     } finally {
       setGeneratingAvatar(false)
     }
@@ -336,6 +361,10 @@ export function AgentEditor({ agent, onClose, onSaved }: Props) {
         </div>
 
         <div className="px-6 py-5 space-y-4 overflow-y-auto flex-1 min-h-0">
+          {avatar?.render({
+            avatarBg, setAvatarBg, avatarUrl, setAvatarUrl,
+            generate: generateAvatar, generating: generatingAvatar, error: avatarErr,
+          })}
           <Field label={t('agent.nameLabel')} hint={t('agent.nameHint')}>
             <Input
               type="text"
@@ -520,6 +549,7 @@ export function AgentEditor({ agent, onClose, onSaved }: Props) {
             )}
           </Field>
 
+          {!avatar && <>
           <Field label={t('agent.avatarColorLabel')} hint={t('agent.avatarColorHint')}>
             <div className="flex flex-wrap gap-2">
               {PALETTE.map((c) => (
@@ -651,6 +681,7 @@ export function AgentEditor({ agent, onClose, onSaved }: Props) {
               </div>
             </div>
           </Field>
+          </>}
 
           {err && (
             <div className="text-[12.5px] text-coral-deep bg-coral-soft py-2 px-3 rounded-lg">

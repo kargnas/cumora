@@ -156,7 +156,7 @@ test('opening an older file runs the steps it has not had', async () => {
   assert.deepEqual(upgraded.layout('c1', 'u1').pinOrder, ['room-a'])
   upgraded.recordFileVersions([{ scope: 'atlas', path: 'CLAUDE.md', at: '2026-10-18T00:00:00.000Z', content: 'x', baseline: true }])
   assert.equal(upgraded.latestFileVersions().length, 1)
-  upgraded.setBloubAvatar('c1', 'agent-a', { shape: 'cercle', color: 'encre', expression: 'neutre' })
+  upgraded.setBloubAvatar('c1', 'agent-a', { shape: 'cercle', color: 'encre' })
   assert.deepEqual(Object.keys(upgraded.bloubAvatars('c1')), ['agent-a'])
 })
 
@@ -203,15 +203,19 @@ test('file versions keep each file’s history, and `since` picks the base', asy
   assert.deepEqual(at(reopened.fileVersions(['atlas'], '2026-10-18T05:30:00.000Z')), ['CLAUDE.md@05:00=three', 'memory/MEMORY.md@04:00=null'])
 })
 
-test('a bloub avatar is the agent look for the whole company', async () => {
+test('a bloub avatar is the agent look for the whole company, with the face of its latest message', async () => {
   const file = join(dir, 'bloub', 'fork.sqlite')
   const store = await openForkStore(file)
-  store.setBloubAvatar('c1', 'agent-a', { shape: 'galet', color: 'violet', expression: 'heureux' })
-  store.setBloubAvatar('c2', 'agent-a', { shape: 'cercle', color: 'encre', expression: 'neutre' })
-  // Setting it again replaces the look instead of adding a row.
-  store.setBloubAvatar('c1', 'agent-a', { shape: 'nuage', color: 'rose', expression: 'timide' })
-  assert.deepEqual(store.bloubAvatars('c1'), { 'agent-a': { shape: 'nuage', color: 'rose', expression: 'timide' } })
+  store.setBloubAvatar('c1', 'agent-a', { shape: 'galet', color: 'violet' })
+  store.setBloubAvatar('c2', 'agent-a', { shape: 'cercle', color: 'encre' })
+  assert.equal(store.bloubAvatars('c1')['agent-a']?.expression, 'neutre', 'a new look starts at rest')
+
+  // A message's face sticks through a new pick, and a new pick replaces the row.
+  assert.equal(store.setBloubExpression('c1', 'agent-a', 'heureux'), true)
+  store.setBloubAvatar('c1', 'agent-a', { shape: 'nuage', color: 'rose' })
+  assert.deepEqual(store.bloubAvatars('c1'), { 'agent-a': { shape: 'nuage', color: 'rose', expression: 'heureux' } })
   assert.deepEqual(store.bloubAvatars('c2'), { 'agent-a': { shape: 'cercle', color: 'encre', expression: 'neutre' } })
+  assert.equal(store.setBloubExpression('c1', 'agent-b', 'triste'), false, 'an agent without a bloub gets no face')
 
   // Clearing one company's look leaves the other's, survives a reopen, and clearing twice is harmless.
   store.clearBloubAvatar('c1', 'agent-a')
@@ -219,6 +223,16 @@ test('a bloub avatar is the agent look for the whole company', async () => {
   const reopened = await openForkStore(file)
   assert.deepEqual(reopened.bloubAvatars('c1'), {})
   assert.deepEqual(Object.keys(reopened.bloubAvatars('c2')), ['agent-a'])
+})
+
+test('faces picked before moods existed go back to rest', async () => {
+  const file = join(dir, 'bloub-v5', 'fork.sqlite')
+  ;(await openForkStore(file)).setBloubAvatar('c1', 'agent-a', { shape: 'galet', color: 'violet' })
+  const SQL = await initSqlJs()
+  const raw = new SQL.Database(readFileSync(file))
+  raw.run("UPDATE bloub_avatars SET expression = 'timide'; PRAGMA user_version = 5")
+  writeFileSync(file, raw.export())
+  assert.equal((await openForkStore(file)).bloubAvatars('c1')['agent-a']?.expression, 'neutre')
 })
 
 test('a file keeps its newest versions, and the oldest one left is its baseline', async () => {
