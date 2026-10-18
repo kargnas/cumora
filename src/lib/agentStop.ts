@@ -14,8 +14,13 @@ import type { Participant } from '@/types'
  *  double-click on Send would land on Stop. Clicks this soon after are ignored. */
 const ARM_MS = 700
 
+/** Engines whose computer session can stop a turn. Cloud agents and the other
+ *  engines would take the request and keep going, so Send stays Send for them.
+ *  server/src/fork/stop.ts refuses them with the same list. */
+const STOPPABLE_ENGINES: ReadonlySet<string> = new Set(['claude', 'codex'])
+
 export function useAgentStop(convoId: string | null, idle: boolean): {
-  /** The box is empty and an agent's turn shows "typing" in this room. */
+  /** The box is empty and an agent that can be stopped shows "typing" in this room. */
   stoppable: boolean
   /** Comma-joined names of those agents, for the button's label. */
   names: string
@@ -28,7 +33,8 @@ export function useAgentStop(convoId: string | null, idle: boolean): {
   const typing = useMessages((s) => (convoId ? s.typing[convoId] : undefined))
   const byId = useParticipants((s) => s.byId)
   const agents = useMemo<Participant[]>(
-    () => (typing ?? []).filter((id) => id !== me && byId[id]?.kind === 'agent').map((id) => byId[id]!),
+    () => (typing ?? []).map((id) => byId[id]).filter((p): p is Participant =>
+      !!p && p.id !== me && p.kind === 'agent' && !!p.computerId && !!p.engine && STOPPABLE_ENGINES.has(p.engine)),
     [typing, me, byId],
   )
   const stoppable = idle && agents.length > 0
