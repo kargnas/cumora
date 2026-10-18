@@ -1010,8 +1010,8 @@ export function Composer({
 
   const canSend = (draft.trim().length > 0 || attachment !== null) && !uploading
   // Fork: an empty box turns Send into Stop while an agent works in this room.
-  const agentStop = useAgentStop(convoId)
-  const stoppable = !canSend && !uploading && agentStop.agents.length > 0
+  const agentStop = useAgentStop(convoId, !canSend && !uploading)
+  const stoppable = agentStop.stoppable
 
   return (
     <div className={isThread ? '' : 'px-[22px] pt-1.5 pb-[18px]'}

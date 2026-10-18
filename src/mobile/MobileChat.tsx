@@ -82,7 +82,7 @@ export function MobileChat() {
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   // Fork: an empty box turns Send into Stop while an agent works in this room.
-  const agentStop = useAgentStop(convoId)
+  const agentStop = useAgentStop(convoId, draft.trim().length === 0 && attachment === null && !uploading)
   // Per-convo "replying to" pointer, lifted from the global app store so
   // it persists across mounts and matches the desktop composer's UX.
   const replyingToId = useApp((s) => convoId ? s.replyingTo[convoId] : undefined)
@@ -484,7 +484,7 @@ export function MobileChat() {
     }
   }
   const canSend = (draft.trim().length > 0 || attachment !== null) && !uploading
-  const stoppable = !canSend && !uploading && agentStop.agents.length > 0
+  const stoppable = agentStop.stoppable
   const memberPs = c.members
     .map((m) => byId[m])
     .filter((p): p is Participant => Boolean(p))

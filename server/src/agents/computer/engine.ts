@@ -1396,8 +1396,8 @@ class ClaudeSession implements EngineSession {
   private queuedSteers = new Map<string, (delivered: boolean) => void>()
   /** Callers waiting for an interrupt() to settle the turn. */
   private interrupting: (() => void)[] | null = null
-  /** Usage of the turns a steer turned this send() into, before the last one. */
-  private carriedUsage: EngineUsage | undefined
+  /** The finished turn whose follow-up a still-queued steer will start. */
+  private carried: EngineRunResult | null = null
   readonly carriesStandingPrompt: boolean
 
   constructor(bin: string, args: string[], opts: EngineSessionArgs, carriesStandingPrompt: boolean) {
@@ -1465,8 +1465,11 @@ class ClaudeSession implements EngineSession {
     if (!this.pending || !this.alive || !text.trim()) return
     // A steer that misses the turn's last tool call runs as a turn of its own.
     // Only the uuid lifecycle frames tell this session that such a turn is
-    // coming; without them its result would settle the daemon's NEXT send().
-    if (!this.capabilities.has('msg_lifecycle_v1')) return
+    // coming, and only cancel_queued keeps a stop from leaving one behind;
+    // without them its result would settle the daemon's NEXT send().
+    if (!this.capabilities.has('msg_lifecycle_v1') || !this.capabilities.has('interrupt_cancel_queued_v1')) return
+    // Written after the interrupt's cancel_queued, it would run as a turn of its own.
+    if (this.interrupting) { onDelivered?.(false); return }
     const uuid = randomUUID()
     this.queuedSteers.set(uuid, onDelivered ?? (() => {}))
     const line = JSON.stringify({ type: 'user', uuid, message: { role: 'user', content: [{ type: 'text', text: stripLoneSurrogates(text) }] } })
@@ -1514,6 +1517,11 @@ class ClaudeSession implements EngineSession {
         if (done) {
           this.queuedSteers.delete(ev.command_uuid)
           done(ev.state === 'started')
+          // The CLI dropped the last steer this send() waited on after its turn
+          // ended, so no follow-up turn (and no further result) is coming.
+          if (ev.state !== 'started' && this.carried && this.queuedSteers.size === 0) {
+            this.settle(this.interrupting ? { ...this.carried, interrupted: true } : this.carried)
+          }
         }
       }
       // Capture the real model id (assistant events carry message.model) for pricing.
@@ -1554,18 +1562,10 @@ class ClaudeSession implements EngineSession {
       if (ev.type === 'result') {
         this.hopStartedAt = null // turn boundary — drop any half-set hop timer
         this.hopIndex = 0        // reset the per-turn hop counter
-        const usage = addUsage(this.carriedUsage, ev.usage && typeof ev.usage === 'object' ? ev.usage : undefined)
+        const usage = addUsage(this.carried?.usage, ev.usage && typeof ev.usage === 'object' ? ev.usage : undefined)
         if (this.interrupting) {
           this.resumePending = false
           this.settle({ exitCode: 0, sessionId: this.sid, usage, model: this.curModel, interrupted: true })
-          continue
-        }
-        // A steer still queued here missed the turn's last tool call, and the
-        // CLI now runs it as the next turn on its own. That turn belongs to this
-        // send(): settling now would let the daemon write its next prompt into
-        // a turn it cannot see, and that turn's result would settle it.
-        if (this.queuedSteers.size > 0) {
-          this.carriedUsage = usage
           continue
         }
         const isErr = ev.is_error === true
@@ -1578,7 +1578,7 @@ class ClaudeSession implements EngineSession {
         const message = diagnostic || `engine turn error${typeof ev.subtype === 'string' ? ` (${ev.subtype})` : ''}: see log`
         const wasResume = this.resumePending
         this.resumePending = false
-        this.settle({
+        const turn: EngineRunResult = {
           exitCode: isErr ? 1 : 0,
           error: isErr ? message : undefined,
           failure: isErr ? {
@@ -1589,7 +1589,13 @@ class ClaudeSession implements EngineSession {
           sessionId: this.sid,
           usage,
           model: this.curModel,
-        })
+        }
+        // A steer still queued here missed the turn's last tool call, and the
+        // CLI now runs it as the next turn on its own. That turn belongs to this
+        // send(): settling now would let the daemon write its next prompt into
+        // a turn it cannot see, and that turn's result would settle it.
+        if (this.queuedSteers.size > 0) this.carried = turn
+        else this.settle(turn)
       }
     }
   }
@@ -1608,7 +1614,7 @@ class ClaudeSession implements EngineSession {
     if (this.pendingTimer) { clearTimeout(this.pendingTimer); this.pendingTimer = null }
     const p = this.pending
     this.pending = null
-    this.carriedUsage = undefined
+    this.carried = null
     for (const done of this.queuedSteers.values()) done(false)
     this.queuedSteers.clear()
     const stopped = this.interrupting
@@ -2213,6 +2219,7 @@ class CodexSession implements EngineSession {
    *  command included, and hands it to the model right after that command ends. */
   steer(text: string, onDelivered?: (delivered: boolean) => void): void {
     if (!this.alive || !text.trim() || !this.threadId || !this.activeTurnId) return
+    if (this.interrupting) { onDelivered?.(false); return }
     const id = this.nextId()
     const input = stripLoneSurrogates(text)
     this.steerRequests.set(id, { text: input, done: onDelivered ?? (() => {}) })

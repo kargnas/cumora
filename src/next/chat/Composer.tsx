@@ -89,10 +89,11 @@ export function Composer({ convoId, threadRootId = null }: {
   const canSend = draft.text.trim().length > 0 || !!draft.attachment
   // An empty box turns send into Stop while an agent works in this room; a
   // typed message still goes out, and the agent reads it at its next tool call.
-  const agentStop = useAgentStop(convoId)
-  const stoppable = !canSend && !uploading && agentStop.agents.length > 0
+  const agentStop = useAgentStop(convoId, !canSend && !uploading)
+  const stoppable = agentStop.stoppable
   const stopAgents = async () => {
-    haptic((await agentStop.stop()) ? 'success' : 'error')
+    const ok = await agentStop.stop()
+    if (ok !== null) haptic(ok ? 'success' : 'error')
   }
 
   // The editor remounts per room (keyed by scope) and hydrates from

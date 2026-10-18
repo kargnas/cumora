@@ -73,7 +73,8 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     process.stderr.write('INTERRUPT ' + JSON.stringify(m.request) + '\n')
     if (steer && m.request.cancel_queued === true) out({ type: 'command_lifecycle', command_uuid: steer, state: 'cancelled' })
     out({ type: 'control_response', response: { subtype: 'success', request_id: m.request_id, response: { still_queued: [] } } })
-    out({ type: 'result', subtype: 'error_during_execution', is_error: true, session_id: 's1' })
+    // A stop between turns (carry: the turn ended, its steer still queued) has no turn to end.
+    if (scenario !== 'carry' || !steer) out({ type: 'result', subtype: 'error_during_execution', is_error: true, session_id: 's1' })
     return
   }
   if (m.uuid) {
@@ -82,6 +83,8 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     out({ type: 'command_lifecycle', command_uuid: m.uuid, state: 'queued' })
     if (scenario === 'fold') {
       out({ type: 'command_lifecycle', command_uuid: m.uuid, state: 'started' })
+      out({ type: 'result', subtype: 'success', session_id: 's1', usage: { input_tokens: 1, output_tokens: 1 } })
+    } else if (scenario === 'carry') {
       out({ type: 'result', subtype: 'success', session_id: 's1', usage: { input_tokens: 1, output_tokens: 1 } })
     } else if (scenario === 'follow-up') {
       out({ type: 'result', subtype: 'success', session_id: 's1', usage: { input_tokens: 1, output_tokens: 1 } })
@@ -157,6 +160,32 @@ test('claude steer without msg_lifecycle_v1 writes nothing', { skip: IS_WIN }, a
   assert.equal(result.exitCode, 0)
   assert.equal(delivered, undefined)
   assert.ok(!logs.some((l) => l.startsWith('STEER')))
+})
+
+test('a claude turn that waits on a queued steer settles when a stop cancels it', { skip: IS_WIN }, async () => {
+  const { session, logs } = await claudeSession('carry')
+  const turn = session.send('wake')
+  await waitForLog(logs, /"subtype":"init"/)
+  let delivered: boolean | undefined
+  session.steer('ping', (d) => { delivered = d })
+  await waitForLog(logs, /"type":"result"/)
+  await session.interrupt!()
+  const result = await turn
+  assert.equal(result.interrupted, true)
+  assert.equal(delivered, false)
+})
+
+test('claude steer during a stop is not written', { skip: IS_WIN }, async () => {
+  const { session, logs } = await claudeSession('carry')
+  const turn = session.send('wake')
+  await waitForLog(logs, /"subtype":"init"/)
+  const stopping = session.interrupt!()
+  let delivered: boolean | undefined
+  session.steer('late', (d) => { delivered = d })
+  assert.equal(delivered, false)
+  assert.ok(!logs.some((l) => l === 'STEER late'))
+  await stopping.catch(() => {})
+  void turn
 })
 
 // ── Codex: app-server JSON-RPC ─────────────────────────────────────────────
@@ -285,6 +314,8 @@ test('only a person writing to the agent can stop its busy turn', () => {
   assert.equal(autoStopsTurn({ author_kind: 'human', conversation_kind: 'group', body: 'ping @hertz now' }, 'hertz'), true)
   assert.equal(autoStopsTurn({ author_kind: 'human', conversation_kind: 'group', body: 'ping @monk now' }, 'hertz'), false)
   assert.equal(autoStopsTurn({ author_kind: 'agent', conversation_kind: 'direct', body: '@hertz' }, 'hertz'), false)
+  assert.equal(autoStopsTurn({ author_kind: 'human', conversation_kind: 'group', body: 'ask @dev-ops' }, 'dev'), false)
+  assert.equal(autoStopsTurn({ author_kind: 'human', conversation_kind: 'group', body: '@dev, look' }, 'dev'), true)
 })
 
 test('an interrupt payload needs a room and a name', () => {

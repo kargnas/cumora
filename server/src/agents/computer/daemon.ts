@@ -175,7 +175,10 @@ const AUTO_STOP_AFTER_MS = 60_000
  *  wait for the tool boundary or the coalesced rerun. */
 export function autoStopsTurn(row: { conversation_kind?: unknown; author_kind?: unknown; body?: unknown }, agentId: string): boolean {
   if (row.author_kind !== 'human') return false
-  return row.conversation_kind === 'direct' || (typeof row.body === 'string' && row.body.includes(`@${agentId}`))
+  if (row.conversation_kind === 'direct') return true
+  // A whole id: "@dev-ops" is not a mention of the agent "dev".
+  const id = agentId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return typeof row.body === 'string' && new RegExp(`@${id}(?![\\w-])`).test(row.body)
 }
 // Board-awareness: when chat is idle, check the agent's AGENDA (assigned Kanban
 // cards + due calendar events) so it PROACTIVELY picks up assigned board work
@@ -3076,11 +3079,14 @@ export class AgentRunner {
     const stop = this.stopReason
     this.stopReason = null
     if (stop?.kind === 'manual') {
-      // What arrived up to now counts as read, so the poll does not restart
-      // the stopped work; messages that land after this wake the agent as usual.
-      const { seen: unread } = await this.snapshotUnread(token)
-      await this.ackSeen(token, unread)
-      this.pendingRerun = false
+      // What arrived in the stopped room up to now counts as read, so the poll
+      // does not restart the stopped work. Other rooms stay unread: the person
+      // who pressed Stop may not see them, and their senders still need an answer.
+      // probe=1 reads without moving the reply-freshness baseline.
+      const inbox = await runtimeGet<RuntimeInboxResponse>(this.cfg.serverUrl, '/inbox?probe=1', token)
+      const room = (inbox?.rows ?? []).filter((r) => r.conversation_id === stop.conversationId)
+      const last = room[room.length - 1]?.id
+      if (last) await this.ackSeen(token, new Map([[stop.conversationId, last]]))
       if (interrupted) {
         await runtimeBest(this.cfg.serverUrl, '/notices', token, {
           conversationId: stop.conversationId,
@@ -3430,7 +3436,9 @@ export class AgentRunner {
         // read the room and chose silence, this is what stops the same inbox
         // from re-waking the big brain on the next drain. On engine FAILURE we
         // skip the ack so the unread survives for a retry / next wake.
-        if (!engineError) await this.ackSeen(token, seen)
+        // A turn a person stopped may not have answered what it was shown in
+        // other rooms; settleStop acks the stopped room alone.
+        if (!engineError && !(turnInterrupted && this.stopReason?.kind === 'manual')) await this.ackSeen(token, seen)
         await this.settleStop(token, turnInterrupted, run?.runId ?? String(turnStart))
         await this.postStatus(token, 'avail')
         // A chat turn resets the "quiet" anchor: an agent that just acted in chat
