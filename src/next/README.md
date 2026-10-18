@@ -50,7 +50,7 @@ Every avatar of the agent plays what it is doing (`bloub/program.ts`):
 | Ends a turn | `comet` before `idle` |
 | Posts a message | `wink`, then back to its state |
 
-A status that flips back within a moment does not flash a state: modes change at most every 1.2 s. BYOA agents report `working` after an engine hop that called tools and keep their status alive through the whole turn (`server/src/agents/computer/daemon.ts`); with it they send the kind of tool (`server/src/fork/toolKind.ts`), which the server passes to the clients as `fork.agent.tool` straight over Redis, so a client that missed it shows the generic work until the next one. Codex reports one hop per turn, so its agents stay on `thinking`. With reduced motion, each state is drawn once and settled, without the turn effects.
+A status that flips back within a moment does not flash a state: the first change shows at once, and each state then stays at least 1.2 s, the latest status winning. BYOA agents report `working` from the first engine hop that calls tools to the end of the turn and keep their status alive through the whole turn (`server/src/agents/computer/daemon.ts`); with it they send the kind of tool (`server/src/fork/toolKind.ts`), which the server passes to the clients as `fork.agent.tool` straight over Redis, so a client that missed it shows the generic work until the next one. Codex reports one hop per turn, so its agents stay on `thinking`. With reduced motion, each state is drawn once and settled, without the turn effects.
 
 ## Local verification
 

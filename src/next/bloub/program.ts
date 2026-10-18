@@ -75,11 +75,20 @@ export interface Playhead { program: Program; index: number; since: number }
 /** Moves the playhead past every step that has ended by `now`, calling
  *  `enter` for each step it starts, with the time that step started. */
 export function advance(head: Playhead, now: number, enter: (state: StateId, at: number) => void): void {
+  const { steps, loop } = head.program
+  let cycle = 0
+  for (let i = loop; i < steps.length; i++) cycle += steps[i][1]
   for (;;) {
-    const end = head.since + head.program.steps[head.index][1]
+    // A view off screen is not advanced, so one shown again after an hour
+    // would replay every step it missed in one frame. A whole loop lands back
+    // on the same step, so the whole loops are skipped instead.
+    if (head.index >= loop && Number.isFinite(cycle) && cycle > 0 && now - head.since > cycle) {
+      head.since += Math.floor((now - head.since) / cycle) * cycle
+    }
+    const end = head.since + steps[head.index][1]
     if (end > now) return
-    head.index = head.index + 1 < head.program.steps.length ? head.index + 1 : head.program.loop
+    head.index = head.index + 1 < steps.length ? head.index + 1 : loop
     head.since = end
-    enter(head.program.steps[head.index][0], end)
+    enter(steps[head.index][0], end)
   }
 }

@@ -23,7 +23,8 @@ import { ACTS, isToolKind, type ToolKind } from './tools'
 import { createView } from './view'
 
 /** A status that flips for a moment (a 0.2 s tool call) would flash a whole
- *  state in and out, so a mode is applied at most this often; the latest wins. */
+ *  state in and out. So the first change applies at once, and each mode is
+ *  then held at least this long, the latest wanted mode winning. */
 const MIN_HOLD = 1.2
 /** The messages that count as the agent speaking (as in chat/ChatView.tsx). */
 const SPOKEN = new Set<Message['kind']>(['text', 'attachment', 'email', 'poll'])
@@ -36,7 +37,9 @@ const AIM_MORPH = 1 / 60
 type Engines = typeof import('./engine/engine')
 let engines: Promise<Engines> | null = null
 /** The engine module tabulates its eye offsets when it loads (about 25 ms on a
- *  laptop, several times that on a phone), so it loads on first use, not with the app. */
+ *  laptop, several times that on a phone), so it is not loaded with the app:
+ *  looks.ts preloads it at idle once an agent wears a look, and otherwise the
+ *  first bloub to appear loads it. */
 export function loadEngine(): Promise<Engines> {
   return (engines ??= import('./engine/engine'))
 }
@@ -117,7 +120,10 @@ function frame() {
       syncAct(bot, at)
     })
     // Reduced motion: each state is drawn once, settled, and nothing loops.
-    const at = still() ? bot.head.since + 1 : t
+    // That frame is taken a second into the state, or now if that is later, so
+    // a shape, face or gaze set since then is in it, and sampled half a second
+    // on, once their morphs have ended.
+    const at = still() ? Math.max(t, bot.head.since + 1) : t
     const acts: Array<{ kind: ToolKind; t: number; presence: number }> = []
     if (bot.act) {
       engine.setLook(ACTS[bot.act.kind].look(at - bot.act.since), at, AIM_MORPH)
@@ -129,7 +135,7 @@ function frame() {
       if (left >= 1 || still() || leaving.kind === bot.act?.kind) bot.leaving = null
       else acts.push({ kind: leaving.kind, t: at - leaving.since, presence: 1 - easeOut(left) })
     }
-    const f = engine.sample(at)
+    const f = engine.sample(still() ? at + 0.5 : at)
     // The body leans aside as far as the props have come in.
     const lean = acts.reduce((most, act) => Math.max(most, act.presence), 0)
     for (const view of bot.views) {

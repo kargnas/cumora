@@ -241,9 +241,11 @@ selected engine's sandbox.
    `finish` at the end), sets status `thinking`, and keeps a typing
    indicator alive in the woken conversation. It renews the status every
    20s for the whole turn (`/runtime/status/heartbeat`; an unrenewed busy
-   status reads as idle after 90s) and switches it to `working` after an
-   engine hop that called tools and back to `thinking` after one that did
-   not. A `working` status carries the kind of tool the hop called (read,
+   status reads as idle after 90s) and switches it to `working` at the first
+   engine hop that calls tools, where it stays until the turn ends: Claude
+   Code sends each block of a response as its own hop, so text between tool
+   calls does not switch it back. A `working` status carries the kind of tool
+   the latest tool hop called (read,
    write, terminal, search or web, from `server/src/fork/toolKind.ts`), which
    the server sends to the workspace as `fork.agent.tool` for the agent's
    animated avatar. Codex reports one hop per turn without a tool count, so its agents

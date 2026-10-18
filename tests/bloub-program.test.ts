@@ -1,8 +1,8 @@
 /**
  * What a bloub avatar plays for its agent. The mistakes worth catching: an
  * offline computer still shown as busy, a turn's opening or closing effect
- * replayed on every mount, and work that stops animating once its first
- * cycle ends.
+ * replayed on every mount, work that stops animating once its first cycle
+ * ends, and a view back on screen replaying everything it missed in one frame.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -42,7 +42,10 @@ test('a turn opens with burst and closes with comet, only on a live change', () 
 test('work keeps alternating after its intro, and a held state stays', () => {
   const entered: Array<[string, number]> = []
   const head: Playhead = { program: programFor('idle', 'working'), index: 0, since: 100 }
-  advance(head, 100 + 1.5 + 2 + 3.4 + 2 + 0.1, (state, at) => entered.push([state, Number(at.toFixed(2))]))
+  // Frame by frame, the way the director advances it.
+  for (let now = 100; now <= 100 + 1.5 + 2 + 3.4 + 2 + 0.1; now += 0.25) {
+    advance(head, now, (state, at) => entered.push([state, Number(at.toFixed(2))]))
+  }
   assert.deepEqual(entered, [['play', 101.5], ['orbit', 103.5], ['play', 106.9], ['orbit', 108.9]])
 
   const held: Playhead = { program: programFor('idle', 'thinking'), index: 0, since: 0 }
@@ -50,6 +53,17 @@ test('work keeps alternating after its intro, and a held state stays', () => {
   advance(held, 3600, (state) => after.push(state))
   assert.deepEqual(after, ['thinking'])
   assert.equal(held.index, 1)
+})
+
+test('a view shown again after an hour skips the loops it missed instead of replaying them', () => {
+  const entered: Array<[string, number]> = []
+  const head: Playhead = { program: programFor('idle', 'working'), index: 0, since: 0 }
+  advance(head, 3600, (state, at) => entered.push([state, Number(at.toFixed(2))]))
+  assert.ok(entered.length < 5, `${entered.length} steps entered in one frame`)
+  // After the 1.5 s burst, 3598.5 s is 666 loops of play and orbit (5.4 s) and
+  // 2.1 s more: 0.1 s into orbit.
+  assert.deepEqual(entered.at(-1), ['orbit', 3599.9])
+  assert.equal(head.program.steps[head.index][0], 'orbit')
 })
 
 test('a posted message winks, then the mode plays on without its intro', () => {

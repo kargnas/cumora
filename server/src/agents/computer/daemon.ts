@@ -1763,6 +1763,9 @@ export function resolveTriageModel(
   return resolveEngineFastModel(configured, engineOverride)?.trim() || computerDefault?.trim() || undefined
 }
 
+/** The statuses an AgentRunner posts for its agent. */
+type PostedStatus = 'avail' | 'thinking' | 'working'
+
 export class AgentRunner {
   /** Aborted once in stop(). Handed to every one-shot `adapter.run(...)` so the
    *  engine child dies with its runner, the way the persistent session already
@@ -1854,10 +1857,13 @@ export class AgentRunner {
   /** The last status POST that succeeded, and when — see AVAIL_REASSERT_MS. */
   private lastPostedStatus: string | null = null
   private lastPostedStatusAt = 0
-  /** The tool kind sent with the last successful `working` post. */
-  private lastPostedTool: ToolKind | null = null
-  /** Status POSTs in flight, chained so they reach the server in call order. */
-  private statusPosts: Promise<void> = Promise.resolve()
+  /** The status (and tool kind) last asked for, whether or not it has landed. */
+  private requestedStatus: PostedStatus | null = null
+  private requestedTool: ToolKind | null = null
+  /** The newest status asked for and not sent yet; see postStatus. */
+  private pendingStatus: { token: string; status: PostedStatus; tool: ToolKind | null } | null = null
+  /** The pump sending pendingStatus while it runs; null once it has drained. */
+  private statusPump: Promise<void> | null = null
   /** The runtime token of the turn in flight, while beatStatus runs; null between turns. */
   private turnStatusToken: string | null = null
   private readonly adapter
@@ -1918,18 +1924,20 @@ export class AgentRunner {
    *  the columns the operator needs to ANSWER "why was this hop expensive?"
    *  without having to pull the prompt body back. */
   private onEngineHop(report: EngineHopReport, purpose: PendingHop['purpose']): void {
-    // A hop that called tools leaves the engine running them, so the agent is
-    // working until the next hop says otherwise; a hop without tools is the
-    // model thinking or writing. Clients animate the agent's avatar from this.
+    // A hop that called tools turns the agent to working for the rest of the
+    // turn. Claude Code emits every content block of one model response as its
+    // own event, so its text and thinking blocks arrive as hops without tools
+    // between tool calls; switching back to thinking on those would flip the
+    // status on every block. Clients animate the agent's avatar from this.
     // Codex reports one hop per turn without a tool count and stays thinking.
     const token = this.turnStatusToken
-    if (token && typeof report.toolUses === 'number') {
-      const status = report.toolUses > 0 ? 'working' : 'thinking'
+    if (token && (report.toolUses ?? 0) > 0) {
       // Which kind of tool runs (read, write, ...), so the avatar can act it out.
-      const tool = status === 'working'
-        ? (report.tools ?? []).map((t) => toolKindOf(t.name, t.command)).find((kind) => kind !== null) ?? null
-        : null
-      if (status !== this.lastPostedStatus || tool !== this.lastPostedTool) void this.postStatus(token, status, tool)
+      const tool = (report.tools ?? []).map((t) => toolKindOf(t.name, t.command)).find((kind) => kind !== null) ?? null
+      // Compared with what was asked for last, not with what has landed: while
+      // `write` is in flight after a landed `read`, a `read` hop must still be
+      // posted and another `write` hop must not.
+      if (this.requestedStatus !== 'working' || tool !== this.requestedTool) void this.postStatus(token, 'working', tool)
     }
     try {
       const extras: Record<string, unknown> = {}
@@ -2142,30 +2150,66 @@ export class AgentRunner {
   }
 
   /** POST /status, skipping an idle `avail` the server already holds. Any other
-   *  status (thinking, resting…) always posts, and the avail right after it
+   *  status (thinking, working) always posts, and the avail right after it
    *  posts too — only avail-after-avail is elided, and even that is re-asserted
    *  every AVAIL_REASSERT_MS. A failed post is not remembered, so the next tick
-   *  retries it. Posts go out one at a time in call order: a tool hop's `working`
-   *  still in flight must not land after the turn's closing `avail`. */
-  private postStatus(token: string, status: 'avail' | 'thinking' | 'working', tool: ToolKind | null = null): Promise<void> {
-    const post = this.statusPosts.then(async () => {
-      const now = Date.now()
-      if (status === 'avail' && this.lastPostedStatus === 'avail' && now - this.lastPostedStatusAt < AVAIL_REASSERT_MS) return
-      const ok = await runtimeBest(this.cfg.serverUrl, '/status', token, status === 'working' ? { status, tool } : { status })
-      if (ok) { this.lastPostedStatus = status; this.lastPostedStatusAt = now; this.lastPostedTool = tool }
-      else this.lastPostedStatus = null
-    })
-    this.statusPosts = post.catch(() => {})
-    return post
+   *  retries it.
+   *
+   *  Posts go out one at a time, and only the newest status waits for its turn:
+   *  a call while a post is in flight replaces the one waiting. So the turn's
+   *  closing `avail` waits for at most the post in flight plus itself, and a
+   *  `working` asked for before it can never land after it. Every caller's
+   *  promise resolves once nothing is left to send. */
+  private postStatus(token: string, status: PostedStatus, tool: ToolKind | null = null): Promise<void> {
+    this.requestedStatus = status
+    this.requestedTool = tool
+    this.pendingStatus = { token, status, tool }
+    // The pump starts on a later microtask, so it is stored here before it can
+    // drain and clear statusPump, even when it has nothing to send.
+    this.statusPump ??= Promise.resolve().then(() => this.pumpStatus())
+    return this.statusPump
+  }
+
+  private async pumpStatus(): Promise<void> {
+    try {
+      while (this.pendingStatus) {
+        const next = this.pendingStatus
+        this.pendingStatus = null
+        const now = Date.now()
+        if (next.status === 'avail' && this.lastPostedStatus === 'avail' && now - this.lastPostedStatusAt < AVAIL_REASSERT_MS) continue
+        const token = await this.statusToken(next.token)
+        const ok = await runtimeBest(this.cfg.serverUrl, '/status', token, next.status === 'working' ? { status: next.status, tool: next.tool } : { status: next.status })
+        if (ok) { this.lastPostedStatus = next.status; this.lastPostedStatusAt = now }
+        else this.lastPostedStatus = null
+      }
+    } finally {
+      // In the same tick as the empty check above: a status asked for after it
+      // starts a new pump instead of waiting on this finished one.
+      this.statusPump = null
+    }
+  }
+
+  /** The token for a status call. A turn can outlive the token it started with
+   *  (they last 2 h), so each call asks for the current one, and keeps the
+   *  caller's when a fresh one cannot be minted. */
+  private async statusToken(fallback: string): Promise<string> {
+    try { return await this.ensureToken() } catch { return fallback }
   }
 
   /** Keep the turn's busy status alive until the returned stop fn runs, and let
-   *  onEngineHop switch it between thinking and working meanwhile. */
+   *  onEngineHop switch it to working meanwhile. */
   private beatStatus(token: string): () => void {
     this.turnStatusToken = token
     const timer = setInterval(() => {
-      const status = this.lastPostedStatus
-      if (status === 'thinking' || status === 'working') void runtimeBest(this.cfg.serverUrl, '/status/heartbeat', token, { status })
+      const status = this.requestedStatus
+      if (status !== 'thinking' && status !== 'working') return
+      if (this.lastPostedStatus === status) {
+        void this.statusToken(token).then((current) => runtimeBest(this.cfg.serverUrl, '/status/heartbeat', current, { status }))
+      } else if (!this.statusPump) {
+        // Its post failed, so the server still holds an older status: send it
+        // again. While a post is in flight there is nothing to retry yet.
+        void this.postStatus(token, status, this.requestedTool)
+      }
     }, STATUS_HEARTBEAT_MS)
     return () => {
       clearInterval(timer)
