@@ -201,6 +201,7 @@ export const zhCN: Partial<Record<keyof typeof en, string>> = {
   'handbook.atLine': '第 {n} 行',
   'handbook.allLines': '显示全部 {n} 行',
   'handbook.showInText': '在全文中查看',
+  'handbook.olderChanges': '另有 {n} 处更早的改动，已在全文中标出。',
 
   'members.add': '添加成员',
   'members.addTitle': '添加成员到 {room}',

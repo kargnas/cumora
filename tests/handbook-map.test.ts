@@ -21,7 +21,7 @@ test('a change in a long file keeps its colour and its row after merging', () =>
     { kind: 'same', lines: text(500) },
     { kind: 'end' },
   ]
-  const [col] = mapOf(rows, 40)
+  const [col] = mapOf(rows)
   assert.ok(col.bars.length <= 40)
   const changed = col.bars.filter((b) => b.mark === 'ins')
   assert.equal(changed.length, 1)

@@ -21,7 +21,7 @@ The room panel's first tab, and the Handbook view of an agent's profile, show on
 The tab opens on the changes, not on the document, whose instructions alone outrun a phone screen:
 
 - **The map** draws the whole document as short bars, one column per section and one bar per line (a long section merges neighbouring lines, keeping a change's colour), with each changed line in its colour: green added, red removed, the primary colour rewritten.
-- **Excerpts** list the range's changes, newest first: the file, the line where the change starts, its first six lines and the note.
+- **Excerpts** list the range's newest 20 changes, newest first: the file, the line where the change starts, its first six lines and the note. Older ones are marked only in the full text.
 - **Full text** is folded. Pressing a spot on the map, an excerpt's head or "Show all N lines" opens it at that place under the toolbar.
 
 - **Changes since** Today (midnight in your time zone), 7 days, 30 days or All time (`?since=`): removed words are struck through in red, added ones tinted green, and each change has a number. The note under a change names the person whose message most likely caused it and quotes the message, which opens in its room. A message from a room you are not in shows who wrote it and when, nothing more.

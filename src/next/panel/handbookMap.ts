@@ -22,17 +22,17 @@ export interface MapColumn { section: SectionKey; row: number; bars: Bar[]; chan
 
 /** A column longer than this many lines merges neighbours into one bar, so a
  *  4,000-line memory file stays as short as a 40-line one. */
-export const MAP_BARS = 40
+const MAP_BARS = 40
 const CHANGED: Mark[] = ['edit', 'ins', 'del']
 
 // 80 characters fill the column; a wrapped line just reads as full.
 const widthOf = (chars: number) => (chars === 0 ? 0 : Math.min(100, Math.max(8, Math.round(chars * 1.25))))
 const charsOf = (line: ChangedLine) => (line.op === 'edit' ? line.segs.reduce((n, [, s]) => n + s.length, 0) : line.text.length)
 
-/** One bar per line merged into at most `max` per section. A merged bar takes
+/** One bar per line merged into at most MAP_BARS per section. A merged bar takes
  *  the colour and the row of a changed line inside it, so a change never
  *  disappears into its neighbours. */
-export function mapOf(rows: MapRow[], max = MAP_BARS): MapColumn[] {
+export function mapOf(rows: MapRow[]): MapColumn[] {
   const columns: MapColumn[] = []
   let col: MapColumn | undefined
   rows.forEach((r, row) => {
@@ -47,12 +47,12 @@ export function mapOf(rows: MapRow[], max = MAP_BARS): MapColumn[] {
       for (const t of r.lines) col.bars.push({ width: widthOf(t.length), mark: t ? 'same' : null, row })
     } else {
       if (!col.changes.includes(r.n)) col.changes.push(r.n)
-      for (const l of r.lines) col.bars.push({ width: widthOf(charsOf(l)), mark: l.op, row })
+      for (const l of r.lines) col.bars.push({ width: widthOf(charsOf(l) || 1), mark: l.op, row })
     }
   })
   for (const c of columns) {
-    if (c.bars.length <= max) continue
-    const size = Math.ceil(c.bars.length / max)
+    if (c.bars.length <= MAP_BARS) continue
+    const size = Math.ceil(c.bars.length / MAP_BARS)
     const merged: Bar[] = []
     for (let i = 0; i < c.bars.length; i += size) {
       const group = c.bars.slice(i, i + size)

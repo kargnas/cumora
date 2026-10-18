@@ -208,15 +208,13 @@ html.nx .nx-hb-scrub__input:focus-visible { outline: none; }
 .nx-hb[data-stale] :is(.nx-hb-doc, .nx-hb-map, .nx-hb-ex) { opacity: 0.6; }
 
 /* The map: a column per section, a 2px bar per line (merged when a section
-   is long), coloured where a change is. BAR_STEP in HandbookTab.tsx is one
-   bar plus the gap. */
+   is long), coloured where a change is. */
 .nx-hb-map { display: flex; flex-direction: column; gap: 8px; padding: 12px; }
 .nx-hb-map__cols { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 12px; }
 .nx-hb-map__col {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-width: 0;
   padding: 0;
   border: 0;
   border-radius: var(--radius-sm);
@@ -224,15 +222,12 @@ html.nx .nx-hb-scrub__input:focus-visible { outline: none; }
   font: inherit;
   color: inherit;
   text-align: left;
-  cursor: pointer;
 }
-.nx-hb-map__col:focus-visible { outline: 2px solid var(--ring); outline-offset: 4px; }
-.nx-hb-map__label { display: flex; align-items: center; gap: 4px; min-width: 0; height: 16px; font-size: var(--text-micro); color: var(--muted-foreground); }
+.nx-hb-map__label { display: flex; align-items: center; gap: 4px; height: 16px; font-size: var(--text-micro); color: var(--muted-foreground); }
 .nx-hb-map__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nx-hb-map__label .nx-hb-badge { position: static; flex: none; }
+:is(.nx-hb-map__label, .nx-hb-ex__head) .nx-hb-badge { position: static; flex: none; }
 .nx-hb-map__bars { display: flex; flex-direction: column; gap: 1px; }
 .nx-hb-map__bars i { height: 2px; border-radius: 1px; background: color-mix(in oklch, var(--muted-foreground) 30%, transparent); }
-.nx-hb-map__bars i:not([data-mark]) { background: none; }
 .nx-hb-map__bars i[data-mark="fold"] { background: color-mix(in oklch, var(--muted-foreground) 15%, transparent); }
 .nx-hb-map__bars i[data-mark="ins"] { background: var(--live); }
 .nx-hb-map__bars i[data-mark="edit"] { background: var(--primary); }
@@ -243,22 +238,6 @@ html.nx .nx-hb-scrub__input:focus-visible { outline: none; }
    the head names the file and opens the full text there. */
 .nx-hb-ex__item { padding-bottom: 12px; }
 .nx-hb-ex__item + .nx-hb-ex__item { border-top: 1px solid var(--border); }
-.nx-hb-ex__head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-width: 0;
-  padding: 12px 0 4px;
-  border: 0;
-  background: none;
-  font: inherit;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.nx-hb-ex__head:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
-.nx-hb-ex__head .nx-hb-badge { position: static; flex: none; }
 .nx-hb-ex__at { flex: none; margin-left: auto; font-size: var(--text-micro); color: var(--muted-foreground); }
 .nx-hb-ex__head svg { flex: none; width: 14px; height: 14px; color: var(--muted-foreground); }
 .nx-hb-ex .nx-hb-line { padding-left: 0; }
@@ -276,8 +255,8 @@ html.nx .nx-hb-scrub__input:focus-visible { outline: none; }
   font-size: var(--text-caption);
   line-height: 20px;
   color: var(--primary);
-  cursor: pointer;
 }
+.nx-hb-ex__older { margin: 0; padding: 12px 0; border-top: 1px solid var(--border); font-size: var(--text-caption); color: var(--muted-foreground); }
 @media (hover: hover) {
   .nx-hb-ex__head:hover .nx-hb-file__path { color: var(--foreground); }
   .nx-hb-ex__more:hover { text-decoration: underline; }
@@ -324,6 +303,9 @@ html.nx .nx-hb-scrub__input:focus-visible { outline: none; }
 @media (hover: hover) { .nx-hb-file--fold:hover { background: var(--accent); } }
 @media (pointer: coarse) { .nx-hb-file--fold { min-height: 44px; } }
 .nx-hb-end { height: 12px; }
+/* An excerpt's head is a file row (.nx-hb-file) that opens the full text;
+   it comes after that rule so its own gap wins. */
+.nx-hb-ex__head { gap: 8px; width: 100%; border: 0; background: none; font: inherit; color: inherit; text-align: left; }
 
 /* Lines read as written, lightly styled; the left gutter holds change numbers. */
 .nx-hb-lines { font-size: var(--text-body); line-height: 20px; overflow-wrap: anywhere; }
@@ -400,6 +382,7 @@ button.nx-hb-note { transition: background-color var(--duration-quick); }
   .nx-hb-scrub__input { height: 44px; }
   .nx-hb-retry { min-height: 44px; }
   button.nx-hb-note { min-height: 44px; align-items: center; }
+  .nx-hb-map__col,
   .nx-hb-ex__head,
   .nx-hb-ex__more { min-height: 44px; }
 }

@@ -191,6 +191,7 @@ const core = {
   'handbook.atLine': 'line {n}',
   'handbook.allLines': 'Show all {n} lines',
   'handbook.showInText': 'Show it in the full text',
+  'handbook.olderChanges': '{n} older changes are marked in the full text.',
 
   'members.add': 'Add people',
   'members.addTitle': 'Add people to {room}',
