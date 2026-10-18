@@ -243,7 +243,10 @@ selected engine's sandbox.
    20s for the whole turn (`/runtime/status/heartbeat`; an unrenewed busy
    status reads as idle after 90s) and switches it to `working` after an
    engine hop that called tools and back to `thinking` after one that did
-   not. Codex reports one hop per turn without a tool count, so its agents
+   not. A `working` status carries the kind of tool the hop called (read,
+   write, terminal, search or web, from `server/src/fork/toolKind.ts`), which
+   the server sends to the workspace as `fork.agent.tool` for the agent's
+   animated avatar. Codex reports one hop per turn without a tool count, so its agents
    stay `thinking`.
 5. **The turn.** The engine receives a compact
    delta: "triage already said this is real — act", the current UTC

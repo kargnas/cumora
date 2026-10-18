@@ -42,14 +42,15 @@ Every avatar of the agent plays what it is doing (`bloub/program.ts`):
 | --- | --- |
 | Available | `idle`: gaze drift and blinking |
 | Thinking | `thinking`: three pulsing dots |
-| Working (running tools) | `play` and `orbit` in turn |
+| Working with a tool it can name | Leans back and acts it out with a prop it looks at: a page read line by line (Read, `cumora glance`), a pen writing on the page (Write, Edit, `cumora reply`), a terminal (Bash), a magnifier (Grep, Glob), a globe (WebFetch, WebSearch) |
+| Working with another tool | `play` and `orbit` in turn |
 | Waiting | `notify`: the blue dot |
 | Offline (its computer is off, resting or off-boarded) | `sleep`: a small bouncing dot |
 | Starts a turn | `burst` before the busy state |
 | Ends a turn | `comet` before `idle` |
 | Posts a message | `wink`, then back to its state |
 
-A status that flips back within a moment does not flash a state: modes change at most every 1.2 s. BYOA agents report `working` after an engine hop that called tools and keep their status alive through the whole turn (`server/src/agents/computer/daemon.ts`); Codex reports one hop per turn, so its agents stay on `thinking`. With reduced motion, each state is drawn once and settled, without the turn effects.
+A status that flips back within a moment does not flash a state: modes change at most every 1.2 s. BYOA agents report `working` after an engine hop that called tools and keep their status alive through the whole turn (`server/src/agents/computer/daemon.ts`); with it they send the kind of tool (`server/src/fork/toolKind.ts`), which the server passes to the clients as `fork.agent.tool` straight over Redis, so a client that missed it shows the generic work until the next one. Codex reports one hop per turn, so its agents stay on `thinking`. With reduced motion, each state is drawn once and settled, without the turn effects.
 
 ## Local verification
 

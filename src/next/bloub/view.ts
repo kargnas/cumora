@@ -15,6 +15,7 @@
 import { NOTIF_BLUE } from './engine/decor'
 import type { BotFrame } from './engine/engine'
 import { RAYON } from './engine/repere'
+import { createProps, LEAN } from './tools'
 
 const NS = 'http://www.w3.org/2000/svg'
 /** Half the viewBox. bloub frames its ball of radius RAYON in 158; 120 makes
@@ -38,8 +39,9 @@ function el<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, 
 type Dot = BotFrame['dots'][number]
 interface Arc { grad: SVGLinearGradientElement; stops: SVGStopElement[]; back: SVGPathElement; front: SVGPathElement }
 
-/** Builds the layers inside `svg` and returns the function that draws a frame. */
-export function createView(svg: SVGSVGElement): (frame: BotFrame) => void {
+/** Builds the layers inside `svg`: `draw` paints an engine frame, `props` the
+ *  tool props (tools.ts), and `lean` moves the body aside for them (0 to 1). */
+export function createView(svg: SVGSVGElement): { draw: (frame: BotFrame) => void; props: ReturnType<typeof createProps>; lean: (amount: number) => void } {
   const id = `nx-bloub-${seq++}`
   const defs = el('defs')
   const faceMask = el('mask', { id: `${id}-face`, maskUnits: 'userSpaceOnUse', ...AREA })
@@ -61,7 +63,13 @@ export function createView(svg: SVGSVGElement): (frame: BotFrame) => void {
   const dotsFront = el('g')
   const notif = el('circle', { fill: NOTIF_BLUE, r: 0 })
   const arcsFront = el('g', { fill: 'none', 'stroke-linecap': 'round' })
-  svg.replaceChildren(defs, behind, body, dotsFront, notif, arcsFront)
+  // Everything the engine draws leans as one, masks included: they resolve in
+  // the user space of the elements that use them.
+  const leaning = el('g')
+  leaning.append(behind, body, dotsFront, notif, arcsFront)
+  const props = el('g')
+  svg.replaceChildren(defs, leaning, props)
+  let leant = 0
 
   const arcs = new Map<string, Arc>()
   const back: SVGElement[] = []
@@ -92,7 +100,7 @@ export function createView(svg: SVGSVGElement): (frame: BotFrame) => void {
     })
   }
 
-  return (f) => {
+  const draw = (f: BotFrame) => {
     faceBody.setAttribute('d', f.bodyPath)
     behindBody.setAttribute('d', f.bodyPath)
     body.setAttribute('opacity', String(f.bodyAlpha))
@@ -160,4 +168,11 @@ export function createView(svg: SVGSVGElement): (frame: BotFrame) => void {
       arcs.delete(key)
     }
   }
+  const lean = (amount: number) => {
+    if (amount === leant) return
+    leant = amount
+    const k = 1 - (1 - LEAN.scale) * amount
+    leaning.setAttribute('transform', amount ? `translate(${LEAN.x * amount} ${LEAN.y * amount}) scale(${k})` : '')
+  }
+  return { draw, props: createProps(props), lean }
 }

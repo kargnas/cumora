@@ -4,6 +4,7 @@
  */
 import type { Computer, Participant } from '@/types'
 import type { StateId } from './engine/states'
+import type { ToolKind } from './tools'
 
 export type Mode = 'idle' | 'thinking' | 'working' | 'waiting' | 'offline'
 
@@ -21,8 +22,9 @@ export function modeOf(p: Participant, host: Computer | undefined): Mode {
   }
 }
 
-/** A state held for some seconds; Infinity holds it until the mode changes. */
-export type Step = readonly [StateId, number]
+/** A state held for some seconds (Infinity: until the mode changes), with the
+ *  tool it acts out, if any (tools.ts). */
+export type Step = readonly [StateId, number, ToolKind?]
 
 /** Steps played in order; after the last one, play resumes at `loop`. */
 export interface Program { steps: readonly Step[]; loop: number }
@@ -49,18 +51,23 @@ export const POSTED: Step = ['wink', 1.6]
 
 /** The program for `to`. A live change into a turn opens with burst and the
  *  end of one closes with comet; `from` is null when there is no change to
- *  mark, such as an avatar just mounted. */
-export function programFor(from: Mode | null, to: Mode): Program {
+ *  mark, such as an avatar just mounted. Work with a known kind of tool acts
+ *  it out on the resting body instead of the generic play and orbit. */
+export function programFor(from: Mode | null, to: Mode, tool: ToolKind | null = null): Program {
   const intro = from === null ? null
     : !BUSY.has(from) && BUSY.has(to) ? TURN_START
       : BUSY.has(from) && to === 'idle' ? TURN_END
         : null
-  return intro ? { steps: [intro, ...BASE[to]], loop: 1 } : { steps: BASE[to], loop: 0 }
+  const base = baseOf(to, tool)
+  return intro ? { steps: [intro, ...base], loop: 1 } : { steps: base, loop: 0 }
 }
 
+const baseOf = (mode: Mode, tool: ToolKind | null): readonly Step[] =>
+  mode === 'working' && tool ? [['idle', Infinity, tool]] : BASE[mode]
+
 /** One step, then the mode's own program again. */
-export function flash(step: Step, mode: Mode): Program {
-  return { steps: [step, ...BASE[mode]], loop: 1 }
+export function flash(step: Step, mode: Mode, tool: ToolKind | null = null): Program {
+  return { steps: [step, ...baseOf(mode, tool)], loop: 1 }
 }
 
 export interface Playhead { program: Program; index: number; since: number }

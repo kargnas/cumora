@@ -55,6 +55,7 @@ import { EngineSessionStore, sessionIdPreview } from './session-store.js'
 import { CODEX_LOGIN_COMMAND, CODEX_MIGRATE_COMMAND, CODEX_SESSION_SCOPE, codexRuntimeHome } from './codex-runtime.js'
 import { migrateCodexSession, migrateCodexSessions } from './codex-session-migration.js'
 import { runWithSessionRecovery } from './session-recovery.js'
+import { toolKindOf, type ToolKind } from '../../fork/toolKind.js'
 
 export { conversationHeader }
 
@@ -1853,6 +1854,8 @@ export class AgentRunner {
   /** The last status POST that succeeded, and when — see AVAIL_REASSERT_MS. */
   private lastPostedStatus: string | null = null
   private lastPostedStatusAt = 0
+  /** The tool kind sent with the last successful `working` post. */
+  private lastPostedTool: ToolKind | null = null
   /** Status POSTs in flight, chained so they reach the server in call order. */
   private statusPosts: Promise<void> = Promise.resolve()
   /** The runtime token of the turn in flight, while beatStatus runs; null between turns. */
@@ -1922,7 +1925,11 @@ export class AgentRunner {
     const token = this.turnStatusToken
     if (token && typeof report.toolUses === 'number') {
       const status = report.toolUses > 0 ? 'working' : 'thinking'
-      if (status !== this.lastPostedStatus) void this.postStatus(token, status)
+      // Which kind of tool runs (read, write, ...), so the avatar can act it out.
+      const tool = status === 'working'
+        ? (report.tools ?? []).map((t) => toolKindOf(t.name, t.command)).find((kind) => kind !== null) ?? null
+        : null
+      if (status !== this.lastPostedStatus || tool !== this.lastPostedTool) void this.postStatus(token, status, tool)
     }
     try {
       const extras: Record<string, unknown> = {}
@@ -2140,12 +2147,12 @@ export class AgentRunner {
    *  every AVAIL_REASSERT_MS. A failed post is not remembered, so the next tick
    *  retries it. Posts go out one at a time in call order: a tool hop's `working`
    *  still in flight must not land after the turn's closing `avail`. */
-  private postStatus(token: string, status: 'avail' | 'thinking' | 'working'): Promise<void> {
+  private postStatus(token: string, status: 'avail' | 'thinking' | 'working', tool: ToolKind | null = null): Promise<void> {
     const post = this.statusPosts.then(async () => {
       const now = Date.now()
       if (status === 'avail' && this.lastPostedStatus === 'avail' && now - this.lastPostedStatusAt < AVAIL_REASSERT_MS) return
-      const ok = await runtimeBest(this.cfg.serverUrl, '/status', token, { status })
-      if (ok) { this.lastPostedStatus = status; this.lastPostedStatusAt = now }
+      const ok = await runtimeBest(this.cfg.serverUrl, '/status', token, status === 'working' ? { status, tool } : { status })
+      if (ok) { this.lastPostedStatus = status; this.lastPostedStatusAt = now; this.lastPostedTool = tool }
       else this.lastPostedStatus = null
     })
     this.statusPosts = post.catch(() => {})

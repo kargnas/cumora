@@ -8,6 +8,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Computer, Participant } from '../src/types'
 import { advance, flash, modeOf, POSTED, programFor, type Playhead } from '../src/next/bloub/program.ts'
+import { TOOL_KINDS as CLIENT_KINDS } from '../src/next/bloub/tools.ts'
+import { TOOL_KINDS as SERVER_KINDS, toolKindOf } from '../server/src/fork/toolKind.ts'
 
 const agent = (over: Partial<Participant> = {}): Participant =>
   ({ id: 'a1', kind: 'agent', name: 'A', initial: 'A', avatarBg: '#000', status: 'avail', ...over }) as Participant
@@ -55,4 +57,30 @@ test('a posted message winks, then the mode plays on without its intro', () => {
   const entered: string[] = []
   advance(head, 1.6 + 2 + 0.1, (state) => entered.push(state))
   assert.deepEqual(entered, ['play', 'orbit'])
+})
+
+test('work with a known tool acts it out on the resting body, and changing tool needs no intro', () => {
+  assert.deepEqual(programFor('thinking', 'working', 'read').steps, [['idle', Infinity, 'read']])
+  assert.deepEqual(programFor('idle', 'working', 'write').steps.map(([state, , tool]) => [state, tool]), [['burst', undefined], ['idle', 'write']])
+  assert.deepEqual(programFor('working', 'working', 'terminal').steps, [['idle', Infinity, 'terminal']])
+  // A tool only matters while working.
+  assert.deepEqual(programFor('working', 'thinking', 'read').steps, [['thinking', Infinity]])
+  assert.deepEqual(flash(POSTED, 'working', 'search').steps.at(-1), ['idle', Infinity, 'search'])
+})
+
+test('the client draws every kind of tool the server sends', () => {
+  assert.deepEqual([...CLIENT_KINDS], [...SERVER_KINDS])
+})
+
+test('tool calls are classified by what the agent does with them', () => {
+  assert.equal(toolKindOf('Read'), 'read')
+  assert.equal(toolKindOf('MultiEdit'), 'write')
+  assert.equal(toolKindOf('Glob'), 'search')
+  assert.equal(toolKindOf('WebFetch'), 'web')
+  assert.equal(toolKindOf('Bash', 'npm test'), 'terminal')
+  // The cumora CLI is how agents read and write the workspace.
+  assert.equal(toolKindOf('Bash', 'cumora reply --to room "done"'), 'write')
+  assert.equal(toolKindOf('Bash', '  cumora glance room'), 'read')
+  assert.equal(toolKindOf('Bash', 'cumora whoami'), 'terminal')
+  assert.equal(toolKindOf('mcp__linear__create_issue'), null)
 })

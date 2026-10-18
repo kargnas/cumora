@@ -45,6 +45,7 @@ import { attachFsEndpoints } from './fs-endpoints.js'
 import { inprocClient } from './inproc-client.js'
 import { type AgentRuntimeClaims, verifyAgentToken } from './jwt.js'
 import { attachWakeStream, } from './wake-bus.js'
+import { publishAgentTool } from '../../fork/agentTool.js'
 
 export type { WakeEvent } from './wake-bus.js'
 
@@ -387,9 +388,11 @@ runtimeRouter.get('/roster', withAgent(async (c, _req, res) => {
 // ─── status + presence ──────────────────────────────────────────────
 
 runtimeRouter.post('/status', withAgent(async (c, req, res) => {
-  const body = req.body as { status?: string } | undefined
+  const body = req.body as { status?: string; tool?: unknown } | undefined
   if (!body?.status) { res.status(400).json({ error: 'status required' }); return }
   await inprocClient.setStatus(c.sub, body.status as 'avail' | 'working' | 'thinking' | 'waiting' | 'resting')
+  // fork: which kind of tool a working agent runs, for its bloub avatar.
+  if (body.status === 'working') await publishAgentTool(c.companyId, c.sub, body.tool)
   res.json({ ok: true })
 }))
 
