@@ -37,6 +37,12 @@ export const FORK_DB_FILE = resolve(process.cwd(), 'server/data/fork.sqlite')
 export const MAX_CATEGORIES = 100
 export const MAX_ROOM_ASSIGNMENTS = 5000
 export const MAX_PIN_ORDER = 500
+// ponytail: each file keeps its newest 200 versions, pruned as versions
+// arrive, and the oldest one left becomes its baseline. A file rewritten on
+// every poll keeps about 17 minutes of history (200 × 5 s), and one at the
+// recorder's 256 KB cap can take 50 MB. Store diffs between versions, or
+// prune by age, if the Handbook needs a longer reach.
+export const MAX_FILE_VERSIONS = 200
 // The client's built-in section (OTHER_GROUP in src/next/chat/roomLayout.ts);
 // every other collapsed key is a category id.
 const BUILT_IN_GROUPS = ['other']
@@ -88,8 +94,10 @@ const MIGRATIONS = [
   // Versions of the computer's standing files, for the Handbook (./recorder.ts).
   // Rows are scoped by the agent whose home holds the file, not by company:
   // agent ids are unique across workspaces (participants_agent_id_unique), and
-  // the handbook route checks the agent is the viewer's. Scope '' is the
-  // computer's shared skills folder, read by every agent on it.
+  // the handbook route checks the agent is the viewer's and skips versions
+  // from before it joined the viewer's workspace, since a hard-deleted
+  // workspace frees its agents' ids. Scope '' is the computer's shared skills
+  // folder, read by every agent on it.
   `CREATE TABLE computer_file_versions (
      id INTEGER PRIMARY KEY,
      scope TEXT NOT NULL,
@@ -132,9 +140,9 @@ export async function openForkStore(file: string) {
   // previous file intact instead of a half-written one.
   // ponytail: rewrites the whole file per change. Fine while it stays at a few
   // MB: layout rows plus the Handbook's file versions, which start at the
-  // computer's standing files (under 1 MB) and keep every later version in
-  // full. Switch to node:sqlite once the image runs Node 22+, or prune old
-  // versions, before the file outgrows that.
+  // computer's standing files (under 1 MB) and keep up to MAX_FILE_VERSIONS
+  // versions of each file in full. Switch to node:sqlite once the image runs
+  // Node 22+ before the file outgrows that.
   // When the write fails, the change is undone in memory too, so a later read
   // (the client resyncs after a failed write) never serves a state the file
   // does not have, and the next save does not persist it by accident.
@@ -296,7 +304,8 @@ export async function openForkStore(file: string) {
       ).map(toVersion)
     },
 
-    /** Adds the versions in one write: the recorder hands over one poll's worth. */
+    /** Adds the versions in one write: the recorder hands over one poll's worth.
+     *  Each file they touch drops what it holds past MAX_FILE_VERSIONS. */
     recordFileVersions(versions: NewFileVersion[]): void {
       if (versions.length === 0) return
       db.run('BEGIN')
@@ -305,6 +314,22 @@ export async function openForkStore(file: string) {
           db.run(
             'INSERT INTO computer_file_versions (scope, path, at, content, baseline) VALUES (?, ?, ?, ?, ?)',
             [v.scope, v.path, v.at, v.content, v.baseline ? 1 : 0],
+          )
+        }
+        for (const { scope, path } of versions) {
+          db.run(
+            `DELETE FROM computer_file_versions WHERE id IN (
+               SELECT id FROM computer_file_versions WHERE scope = ? AND path = ?
+                ORDER BY at DESC, id DESC LIMIT -1 OFFSET ?)`,
+            [scope, path, MAX_FILE_VERSIONS],
+          )
+          if (db.getRowsModified() === 0) continue
+          // The oldest version left is now the oldest text known, which is
+          // what a baseline is; as a change it would read as the file's creation.
+          db.run(
+            `UPDATE computer_file_versions SET baseline = 1 WHERE id = (
+               SELECT id FROM computer_file_versions WHERE scope = ? AND path = ? ORDER BY at, id LIMIT 1)`,
+            [scope, path],
           )
         }
         db.run('COMMIT')

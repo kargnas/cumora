@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import initSqlJs from 'sql.js'
 import {
-  ForkLimitError, MAX_CATEGORIES, MAX_PIN_ORDER, MAX_ROOM_ASSIGNMENTS, getForkStore, openForkStore,
+  ForkLimitError, MAX_CATEGORIES, MAX_FILE_VERSIONS, MAX_PIN_ORDER, MAX_ROOM_ASSIGNMENTS, getForkStore, openForkStore,
 } from '../fork/store.js'
 
 const dir = mkdtempSync(join(tmpdir(), 'fork-store-'))
@@ -199,6 +199,31 @@ test('file versions keep each file’s history, and `since` picks the base', asy
   rmSync(`${file}.tmp`, { recursive: true })
   const reopened = await openForkStore(file)
   assert.deepEqual(at(reopened.fileVersions(['atlas'], '2026-10-18T05:30:00.000Z')), ['CLAUDE.md@05:00=three', 'memory/MEMORY.md@04:00=null'])
+})
+
+test('a file keeps its newest versions, and the oldest one left is its baseline', async () => {
+  const store = await openForkStore(join(dir, 'prune', 'fork.sqlite'))
+  const v = (path: string, i: number, baseline = false) =>
+    ({ scope: 'atlas', path, at: new Date(Date.UTC(2026, 9, 18) + i * 60_000).toISOString(), content: `${path} ${i}`, baseline })
+  const versionsOf = (path: string) => store.fileVersions(['atlas'], null).filter((r) => r.path === path)
+  // CLAUDE.md appeared in a home already watched: a change, not a baseline.
+  store.recordFileVersions([v('CLAUDE.md', 0), v('memory/MEMORY.md', 0, true)])
+  store.recordFileVersions(Array.from({ length: MAX_FILE_VERSIONS - 1 }, (_, i) => v('memory/MEMORY.md', i + 1)))
+  assert.equal(versionsOf('memory/MEMORY.md').length, MAX_FILE_VERSIONS, 'a file at the cap loses nothing')
+
+  // Each version past the cap pushes the oldest out, and the oldest left
+  // reads as the text first known, not as the file's creation.
+  store.recordFileVersions([v('memory/MEMORY.md', MAX_FILE_VERSIONS)])
+  store.recordFileVersions([v('memory/MEMORY.md', MAX_FILE_VERSIONS + 1)])
+  const kept = versionsOf('memory/MEMORY.md')
+  assert.equal(kept.length, MAX_FILE_VERSIONS)
+  assert.deepEqual(kept.filter((r) => r.baseline).map((r) => r.content), ['memory/MEMORY.md 2'])
+  assert.equal(kept.at(-1)?.content, `memory/MEMORY.md ${MAX_FILE_VERSIONS + 1}`)
+  assert.deepEqual(versionsOf('CLAUDE.md').map((r) => [r.content, r.baseline]), [['CLAUDE.md 0', false]], 'a file under the cap stays as it was')
+
+  // The pruning is on disk, not only in memory.
+  const reopened = await openForkStore(join(dir, 'prune', 'fork.sqlite'))
+  assert.equal(reopened.fileVersions(['atlas'], null).length, MAX_FILE_VERSIONS + 1)
 })
 
 test('hidden categories and the tile order stay per user', async () => {
