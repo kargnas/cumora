@@ -26,6 +26,7 @@ import { Avatar } from '../ui/Avatar'
 import { Menu, Spinner, useMenu } from '../ui/primitives'
 import { ICheck, IChevronDown, IDoc, ILibrary, ISpark } from '../ui/icons'
 import { useRoomAgents } from '../chat/ChatView'
+import { AgentChips, usePickedAgent } from './AgentChips'
 import {
   parseSince, SINCES, sinceTime, useHandbook,
   type ChangedLine, type HandbookChange, type HandbookFile, type ReadyHandbook, type SectionKey, type Seg, type Since,
@@ -486,32 +487,12 @@ export const Handbook = memo(function Handbook({ agentId, docked = false }: { ag
  *  with chips (`?agent=`) when there are several. */
 export function HandbookTab({ c, docked }: { c: Conversation; docked: boolean }) {
   const nt = useNT()
-  const route = useRoute()
   const { agents } = useRoomAgents(c)
-  if (agents.length === 0) return <div className="nx-empty">{nt('handbook.noAgents')}</div>
-  const agent = agents.find((a) => a.id === route.search.get('agent')) ?? agents[0]
+  const agent = usePickedAgent(agents)
+  if (!agent) return <div className="nx-empty">{nt('handbook.noAgents')}</div>
   return (
     <>
-      {agents.length > 1 && (
-        <div className="nx-hb-agents" role="group" aria-label={nt('handbook.agents')}>
-          {agents.map((a) => (
-            <button
-              key={a.id}
-              type="button"
-              className="nx-hb-agent"
-              aria-pressed={a.id === agent.id}
-              onClick={() => {
-                if (a.id === agent.id) return
-                // Another agent has other change times, so the scrubber starts at now.
-                navigate(withRoute(getRoute(), { params: { agent: a.id, at: null } }), { replace: true })
-              }}
-            >
-              <Avatar p={a} size={20} />
-              <span>{a.name}</span>
-            </button>
-          ))}
-        </div>
-      )}
+      <AgentChips agents={agents} picked={agent} />
       <Handbook key={agent.id} agentId={agent.id} docked={docked} />
     </>
   )
