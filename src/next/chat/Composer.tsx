@@ -302,7 +302,7 @@ export function Composer({ convoId, threadRootId = null }: {
 
       {/* The dock anchors the working agents, who peek out from behind the bar. */}
       <div className="nx-composer__dock">
-        {!isThread && <WorkingHeads convoId={convoId} />}
+        {!isThread && <WorkingHeads key={convoId} convoId={convoId} />}
         <div className="nx-composer__bar">
           <IconButton label={nt('composer.add')} onClick={(e) => plus.toggleFrom(e.currentTarget)}><IPlus /></IconButton>
           <RichInput

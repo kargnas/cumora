@@ -27,13 +27,11 @@ import { IStop } from '../ui/icons'
 
 /** When each agent's head first showed, per room. It keeps the heads in the
  *  order they came (the store moves an agent to the end of the typing list on
- *  every ping), times them, and lets only a new head rise, so coming back to a
- *  room does not replay the entrance. */
+ *  every ping) and times them. */
 const firstSeen = new Map<string, Map<string, number>>()
-const RISE_MS = 700
 
-// An agent that stops typing is forgotten at once, so its next turn rises
-// again and counts from zero, even when it ran in a room that was not on screen.
+// An agent that stops typing is forgotten at once, so its next turn counts
+// from zero and joins the end of the row, even when it ran in a room that was not on screen.
 useMessages.subscribe((s, prev) => {
   if (s.typing === prev.typing) return
   for (const [convoId, seen] of firstSeen) {
@@ -42,19 +40,13 @@ useMessages.subscribe((s, prev) => {
   }
 })
 
-const Head = memo(function Head({ p, x, size, fresh, since }: {
-  p: Participant
-  x: number
-  size: number
-  fresh: boolean
-  since: number
-}) {
+const Head = memo(function Head({ p, x, size, since }: { p: Participant; x: number; size: number; since: number }) {
   const [hover, setHover] = useState(false)
   const now = useNow(hover)
   return (
     <motion.span
       className="nx-heads__head"
-      initial={fresh ? { x, y: size } : false}
+      initial={{ x, y: size }}
       animate={{ x, y: 0 }}
       exit={{ y: size }}
       transition={T_FAST}
@@ -65,13 +57,15 @@ const Head = memo(function Head({ p, x, size, fresh, since }: {
       <span className="nx-heads__bob" style={{ animationDelay: `${-x / 150}s` }}>
         <Avatar p={p} size={size} />
       </span>
-      {hover && <span className="nx-heads__tag">{p.name}<span className="nx-mono">{elapsed(now - since)}</span></span>}
+      {hover && <span className="nx-tooltip nx-heads__tag">{p.name}<span className="nx-mono">{elapsed(now - since)}</span></span>}
     </motion.span>
   )
 })
 
-function WorkingRow({ convoId, p, time, onClose }: { convoId: string; p: Participant; time: string; onClose: () => void }) {
+/** Rows mount only while the list is open, so their clock ticks only then. */
+function WorkingRow({ convoId, p, since, onClose }: { convoId: string; p: Participant; since: number; onClose: () => void }) {
   const nt = useNT()
+  const now = useNow()
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
   const stop = async () => {
@@ -103,7 +97,7 @@ function WorkingRow({ convoId, p, time, onClose }: { convoId: string; p: Partici
           <b>{p.name}</b>
           {failed
             ? <span className="nx-heads__failed" role="alert">{nt('composer.stopFailed')}</span>
-            : <span className="nx-mono">{time}</span>}
+            : <span className="nx-mono">{elapsed(now - since)}</span>}
         </span>
       </button>
       {canStopAgent(p) && (
@@ -111,23 +105,6 @@ function WorkingRow({ convoId, p, time, onClose }: { convoId: string; p: Partici
           {busy ? <Spinner /> : <IStop />}
         </IconButton>
       )}
-    </div>
-  )
-}
-
-/** Mounted only while the list is open, so its clock ticks only then. */
-function WorkingList({ convoId, agents, sinceOf, onClose }: {
-  convoId: string
-  agents: Participant[]
-  sinceOf: (p: Participant) => number
-  onClose: () => void
-}) {
-  const nt = useNT()
-  const now = useNow()
-  return (
-    <div className="nx-heads__list">
-      <div className="nx-menu__label">{nt('panel.workingNow')}</div>
-      {agents.map((p) => <WorkingRow key={p.id} convoId={convoId} p={p} time={elapsed(now - sinceOf(p))} onClose={onClose} />)}
     </div>
   )
 }
@@ -144,11 +121,8 @@ export function WorkingHeads({ convoId }: { convoId: string }) {
     .map((id) => s.byId[id])
     .filter((p): p is Participant => !!p)))
 
-  let seen = firstSeen.get(convoId)
-  if (!seen) {
-    seen = new Map()
-    firstSeen.set(convoId, seen)
-  }
+  const seen = firstSeen.get(convoId) ?? new Map<string, number>()
+  firstSeen.set(convoId, seen)
   const t = Date.now()
   for (const p of ps) if (!seen.has(p.id)) seen.set(p.id, t)
   const at = (id: string) => seen.get(id) ?? t
@@ -166,19 +140,21 @@ export function WorkingHeads({ convoId }: { convoId: string }) {
   const step = size + (coarse ? 4 : 6)
   const shown = agents.length > cap ? agents.slice(0, cap - 1) : agents
   const rest = agents.length - shown.length
-  const restFresh = agents.slice(shown.length).some((p) => t - at(p.id) < RISE_MS)
-  const slots = shown.length + (rest > 0 ? 1 : 0)
 
   return (
     <>
-      <AnimatePresence>
+      {/* Heads already up when the room opens stay put, like the messages; later ones rise. */}
+      <AnimatePresence initial={false}>
         {agents.length > 0 && (
           <motion.button
             key="heads"
             type="button"
             className="nx-heads"
-            style={{ width: slots * step - (step - size), height: size }}
-            exit={{ y: size, transition: T_FAST }}
+            style={{ width: (Math.min(agents.length, cap) - 1) * step + size, height: size }}
+            initial={{ y: size }}
+            animate={{ y: 0 }}
+            exit={{ y: size }}
+            transition={T_FAST}
             aria-label={agents.length === 1 ? nt('chat.oneWorking', { name: agents[0].name }) : nt('chat.manyWorking', { n: agents.length })}
             aria-haspopup="menu"
             onClick={(e) => {
@@ -187,15 +163,15 @@ export function WorkingHeads({ convoId }: { convoId: string }) {
               menu.openAt({ x: r.left, y: r.top, align: 'start' })
             }}
           >
-            <AnimatePresence>
+            <AnimatePresence initial={false}>
               {shown.map((p, i) => (
-                <Head key={p.id} p={p} x={i * step} size={size} fresh={t - at(p.id) < RISE_MS} since={sinceOf(p)} />
+                <Head key={p.id} p={p} x={i * step} size={size} since={sinceOf(p)} />
               ))}
               {rest > 0 && (
                 <motion.span
                   key="rest"
                   className="nx-heads__head"
-                  initial={restFresh ? { x: shown.length * step, y: size } : false}
+                  initial={{ x: shown.length * step, y: size }}
                   animate={{ x: shown.length * step, y: 0 }}
                   exit={{ y: size }}
                   transition={T_FAST}
@@ -212,7 +188,12 @@ export function WorkingHeads({ convoId }: { convoId: string }) {
         anchor={menu.anchor}
         onClose={close}
         entries={[]}
-        header={<WorkingList convoId={convoId} agents={agents} sinceOf={sinceOf} onClose={close} />}
+        header={(
+          <div className="nx-heads__list nx-scroll">
+            <div className="nx-menu__label">{nt('panel.workingNow')}</div>
+            {agents.map((p) => <WorkingRow key={p.id} convoId={convoId} p={p} since={sinceOf(p)} onClose={close} />)}
+          </div>
+        )}
       />
     </>
   )
