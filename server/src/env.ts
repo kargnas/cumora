@@ -80,6 +80,13 @@ export const env = {
    *  base-URL swap (no Chat-Completions translation, unlike Novita). */
   ORCAROUTER_BASE_URL: (process.env.ORCAROUTER_BASE_URL ?? 'https://api.orcarouter.ai/v1').replace(/\/+$/, ''),
   /**
+   * OpenRouter API key for the fork's bloub moods (server/src/fork/mood.ts):
+   * TypeSafe Jev reads each message an agent posts and picks the face its
+   * bloub avatar wears. Optional — when unset, the faces stay at rest and the
+   * server logs that once at boot.
+   */
+  OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY?.trim() ?? '',
+  /**
    * Webhook URL for process-level alerts (unhandledRejection /
    * uncaughtException). Currently expects a Discord-compatible
    * `{ content: "..." }` JSON payload. When unset, alerts are still
