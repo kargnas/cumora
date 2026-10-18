@@ -2079,7 +2079,7 @@ export function ChatPane() {
             // close to the real per-message height (avatar + 1-2 lines
             // of text). Without it the list starts assuming a tiny
             // default and every ResizeObserver tick pushes content
-            // around, which compounds with image / OG-card lazy loads
+            // around, which compounds with image lazy loads
             // into the scroll jitter users see.
             defaultItemHeight={96}
             increaseViewportBy={{ top: 800, bottom: 800 }}
