@@ -14,6 +14,9 @@ import { dirname, resolve } from 'node:path'
 
 export interface RoomCategory { id: string; name: string; position: number; hidden: boolean }
 
+/** An agent's bloub look: catalogue ids of the client's bloub engine. */
+export interface BloubLook { shape: string; color: string; expression: string }
+
 /** One user's chat-list layout inside one company. */
 export interface RoomLayout {
   /** Ordered by position. */
@@ -83,6 +86,18 @@ const MIGRATIONS = [
      conversation_id TEXT NOT NULL,
      position INTEGER NOT NULL,
      PRIMARY KEY (company_id, user_id, conversation_id)
+   );`,
+
+  // The animated bloub avatar an owner or admin picked for an agent. It is the
+  // agent's look for the whole workspace, so rows are per company, not per user.
+  // The ids are catalogue keys of the client's bloub engine (src/next/bloub).
+  `CREATE TABLE bloub_avatars (
+     company_id TEXT NOT NULL,
+     participant_id TEXT NOT NULL,
+     shape TEXT NOT NULL,
+     color TEXT NOT NULL,
+     expression TEXT NOT NULL,
+     PRIMARY KEY (company_id, participant_id)
    );`,
 ]
 
@@ -237,6 +252,29 @@ export async function openForkStore(file: string) {
       )
       save()
       return true
+    },
+
+    /** Every agent in the company that has a bloub look, by participant id. */
+    bloubAvatars(companyId: string): Record<string, BloubLook> {
+      return Object.fromEntries(
+        rows('SELECT participant_id, shape, color, expression FROM bloub_avatars WHERE company_id = ?', [companyId])
+          .map(([id, shape, color, expression]) => [String(id), { shape: String(shape), color: String(color), expression: String(expression) }]),
+      )
+    },
+
+    setBloubAvatar(companyId: string, participantId: string, look: BloubLook): void {
+      db.run(
+        `INSERT OR REPLACE INTO bloub_avatars (company_id, participant_id, shape, color, expression)
+         VALUES (?, ?, ?, ?, ?)`,
+        [companyId, participantId, look.shape, look.color, look.expression],
+      )
+      save()
+    },
+
+    /** Back to the agent's portrait or initial. */
+    clearBloubAvatar(companyId: string, participantId: string): void {
+      db.run('DELETE FROM bloub_avatars WHERE company_id = ? AND participant_id = ?', [companyId, participantId])
+      if (db.getRowsModified() > 0) save()
     },
   }
 }

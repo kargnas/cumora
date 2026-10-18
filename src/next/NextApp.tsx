@@ -12,6 +12,7 @@ import { isElectron } from '@/lib/runtime'
 import { useAppearanceStore, type Appearance } from '@/lib/theme'
 import { initPushNotifications } from '@/lib/push'
 import { bindPressHaptics } from './haptics'
+import { useBloubLooks } from './bloub/looks'
 import { useNativeChrome, useNextDocument } from './document'
 import { bindLegacyWrites, goBack, href, linkClick, navigate, projectRoute, useRoute, type Route, type Section } from './router'
 import { useLayout, type Layout } from './layout'
@@ -234,6 +235,19 @@ function TabBar({ route }: { route: Route }) {
   )
 }
 
+/** Agents' bloub looks change from any device and have no realtime event, so
+ *  they load per workspace and again whenever the app comes to the foreground. */
+function useBloubLooksSync(): void {
+  const epoch = useAuth((s) => s.contextEpoch)
+  useEffect(() => {
+    const load = () => void useBloubLooks.getState().load()
+    load()
+    const onVisible = () => { if (document.visibilityState === 'visible') load() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [epoch])
+}
+
 /** Android hardware back: close what is on top, then walk the in-app history. */
 function useHardwareBack(route: Route, layout: Layout): void {
   useEffect(() => {
@@ -270,6 +284,7 @@ export default function NextApp() {
 
   useEffect(() => bindLegacyWrites(), [])
   useEffect(() => bindPressHaptics(), [])
+  useBloubLooksSync()
   useEffect(() => { projectRoute(route, stack) }, [route, stack])
   useHardwareBack(route, layout)
   // The classic mobile shell owned push registration (APNs/FCM); this shell

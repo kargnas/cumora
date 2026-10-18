@@ -181,6 +181,14 @@
 .nx-avatar-stack { display: inline-flex; align-items: center; }
 .nx-avatar-stack > * + * { margin-left: -8px; }
 .nx-avatar-stack .nx-avatar { box-shadow: 0 0 0 2px var(--nx-avatar-ring, var(--card)); }
+/* A bloub has no disc of its own; in a stack it needs one to cover the face below. */
+.nx-avatar-stack .nx-avatar--bloub { background: var(--nx-avatar-ring, var(--card)); }
+/* The rings of a working bloub draw past the avatar box. */
+.nx-bloub { display: block; overflow: visible; }
+/* bloub ink (src/next/bloub). The default black would vanish on a dark surface,
+   so it turns cream there; the other colours come inline from the catalogue. */
+.nx-ink[data-ink="encre"] { color: #0a0a0c; }
+html.nx.dark .nx-ink[data-ink="encre"] { color: #f1efe9; }
 
 /* ── Segmented tabs with a sliding pill (transitions-dev 16) ───────── */
 .nx-seg {

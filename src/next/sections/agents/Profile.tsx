@@ -5,7 +5,7 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from '@/api/client'
-import { useMe } from '@/stores/auth'
+import { useAuth, useMe } from '@/stores/auth'
 import { useComputers } from '@/stores/computers'
 import { useParticipants } from '@/stores/participants'
 import { usePrefs } from '@/stores/preferences'
@@ -16,7 +16,11 @@ import { useNT } from '../../i18n'
 import { linkClick, type Route } from '../../router'
 import { useOpenDirect } from '../../hooks'
 import { Avatar } from '../../ui/Avatar'
-import { Spinner } from '../../ui/primitives'
+import { Spinner, Switch } from '../../ui/primitives'
+import { BloubStill, inkProps, PALETTE } from '../../bloub/BloubAvatar'
+import { EXPRESSIONS } from '../../bloub/engine/expressions'
+import { SHAPES } from '../../bloub/engine/skins'
+import { DEFAULT_LOOK, useBloubLooks, type BloubLook } from '../../bloub/looks'
 import { ICheck, ICompose, ICopy, IExit, IPencil, IRepeat } from '../../ui/icons'
 import {
   agentState, defaultModelOf, dialogHref, engineOf, errorText, listHref, LoadError, providerLabel, StateText, type Roster,
@@ -156,6 +160,77 @@ function Email({ email }: { email: string }) {
   )
 }
 
+function Choice({ label, on, onPick, children }: { label: string; on: boolean; onPick: () => void; children: ReactNode }) {
+  return (
+    <button type="button" className="nx-agents-bloub__choice" aria-pressed={on} aria-label={label} title={label} onClick={onPick}>
+      {children}
+    </button>
+  )
+}
+
+function Choices({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="nx-agents-bloub__group">
+      <span className="nx-agents-bloub__label">{label}</span>
+      <div className="nx-agents-bloub__choices" role="group" aria-label={label}>{children}</div>
+    </div>
+  )
+}
+
+/** The agent's animated bloub avatar, shared by the whole workspace. The hero
+ *  avatar above plays every pick live, so the choices are still frames. */
+function AnimatedAvatar({ p }: { p: Participant }) {
+  const nt = useNT()
+  const look = useBloubLooks((s) => s.byId[p.id])
+  const [error, setError] = useState<string | null>(null)
+  const save = (next: BloubLook | null) => {
+    setError(null)
+    useBloubLooks.getState().save(p.id, next).catch((e) => {
+      haptic('error')
+      setError(nt('agents.bloubFailed', { error: errorText(e) }))
+    })
+  }
+  return (
+    <Block title={nt('agents.bloub')}>
+      <div className="nx-rows">
+        <div className="nx-row">
+          <span className="nx-row__text">
+            <span>{nt('agents.bloubUse')}</span>
+            <span className="nx-row__hint">{nt('agents.bloubHint', { name: p.name })}</span>
+          </span>
+          <Switch checked={look !== undefined} label={nt('agents.bloubUse')} onChange={(on) => save(on ? DEFAULT_LOOK : null)} />
+        </div>
+        {look && (
+          <div className="nx-agents-bloub">
+            <Choices label={nt('agents.bloubShape')}>
+              {SHAPES.map(({ id }) => (
+                <Choice key={id} label={nt(`agents.bloub.shape.${id}`)} on={look.shape === id} onPick={() => save({ ...look, shape: id })}>
+                  <BloubStill look={{ ...look, shape: id }} size={28} />
+                </Choice>
+              ))}
+            </Choices>
+            <Choices label={nt('agents.bloubColor')}>
+              {PALETTE.map(({ id }) => (
+                <Choice key={id} label={nt(`agents.bloub.color.${id}`)} on={look.color === id} onPick={() => save({ ...look, color: id })}>
+                  <span className="nx-agents-bloub__swatch nx-ink" {...inkProps(id)} />
+                </Choice>
+              ))}
+            </Choices>
+            <Choices label={nt('agents.bloubFace')}>
+              {EXPRESSIONS.map(({ id }) => (
+                <Choice key={id} label={nt(`agents.bloub.face.${id}`)} on={look.expression === id} onPick={() => save({ ...look, expression: id })}>
+                  <BloubStill look={{ ...look, expression: id }} size={28} />
+                </Choice>
+              ))}
+            </Choices>
+          </div>
+        )}
+      </div>
+      {error && <p className="nx-agents-error" role="alert">{error}</p>}
+    </Block>
+  )
+}
+
 /** The viewer's own trust setting for this agent (stored per person). */
 function Autonomy({ p }: { p: Participant }) {
   const nt = useNT()
@@ -210,6 +285,11 @@ function Profile({ p, route, onRefresh }: { p: Participant; route: Route; onRefr
   const host = useComputers((s) => (p.computerId ? s.byId[p.computerId] : undefined))
   const isAgent = p.kind === 'agent'
   const departed = Boolean(p.departedAt)
+  // The server takes an agent's look from owners and admins only, as it does its profile.
+  const canStyle = useAuth((s) => {
+    const role = s.companies.find((c) => c.id === s.activeCompanyId)?.role
+    return role === 'owner' || role === 'admin'
+  })
   // The classic card fell back to the agent's style prompt when it had no bio.
   const about = p.bio || (isAgent ? p.systemPrompt : undefined)
   return (
@@ -236,6 +316,7 @@ function Profile({ p, route, onRefresh }: { p: Participant; route: Route; onRefr
       )}
       {p.email && <Email email={p.email} />}
       {isAgent && !departed && <Autonomy p={p} />}
+      {isAgent && !departed && canStyle && <AnimatedAvatar p={p} />}
       {isAgent && !departed && (
         <a className="nx-btn nx-btn--danger nx-btn--block" href={dialogHref(route, 'offboard')} onClick={linkClick}>
           <IExit />

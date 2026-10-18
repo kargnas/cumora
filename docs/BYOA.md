@@ -239,7 +239,12 @@ selected engine's sandbox.
    triage cost is reported to `/runtime/triage`.
 4. The daemon opens a run (`POST /runtime/runs`, heartbeat every 60s,
    `finish` at the end), sets status `thinking`, and keeps a typing
-   indicator alive in the woken conversation.
+   indicator alive in the woken conversation. It renews the status every
+   20s for the whole turn (`/runtime/status/heartbeat`; an unrenewed busy
+   status reads as idle after 90s) and switches it to `working` after an
+   engine hop that called tools and back to `thinking` after one that did
+   not. Codex reports one hop per turn without a tool count, so its agents
+   stay `thinking`.
 5. **The turn.** The engine receives a compact
    delta: "triage already said this is real — act", the current UTC
    clock, the triage note, a pre-fetched unread digest (with a "glance

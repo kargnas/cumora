@@ -113,6 +113,12 @@ const ENGINE_RESCAN_MS = 5 * 60 * 1000
 // turn (a multi-hour Bash, a deep task) as "orphaned". 60s = 10× margin under the
 // 10-min reaper; cheap (one tiny UPDATE). A long task NO LONGER hits a hidden cap.
 const RUN_HEARTBEAT_MS = 60_000
+// A busy status (thinking/working) that is not renewed within the server's
+// BUSY_STATUS_LEASE_MS (90 s, server/src/status.ts) reads as idle on the server
+// and in every client, and BYOA turns run for minutes. Renew it on the server's
+// own BUSY_STATUS_HEARTBEAT_MS; that module is not imported because it loads the
+// database pool.
+const STATUS_HEARTBEAT_MS = 20_000
 // Fallback inbox drain. The wake-stream SSE can be silently severed by the
 // network edge (the server writes the wake onto a half-dead socket, counts it
 // delivered, and does nothing more), so a live wake can be lost until the daemon
@@ -1847,6 +1853,10 @@ export class AgentRunner {
   /** The last status POST that succeeded, and when — see AVAIL_REASSERT_MS. */
   private lastPostedStatus: string | null = null
   private lastPostedStatusAt = 0
+  /** Status POSTs in flight, chained so they reach the server in call order. */
+  private statusPosts: Promise<void> = Promise.resolve()
+  /** The runtime token of the turn in flight, while beatStatus runs; null between turns. */
+  private turnStatusToken: string | null = null
   private readonly adapter
   /** Privileged local broker: the engine sees only its IPC directory, while the
    *  daemon keeps the short-lived runtime JWT in memory. */
@@ -1905,6 +1915,15 @@ export class AgentRunner {
    *  the columns the operator needs to ANSWER "why was this hop expensive?"
    *  without having to pull the prompt body back. */
   private onEngineHop(report: EngineHopReport, purpose: PendingHop['purpose']): void {
+    // A hop that called tools leaves the engine running them, so the agent is
+    // working until the next hop says otherwise; a hop without tools is the
+    // model thinking or writing. Clients animate the agent's avatar from this.
+    // Codex reports one hop per turn without a tool count and stays thinking.
+    const token = this.turnStatusToken
+    if (token && typeof report.toolUses === 'number') {
+      const status = report.toolUses > 0 ? 'working' : 'thinking'
+      if (status !== this.lastPostedStatus) void this.postStatus(token, status)
+    }
     try {
       const extras: Record<string, unknown> = {}
       if (typeof report.hopIndex === 'number') extras.hopIndex = report.hopIndex
@@ -2119,13 +2138,32 @@ export class AgentRunner {
    *  status (thinking, resting…) always posts, and the avail right after it
    *  posts too — only avail-after-avail is elided, and even that is re-asserted
    *  every AVAIL_REASSERT_MS. A failed post is not remembered, so the next tick
-   *  retries it. */
-  private async postStatus(token: string, status: 'avail' | 'thinking'): Promise<void> {
-    const now = Date.now()
-    if (status === 'avail' && this.lastPostedStatus === 'avail' && now - this.lastPostedStatusAt < AVAIL_REASSERT_MS) return
-    const ok = await runtimeBest(this.cfg.serverUrl, '/status', token, { status })
-    if (ok) { this.lastPostedStatus = status; this.lastPostedStatusAt = now }
-    else this.lastPostedStatus = null
+   *  retries it. Posts go out one at a time in call order: a tool hop's `working`
+   *  still in flight must not land after the turn's closing `avail`. */
+  private postStatus(token: string, status: 'avail' | 'thinking' | 'working'): Promise<void> {
+    const post = this.statusPosts.then(async () => {
+      const now = Date.now()
+      if (status === 'avail' && this.lastPostedStatus === 'avail' && now - this.lastPostedStatusAt < AVAIL_REASSERT_MS) return
+      const ok = await runtimeBest(this.cfg.serverUrl, '/status', token, { status })
+      if (ok) { this.lastPostedStatus = status; this.lastPostedStatusAt = now }
+      else this.lastPostedStatus = null
+    })
+    this.statusPosts = post.catch(() => {})
+    return post
+  }
+
+  /** Keep the turn's busy status alive until the returned stop fn runs, and let
+   *  onEngineHop switch it between thinking and working meanwhile. */
+  private beatStatus(token: string): () => void {
+    this.turnStatusToken = token
+    const timer = setInterval(() => {
+      const status = this.lastPostedStatus
+      if (status === 'thinking' || status === 'working') void runtimeBest(this.cfg.serverUrl, '/status/heartbeat', token, { status })
+    }, STATUS_HEARTBEAT_MS)
+    return () => {
+      clearInterval(timer)
+      this.turnStatusToken = null
+    }
   }
 
   /** Phase 1 of shutdown: stop accepting NEW wakes/turns, but leave any in-flight
@@ -2813,6 +2851,7 @@ export class AgentRunner {
     // in finally below alongside the heartbeat stop.
     this.currentRunId = run?.runId ?? null
     const stopRunBeat = this.beatRun(token, run?.runId)
+    const stopStatusBeat = this.beatStatus(token)
     let exitCode = 0
     let engineError: string | null = null
     let turnUsage: EngineUsage | undefined
@@ -2843,6 +2882,7 @@ export class AgentRunner {
       engineError = this.visibleEngineError(1, err instanceof Error ? (err.stack || err.message) : String(err))
     } finally {
       stopRunBeat()
+      stopStatusBeat()
       this.lastTurnEndedAt = Date.now()
       // Per-turn ledger drain: turn just ended, push any queued hops promptly
       // instead of waiting for the 250ms timer. Fire-and-forget — the void
@@ -3181,6 +3221,7 @@ export class AgentRunner {
         // maybeAgendaTurn for the same hook).
         this.currentRunId = run?.runId ?? null
         const stopRunBeat = this.beatRun(token, run?.runId)
+        const stopStatusBeat = this.beatStatus(token)
         let exitCode = 0
         let engineError: string | null = null
         let turnUsage: EngineUsage | undefined
@@ -3232,6 +3273,7 @@ export class AgentRunner {
           engineError = this.visibleEngineError(exitCode, err instanceof Error ? (err.stack || err.message) : String(err))
         } finally {
           stopRunBeat()
+          stopStatusBeat()
           if (typingTimer) clearInterval(typingTimer)
           // Per-turn ledger drain (mirrors the agenda finally above).
           this.currentRunId = null
