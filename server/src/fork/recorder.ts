@@ -13,7 +13,7 @@
  * followed, and no path comes from a request.
  */
 import {
-  closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readdirSync, readFileSync, realpathSync, type Dirent,
+  closeSync, constants, existsSync, fstatSync, lstatSync, opendirSync, openSync, readFileSync, realpathSync, type Dir, type Dirent,
 } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { getForkStore, type ForkStore, type NewFileVersion } from './store.js'
@@ -30,6 +30,12 @@ const STAT_MS = 5_000
 const SCAN_MS = 60_000
 export const MAX_FILE_BYTES = 256 * 1024
 const MEMORY_DEPTH = 4
+// ponytail: a scan reads at most 300 names in a home besides its CLAUDE.md,
+// AGENTS.md and memory/MEMORY.md, its own skills before its other memory,
+// and never the rest of a folder; an agent that keeps more files than that
+// loses the rest from the Handbook. Raise it, or scan the homes off the event
+// loop, if real homes come near it.
+export const MAX_HOME_FILES = 300
 // Agent ids are slugs (agents/create.ts, onboardCompany.ts); the daemon names
 // each home after its agent's id (agents/computer/daemon.ts).
 export const AGENT_ID = /^[a-z0-9][a-z0-9._-]{0,99}$/i
@@ -45,30 +51,58 @@ const code = (err: unknown) => (err as NodeJS.ErrnoException | undefined)?.code
 // file deleted between the listing and the read); anything else is reported.
 const isMissing = (err: unknown) => code(err) === 'ENOENT' || code(err) === 'ENOTDIR'
 
-function entries(dir: string): Dirent[] {
+/** At most `max` entries of a folder reached without a symlink; the rest of
+ *  the folder is never read. */
+function entries(dir: string, max = Number.POSITIVE_INFINITY): Dirent[] {
+  let handle: Dir
   try {
-    return lstatSync(dir).isDirectory() ? readdirSync(dir, { withFileTypes: true }) : []
+    if (max <= 0 || !lstatSync(dir).isDirectory()) return []
+    handle = opendirSync(dir)
   } catch (err) {
     if (isMissing(err)) return []
     throw err
   }
+  const out: Dirent[] = []
+  try {
+    while (out.length < max) {
+      const entry = handle.readSync()
+      if (!entry) break
+      out.push(entry)
+    }
+  } finally {
+    handle.closeSync()
+  }
+  return out
 }
 
 interface FileRef { scope: string; path: string }
 
-/** Every whitelisted file under the two roots. Dirent types do not follow
- *  symlinks, so a linked folder or file is skipped here. */
+/** Every whitelisted file under the two roots, up to MAX_HOME_FILES names a
+ *  home. Dirent types and lstat do not follow a symlink at the end of a path,
+ *  so a linked folder or file is skipped here; statFile refuses a path with a
+ *  link anywhere in it. */
 function listFiles(roots: { agents: string; skills: string }): FileRef[] {
   const out: FileRef[] = []
   for (const home of entries(roots.agents)) {
     if (!home.isDirectory() || !AGENT_ID.test(home.name)) continue
     const scope = home.name
     const dir = join(roots.agents, scope)
-    for (const e of entries(dir)) {
-      if (e.isFile() && (e.name === 'CLAUDE.md' || e.name === 'AGENTS.md')) out.push({ scope, path: e.name })
+    for (const path of ['CLAUDE.md', 'AGENTS.md', 'memory/MEMORY.md']) {
+      if (lstatOrNull(join(dir, path))?.isFile()) out.push({ scope, path })
+    }
+    let left = MAX_HOME_FILES
+    const list = (rel: string) => {
+      const found = entries(join(dir, rel), left)
+      left -= found.length
+      return found
+    }
+    if (lstatOrNull(join(dir, '.claude'))?.isDirectory()) {
+      for (const skill of list('.claude/skills')) {
+        if (skill.isDirectory() && !ODD_NAME.test(skill.name)) out.push({ scope, path: `.claude/skills/${skill.name}/SKILL.md` })
+      }
     }
     const walk = (rel: string, depth: number) => {
-      for (const e of entries(join(dir, rel))) {
+      for (const e of list(rel)) {
         if (ODD_NAME.test(e.name)) continue
         const path = `${rel}/${e.name}`
         if (e.isFile() && e.name.endsWith('.md')) out.push({ scope, path })
@@ -76,11 +110,6 @@ function listFiles(roots: { agents: string; skills: string }): FileRef[] {
       }
     }
     walk('memory', 1)
-    if (lstatOrNull(join(dir, '.claude'))?.isDirectory()) {
-      for (const skill of entries(join(dir, '.claude', 'skills'))) {
-        if (skill.isDirectory() && !ODD_NAME.test(skill.name)) out.push({ scope, path: `.claude/skills/${skill.name}/SKILL.md` })
-      }
-    }
   }
   for (const skill of entries(roots.skills)) {
     if (skill.isDirectory() && !ODD_NAME.test(skill.name)) out.push({ scope: SHARED, path: `${skill.name}/SKILL.md` })

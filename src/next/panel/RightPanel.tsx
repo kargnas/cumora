@@ -4,7 +4,7 @@
  * the tabs are the redesign's own. The header identity follows whichever
  * agent is working in the room, so a glance says who is busy right now.
  */
-import { lazy, Suspense, type ReactNode } from 'react'
+import { lazy, Suspense, useRef, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useConversations } from '@/stores/conversations'
 import type { Conversation } from '@/types'
@@ -78,6 +78,8 @@ const TABS: PanelTab[] = ['handbook', 'members', 'details', 'files', 'routines']
 
 export function RightPanel({ route, layout }: { route: Route; layout: Layout }) {
   const nt = useNT()
+  // Each tab opens at its top, not at the scroll position of the tab before.
+  const body = useRef<HTMLDivElement>(null)
   const c = useConversations((s) => s.list.find((x) => x.id === route.id))
   if (!c) return null
 
@@ -123,8 +125,8 @@ export function RightPanel({ route, layout }: { route: Route; layout: Layout }) 
           items={TABS.map((k) => ({ key: k, label: nt(`panel.${k}`) }))}
         />
       </header>
-      <div className="nx-panel__body nx-scroll">
-        <AnimatePresence mode="wait" initial={false}>
+      <div ref={body} className="nx-panel__body nx-scroll">
+        <AnimatePresence mode="wait" initial={false} onExitComplete={() => body.current?.scrollTo(0, 0)}>
           <motion.div
             key={tab}
             className="nx-panel__tab"

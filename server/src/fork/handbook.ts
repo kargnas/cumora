@@ -13,7 +13,7 @@
 import type { Request, Response } from 'express'
 import type { AuthedRequest } from '../auth.js'
 import { commonPairs, diffWords, type Seg } from './diff.js'
-import { preview, redact } from './redact.js'
+import { preview, redact, redactKeys } from './redact.js'
 import { AGENT_ID, SHARED, computerMounted } from './recorder.js'
 import { getForkStore, type FileVersion } from './store.js'
 
@@ -78,10 +78,12 @@ function placeOf(scope: string, path: string): { section: SectionKey; path: stri
 }
 
 /** Lines redacted one by one, so a pattern never joins two lines and the
- *  line count stays what the diff compares. */
+ *  line count stays what the diff compares. A private key spans lines, so it
+ *  goes first, on the whole text: every version of a file holding the same
+ *  key then turns it into the same line. */
 function linesOf(content: string | null): string[] {
   if (!content) return []
-  const lines = content.replace(/\r\n?/g, '\n').split('\n')
+  const lines = redactKeys(content.replace(/\r\n?/g, '\n')).split('\n')
   if (lines[lines.length - 1] === '') lines.pop()
   return lines.map(redact)
 }
@@ -435,6 +437,18 @@ async function attribute(
   }]))
 }
 
+/**
+ * The versions this agent can own. Versions are keyed by agent id alone, and a
+ * hard-deleted workspace frees its agents' ids, so a version of the agent's own
+ * files from before it joined the viewer's workspace belongs to an earlier
+ * agent of another workspace. `joinedAt` is when it joined its first room
+ * there; null (no room at all) drops every version of its own files. The
+ * shared skills belong to the computer, not to an agent.
+ */
+export function ownedVersions(versions: FileVersion[], joinedAt: string | null): FileVersion[] {
+  return versions.filter((v) => v.scope === SHARED || (joinedAt !== null && v.at >= joinedAt))
+}
+
 function timeParam(raw: unknown): string | null | undefined {
   if (raw === undefined) return null
   if (typeof raw !== 'string') return undefined
@@ -458,9 +472,16 @@ export async function agentHandbook(requireCompany: Requirer, req: Request & Aut
   // Imported here, not at the top: the tests import this module for its pure
   // functions, and db/pool.js loads env.ts, which exits without OPENAI_API_KEY.
   const { pool } = await import('../db/pool.js')
-  const gate = await pool.query<{ role: string | null; agent: boolean }>(
+  // participants has no created_at. An agent joins #all-hands and a DM with
+  // its creator when it is created, and a workspace delete takes those rows
+  // with it, so its first room marks when this agent arrived here.
+  // ponytail: an agent taken out of every room it joined early hides the
+  // history before its earliest remaining room; keep the first join time in
+  // the fork store if that happens.
+  const gate = await pool.query<{ role: string | null; agent: boolean; joined: Date | null }>(
     `SELECT (SELECT role FROM company_members WHERE company_id = $1 AND user_id = $2) AS role,
-            EXISTS (SELECT 1 FROM participants WHERE id = $3 AND company_id = $1 AND kind = 'agent') AS agent`,
+            EXISTS (SELECT 1 FROM participants WHERE id = $3 AND company_id = $1 AND kind = 'agent') AS agent,
+            (SELECT MIN(joined_at) FROM conversation_members WHERE company_id = $1 AND participant_id = $3) AS joined`,
     [companyId, userId, agentId],
   )
   if (!PRIVILEGED.has(gate.rows[0]?.role ?? '')) {
@@ -480,7 +501,9 @@ export async function agentHandbook(requireCompany: Requirer, req: Request & Aut
   const homes = store.fileScopes()
   // The shared skills belong to this computer: only an agent with a home
   // here reads them.
-  const versions = homes.includes(agentId) ? store.fileVersions([agentId, SHARED], since) : []
+  const versions = homes.includes(agentId)
+    ? ownedVersions(store.fileVersions([agentId, SHARED], since), gate.rows[0].joined?.toISOString() ?? null)
+    : []
   const attribution = await attribute(pool, listChanges(versions, since), { agentId, companyId, userId, homes })
   // The body only changes with the files and the runs, so Express's ETag
   // turns the client's poll into a 304 while nothing happens.
