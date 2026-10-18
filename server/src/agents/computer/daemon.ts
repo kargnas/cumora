@@ -2035,7 +2035,11 @@ export class AgentRunner {
       const capture = setInterval(() => { if (session.sessionId) this.setSessionId(session.sessionId) }, 2000)
       capture.unref?.()
       try {
-        result = await this.trackEngineRun(session.send(prompt))
+        const turn = session.send(prompt)
+        // A stop that landed while this turn was still being prepared found no
+        // turn to interrupt; send() made one, so stop it now.
+        if (this.stopReason) void session.interrupt?.()
+        result = await this.trackEngineRun(turn)
       } finally {
         clearInterval(capture)
       }
@@ -2832,6 +2836,7 @@ export class AgentRunner {
     )
     if (!ag?.actionable || !ag.brief) return
     console.log(`[computer] ${this.agent.id} agenda turn START — proactive board work${ag.focus ? `: ${ag.focus.slice(0, 80)}` : ''}`)
+    this.turnSeq += 1
     await this.postStatus(token, 'thinking')
     const run = (await runtimeBest(this.cfg.serverUrl, '/runs', token, {
       trigger: { source: 'byoa-agenda', engine: this.adapter.id },
@@ -2845,6 +2850,7 @@ export class AgentRunner {
     let engineError: string | null = null
     let turnUsage: EngineUsage | undefined
     let turnModel: string | null | undefined
+    let turnInterrupted = false
     // Spawn jitter + concurrency gate — same reason as the chat path (see
     // runTurn): when multiple agents on this computer hit the agenda
     // heartbeat in the same tick (they often do — same poll interval, all
@@ -2858,10 +2864,13 @@ export class AgentRunner {
         runtimeGet<{ roster: string }>(this.cfg.serverUrl, '/roster', token).then((r) => r?.roster ?? '').catch(() => ''),
       ])
       this.teardown.signal.throwIfAborted()
-      const result = await this.runWithSessionRecovery(this.agendaDelta(ag.brief, memoryDigest, roster))
+      const result: EngineRunResult = this.stopReason?.kind === 'manual'
+        ? { exitCode: 0, interrupted: true }
+        : await this.runWithSessionRecovery(this.agendaDelta(ag.brief, memoryDigest, roster))
       exitCode = result.exitCode
       turnUsage = result.usage
       turnModel = result.model
+      turnInterrupted = result.interrupted === true
       if (result.error) engineError = this.visibleEngineError(exitCode, result.failure?.message ?? result.error)
       if (engineError && result.failure?.kind !== 'resume-not-found' && this.mustResetSession(engineError, false)) {
         await this.resetEngineSession(this.resetReason(engineError))
@@ -2871,6 +2880,7 @@ export class AgentRunner {
       engineError = this.visibleEngineError(1, err instanceof Error ? (err.stack || err.message) : String(err))
     } finally {
       stopRunBeat()
+      this.clearAutoStops()
       this.lastTurnEndedAt = Date.now()
       // Per-turn ledger drain: turn just ended, push any queued hops promptly
       // instead of waiting for the 250ms timer. Fire-and-forget — the void
@@ -2914,6 +2924,8 @@ export class AgentRunner {
         usage: turnUsage ? usageFromClaude(turnUsage) : null,
       })
     }
+    // A human DM can steer into, and so auto-stop, an agenda turn too.
+    await this.settleStop(token, turnInterrupted, run?.runId ?? String(now))
     console.log(`[computer] ${this.agent.id} agenda turn DONE — exit ${exitCode}`)
   }
 
@@ -3047,14 +3059,48 @@ export class AgentRunner {
   /** A person pressed Stop in a room this agent works in. The turn settles as
    *  interrupted, and runTurn stands the agent down (see stopReason). */
   private async stopTurn(stop: InterruptWakeData): Promise<void> {
-    const session = this.engineSession
-    if (!this.busy || !session?.interrupt) {
-      console.log(`[computer] ${this.agent.id} stop from ${stop.byName} ignored — ${this.busy ? 'this engine cannot stop a running turn' : 'no turn is running'}`)
+    if (!this.busy) {
+      console.log(`[computer] ${this.agent.id} stop from ${stop.byName} ignored — no turn is running`)
       return
     }
     console.log(`[computer] ${this.agent.id} STOP requested by ${stop.byName} in ${stop.conversationId}`)
+    // Recorded before the engine has a turn too: the turn is then skipped, or
+    // interrupted right after send() (runEngineAttempt).
     this.stopReason = { kind: 'manual', byName: stop.byName, conversationId: stop.conversationId }
-    await session.interrupt()
+    await this.engineSession?.interrupt?.()
+  }
+
+  /** After a turn: stand down when a person pressed Stop, or rerun with a note
+   *  when a waiting message stopped it. Chat and agenda turns share it. */
+  private async settleStop(token: string, interrupted: boolean, runKey: string): Promise<void> {
+    const stop = this.stopReason
+    this.stopReason = null
+    if (stop?.kind === 'manual') {
+      // What arrived up to now counts as read, so the poll does not restart
+      // the stopped work; messages that land after this wake the agent as usual.
+      const { seen: unread } = await this.snapshotUnread(token)
+      await this.ackSeen(token, unread)
+      this.pendingRerun = false
+      if (interrupted) {
+        await runtimeBest(this.cfg.serverUrl, '/notices', token, {
+          conversationId: stop.conversationId,
+          agentId: this.agent.id,
+          noticeKind: 'agent_stopped',
+          text: `${stop.byName} stopped ${this.agent.name}.`,
+          dedupeKey: `agent_stopped:${this.agent.id}:${runKey}`,
+          dedupeTtlSec: 60,
+        })
+      }
+      console.log(`[computer] ${this.agent.id} stood down after ${stop.byName} pressed Stop`)
+    } else if (stop?.kind === 'auto' && interrupted) {
+      // The message that waited is still unread (it arrived after the turn's
+      // snapshot), so the rerun answers it; this note brings the stopped task back.
+      this.stopNote =
+        `Your previous turn was stopped so you could answer ${stop.who} in ${stop.conversationId}: their message waited ` +
+        `more than ${AUTO_STOP_AFTER_MS / 60_000} minute while a command ran, and that command did not finish. ` +
+        `Answer them first, then continue the task you were working on, re-running the stopped command if it is still needed.`
+      this.pendingRerun = true
+    }
   }
 
   /** Run one turn. Coalesces concurrent wakes: a wake during a run schedules
@@ -3385,36 +3431,7 @@ export class AgentRunner {
         // from re-waking the big brain on the next drain. On engine FAILURE we
         // skip the ack so the unread survives for a retry / next wake.
         if (!engineError) await this.ackSeen(token, seen)
-        const stop = this.stopReason
-        this.stopReason = null
-        if (stop?.kind === 'manual') {
-          // A person stopped this agent: stand down. What arrived up to now
-          // counts as read, so the poll does not restart the stopped work;
-          // messages that land after this wake the agent as usual.
-          const { seen: unread } = await this.snapshotUnread(token)
-          await this.ackSeen(token, unread)
-          this.pendingRerun = false
-          if (turnInterrupted) {
-            await runtimeBest(this.cfg.serverUrl, '/notices', token, {
-              conversationId: stop.conversationId,
-              agentId: this.agent.id,
-              noticeKind: 'agent_stopped',
-              text: `${stop.byName} stopped ${this.agent.name}.`,
-              dedupeKey: `agent_stopped:${this.agent.id}:${run?.runId ?? turnStart}`,
-              dedupeTtlSec: 60,
-            })
-          }
-          console.log(`[computer] ${this.agent.id} stood down after ${stop.byName} pressed Stop`)
-        } else if (stop?.kind === 'auto' && turnInterrupted) {
-          // The message that waited is still unread (it arrived after this
-          // turn's snapshot), so the rerun answers it; this note brings the
-          // stopped task back.
-          this.stopNote =
-            `Your previous turn was stopped so you could answer ${stop.who} in ${stop.conversationId}: their message waited ` +
-            `more than ${AUTO_STOP_AFTER_MS / 60_000} minute while a command ran, and that command did not finish. ` +
-            `Answer them first, then continue the task you were working on, re-running the stopped command if it is still needed.`
-          this.pendingRerun = true
-        }
+        await this.settleStop(token, turnInterrupted, run?.runId ?? String(turnStart))
         await this.postStatus(token, 'avail')
         // A chat turn resets the "quiet" anchor: an agent that just acted in chat
         // isn't immediately pulled into an agenda turn (mirrors the cloud idle

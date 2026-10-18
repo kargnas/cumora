@@ -2140,6 +2140,10 @@ class CodexSession implements EngineSession {
   private ignoredReplies = new Set<number>()
   /** Callers waiting for an interrupt() to settle the turn. */
   private interrupting: (() => void)[] | null = null
+  /** turn/interrupt went out for the running turn. */
+  private interruptSent = false
+  /** Killing the stopped turn's commands; the turn settles after it. */
+  private killing: Promise<void> | null = null
   /** Process groups already under the app-server when the turn started. */
   private groupsAtTurnStart: Promise<Set<number>> = Promise.resolve(new Set())
   private readonly model: string | null
@@ -2217,18 +2221,27 @@ class CodexSession implements EngineSession {
   }
 
   /** turn/interrupt ends the turn at once but leaves the command it was running
-   *  alive (its `processId` is not an OS pid), so stop that command here. */
+   *  alive (its `processId` is not an OS pid), so stop that command here. A
+   *  stop that comes before the turn has an id waits for turn/start's answer. */
   interrupt(): Promise<void> {
-    if (!this.pending || !this.alive || !this.threadId || !this.activeTurnId) return Promise.resolve()
+    if (!this.pending || !this.alive) return Promise.resolve()
     return new Promise((resolve) => {
       if (this.interrupting) { this.interrupting.push(resolve); return }
       this.interrupting = [resolve]
-      const id = this.nextId()
-      this.ignoredReplies.add(id)
-      writeStdin(this.child, JSON.stringify({ jsonrpc: '2.0', id, method: 'turn/interrupt',
-        params: { threadId: this.threadId, turnId: this.activeTurnId } }) + '\n')
-      void terminateTurnGroups(this.child, this.groupsAtTurnStart)
+      // The thread is still opening, so the turn never started: drop it.
+      if (this.queuedPrompt !== null) { this.queuedPrompt = null; this.settle(); return }
+      this.sendInterrupt()
     })
+  }
+
+  private sendInterrupt(): void {
+    if (this.interruptSent || !this.threadId || !this.activeTurnId) return
+    this.interruptSent = true
+    const id = this.nextId()
+    this.ignoredReplies.add(id)
+    writeStdin(this.child, JSON.stringify({ jsonrpc: '2.0', id, method: 'turn/interrupt',
+      params: { threadId: this.threadId, turnId: this.activeTurnId } }) + '\n')
+    this.killing = terminateTurnGroups(this.child, this.groupsAtTurnStart)
   }
 
   stop(options: { force?: boolean } = {}): Promise<void> {
@@ -2318,7 +2331,10 @@ class CodexSession implements EngineSession {
     if (typeof threadId === 'string') { this.onThreadReady(threadId); return }
     // turn id (for steering) — from the turn/start response or turn/started notif.
     const turnId = msg.result?.turn?.id ?? msg.result?.turnId ?? (msg.method === 'turn/started' ? (msg.params?.turn as { id?: unknown } | undefined)?.id : undefined)
-    if (typeof turnId === 'string') this.activeTurnId = turnId
+    if (typeof turnId === 'string') {
+      this.activeTurnId = turnId
+      if (this.interrupting) this.sendInterrupt()
+    }
     // running thread token total.
     if (msg.method === 'thread/tokenUsage/updated') { this.updateUsage((msg.params?.tokenUsage as { total?: unknown } | undefined)?.total); return }
     // surface the account rate limit ONLY when it's getting tight (would have flagged
@@ -2423,9 +2439,18 @@ class CodexSession implements EngineSession {
     this.acceptedSteers = []
     const stopped = this.interrupting
     this.interrupting = null
+    this.interruptSent = false
     const interrupted = stopped !== null && !error
-    if (p) p.resolve(classifyEngineResult({ exitCode: error ? 1 : 0, error, sessionId: this.threadId, usage: this.turnUsage(), model: this.model, ...(interrupted ? { interrupted } : {}) }, this.threadWasResume))
-    for (const resolve of stopped ?? []) resolve()
+    const result = classifyEngineResult({ exitCode: error ? 1 : 0, error, sessionId: this.threadId, usage: this.turnUsage(), model: this.model, ...(interrupted ? { interrupted } : {}) }, this.threadWasResume)
+    const finish = () => {
+      p?.resolve(result)
+      for (const resolve of stopped ?? []) resolve()
+    }
+    // The next turn must not start while the stopped turn's command still runs.
+    const killing = this.killing
+    this.killing = null
+    if (killing) void killing.then(finish, finish)
+    else finish()
   }
   private failPending(error: string): void {
     if (this.pending) this.settle(error)

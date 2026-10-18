@@ -170,6 +170,7 @@ const out = (o) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...o })
 const item = (method, value) => out({ method, params: { item: value } })
 const mcp = spawn('sleep', ['60'], { detached: true, stdio: 'ignore' })
 process.stderr.write('MCP_PID ' + mcp.pid + '\n')
+let cmdTimer
 let buf = ''
 process.stdin.on('data', (d) => {
   buf += d.toString('utf8')
@@ -183,14 +184,18 @@ function onMessage(m) {
   if (m.method === 'initialize') return out({ id: m.id, result: {} })
   if (m.method === 'thread/start' || m.method === 'thread/resume') return out({ id: m.id, result: { thread: { id: 'th1' } } })
   if (m.method === 'turn/start') {
-    out({ id: m.id, result: { turn: { id: 'tu1' } } })
-    item('item/started', { type: 'userMessage', content: m.params.input })
+    // FAKE_TURN_DELAY: answer turn/start late, as a busy app-server does.
     setTimeout(() => {
-      const cmd = spawn('sleep', ['30'], { detached: true, stdio: 'ignore' })
+      out({ id: m.id, result: { turn: { id: 'tu1' } } })
+      item('item/started', { type: 'userMessage', content: m.params.input })
+    }, Number(process.env.FAKE_TURN_DELAY || 0))
+    cmdTimer = setTimeout(() => {
+      // A command that ignores SIGTERM, so only SIGKILL ends it.
+      const cmd = spawn(process.execPath, ['-e', 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' })
       process.stderr.write('CMD_PID ' + cmd.pid + '\n')
-      item('item/started', { type: 'commandExecution', command: 'sleep 30' })
+      item('item/started', { type: 'commandExecution', command: 'long job' })
       item('item/completed', { type: 'reasoning' })
-    }, 300)
+    }, 300 + Number(process.env.FAKE_TURN_DELAY || 0))
     return
   }
   if (m.method === 'turn/steer') {
@@ -204,6 +209,7 @@ function onMessage(m) {
     return
   }
   if (m.method === 'turn/interrupt') {
+    clearTimeout(cmdTimer) // an interrupted turn starts no further tool call
     out({ id: m.id, result: {} })
     out({ method: 'turn/completed', params: { turn: { id: 'tu1', status: 'interrupted' } } })
   }
@@ -255,9 +261,21 @@ test('codex interrupt ends the turn and kills the command it started, not the MC
   const result = await turn
   assert.equal(result.exitCode, 0)
   assert.equal(result.interrupted, true)
-  for (let i = 0; i < 300 && alive(pid); i += 1) await delay(10)
-  assert.equal(alive(pid), false, 'the command Codex left running must be killed')
+  // Settled only once the command is gone, so a rerun cannot overlap it.
+  assert.equal(alive(pid), false, 'the command Codex left running must be dead when the turn settles')
   assert.equal(alive(mcp), true, 'a process group from before the turn must survive')
+})
+
+test('a codex stop that comes before turn/start answers still stops the turn', { skip: IS_WIN }, async () => {
+  process.env.FAKE_TURN_DELAY = '400'
+  const { session, logs } = await fakeEngine('codex', FAKE_CODEX)
+  const turn = session.send('wake')
+  await delay(50)
+  await session.interrupt!()
+  const result = await turn
+  assert.equal(result.interrupted, true)
+  const started = logs.find((l) => l.startsWith('CMD_PID'))
+  if (started) assert.equal(alive(Number(started.split(' ')[1])), false)
 })
 
 // ── Daemon rules ──────────────────────────────────────────────────────────
