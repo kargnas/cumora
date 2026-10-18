@@ -216,6 +216,8 @@ export const zhCN: Partial<Record<keyof typeof en, string>> = {
   'chat.everyone': '所有人',
   'chat.everyoneHint': '通知这个房间的所有成员',
   'chat.send': '发送',
+  'chat.stop': '停止',
+  'chat.stopAgent': '停止 {name}',
   'chat.gathering': '正在收取消息…',
   'chat.loadFailed': '消息加载失败',
   'chat.retrying': '重试中…',

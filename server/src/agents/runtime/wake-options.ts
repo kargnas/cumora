@@ -198,3 +198,22 @@ export function wakeHasActionableInput(
     backgroundBrief?.title.trim() && backgroundBrief.body.trim(),
   )
 }
+
+/** Payload of a wake-stream `interrupt` event: a person pressed Stop in a room
+ * the agent is working in. */
+export interface InterruptWakeData {
+  conversationId: string
+  byName: string
+}
+
+export function parseInterruptData(raw: string | undefined): InterruptWakeData | null {
+  if (!raw || raw.length > MAX_WAKE_PAYLOAD_CHARS) return null
+  try {
+    const parsed = JSON.parse(raw) as { conversationId?: unknown; byName?: unknown }
+    if (typeof parsed.conversationId !== 'string' || !parsed.conversationId) return null
+    if (typeof parsed.byName !== 'string' || !parsed.byName.trim()) return null
+    return { conversationId: parsed.conversationId.slice(0, 256), byName: parsed.byName.trim().slice(0, 120) }
+  } catch {
+    return null
+  }
+}
