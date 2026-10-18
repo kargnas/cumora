@@ -28,6 +28,12 @@ The computer keeps no history of these files, so the server records one. `server
 
 The room panel's Details tab has two cards. **This room** holds the room's own settings: the name (group rooms), the topic, pin and mute. Below it, workspace owners and admins get the room's agent: its name, role, bio and style save when the field loses focus, and "Model, computer and avatar" opens the full agent editor (`?agent-edit=<id>`, the same editor as the Agents section). An agent's settings follow it into every room it is in, which the card says. In a room with several agents, the chips pick one (`?agent=`, shared with the Handbook).
 
+## Routines tab
+
+The room panel's Routines tab lists the Calendar agent tasks that post into the room, one row per job with one switch. Calendar repeats at most daily, so an agent that wants a job every few hours books one daily event per time; events with the same agent, prompt and repeat rule whose titles share a stem fold into one job (`panel/routines.ts`), shown as "Every 3 hours · next 06:07". A job opens in place (`?routine=<event id>`) with its prompt, Run now, a switch per time, and **Repeats**, which turns a daily job into every 1, 2, 3, 4, 6, 8, 12 or 24 hours from its earliest time: times already booked stay with their run history, missing ones are created (starting at their next occurrence, so none fires on creation) and the rest are deleted. A time, like an event link in a message, opens the event in the panel (`?peek=event:<id>`) with the Calendar section's own detail; its Edit goes to Calendar.
+
+A Calendar firing is a system row that wakes the agent. The transcript does not show it, and it is not unread, not the chat-list preview and not a reason to move the room up the list (the list query in `server/src/api/router.ts` leaves it out, and the live patch in `stores/conversations.ts` matches). A jump to one, from an event's run history, lands on the next thing in the room.
+
 ## Haptics
 
 In the phone app, opening a room from the chat list, switching sections and toggling a reaction answer with a click when the finger lands. A long press answers with a deeper click, sending a message with one click, and someone else's message arriving in the open room with a double click (not in muted rooms, at most once every 2 seconds). A save the user waited on ends with a success or error haptic. Android plays the system's own effects, so the phone's touch-feedback setting turns them off. The web and the desktop app have none.

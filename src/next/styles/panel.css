@@ -399,31 +399,43 @@ button.nx-hb-note { transition: background-color var(--duration-quick); }
 
 /* ── Routines ──────────────────────────────────────────────────────── */
 .nx-routines { display: flex; flex-direction: column; gap: 8px; }
-.nx-routine {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  border-radius: var(--radius);
-  background: var(--card);
-  box-shadow: 0 0 0 1px var(--border);
-  transition: opacity var(--duration-fast);
+/* Rows get a hover wash, so the list clips it to its corners. */
+.nx-routine-list { overflow: hidden; }
+/* One row per job or time. Its link stretches over the whole row and the
+   switch sits above that, so a tap anywhere but the switch opens the row. */
+.nx-routine { position: relative; flex-wrap: wrap; padding: 6px 12px; }
+.nx-routine__open { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; color: inherit; text-decoration: none; }
+.nx-routine__open::after { content: ""; position: absolute; inset: 0; }
+.nx-routine__open:focus-visible { outline: none; }
+.nx-routine:has(.nx-routine__open:focus-visible) { outline: 2px solid var(--ring); outline-offset: -2px; }
+.nx-routine__open > svg,
+.nx-routine > svg { flex: none; width: 16px; height: 16px; color: var(--muted-foreground); }
+.nx-routine .nx-switch,
+.nx-routine .nx-spinner { position: relative; z-index: 1; }
+.nx-routine[data-paused] .nx-routine__open { opacity: 0.6; }
+.nx-routine__title { overflow-wrap: anywhere; }
+.nx-routine__state { flex: 1; min-width: 0; font-size: var(--text-caption); color: var(--muted-foreground); }
+.nx-routine__state[data-next] { color: var(--primary); }
+.nx-routine__error { flex-basis: 100%; margin: 0 0 4px; }
+@media (hover: hover) {
+  .nx-routine:hover { background: var(--accent); }
 }
-.nx-routine[data-paused] { opacity: 0.65; }
-.nx-routine__top { display: flex; align-items: center; gap: 8px; }
-.nx-routine__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.nx-routine__text b { font-weight: 500; }
-.nx-routine__text span { font-size: var(--text-caption); color: var(--muted-foreground); }
-.nx-routine__prompt {
-  margin: 0;
-  font-size: var(--text-caption);
-  color: var(--muted-foreground);
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.nx-routine__actions { display: flex; align-items: center; gap: 8px; }
+
+/* A job opened in place: its prompt, its rhythm and its times. */
+.nx-job { display: flex; flex-direction: column; gap: 8px; animation: nx-rise var(--duration-fast) var(--ease-smooth-out) both; }
+.nx-job__bar { display: flex; align-items: center; gap: 8px; min-height: 32px; }
+.nx-job__bar h3 { flex: 1; min-width: 0; margin: 0; font-size: var(--text-title); font-weight: 600; overflow-wrap: anywhere; }
+.nx-job__who { display: flex; align-items: center; gap: 8px; margin: 0; padding: 0 4px; font-size: var(--text-caption); color: var(--muted-foreground); }
+.nx-job__select { flex: none; width: auto; }
+.nx-job__plan { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-top: 1px solid var(--border); animation: nx-rise var(--duration-fast) var(--ease-smooth-out) both; }
+.nx-job__plan p { margin: 0; }
+.nx-job__plan .nx-mono { font-size: var(--text-caption); line-height: 1.6; word-spacing: 4px; }
+.nx-job__actions { display: flex; justify-content: flex-end; gap: 8px; }
+.nx-job__prompt { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 12px; border-radius: var(--radius); background: var(--card); box-shadow: 0 0 0 1px var(--border); }
+.nx-job__prompt p { margin: 0; font-size: var(--text-caption); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.nx-job__prompt p[data-folded] { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+/* Its label lines up with the prompt text, not with the button's padding. */
+.nx-job__prompt .nx-btn { margin-left: -8px; }
 
 /* ── Thread ────────────────────────────────────────────────────────── */
 .nx-thread { display: flex; flex-direction: column; height: 100%; min-height: 0; }
