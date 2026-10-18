@@ -114,7 +114,13 @@ export function AgentList({ route, roster, refreshing }: { route: Route; roster:
       ? [{ key: 'departed' as const, label: nt('agents.filter.departed'), badge: count(former.length) }]
       : []),
   ]
-  const toAgent = (id: string) => href({ section: 'agents', id, params: { filter: filter === 'all' ? null : filter } })
+  // Moving to another agent keeps the open view and the handbook's range;
+  // a scrubbed time belongs to one agent's changes, so it stays behind.
+  const toAgent = (id: string) => href({
+    section: 'agents',
+    id,
+    params: { filter: filter === 'all' ? null : filter, view: route.search.get('view'), since: route.search.get('since') },
+  })
 
   const empty = filter === 'working' ? nt('agents.noneWorking') : filter === 'idle' ? nt('agents.noneIdle') : null
 

@@ -15,7 +15,7 @@ import { ICompose, IPlus } from '../ui/icons'
 
 function statusLabel(p: Participant, nt: ReturnType<typeof useNT>): string {
   if (p.kind === 'human') return nt('members.human')
-  if (p.status === 'working' || p.status === 'thinking') return nt('activity.working')
+  if (p.status === 'working' || p.status === 'thinking') return nt('members.working')
   if (p.status === 'waiting') return nt('members.waiting')
   if (p.status === 'avail') return nt('members.online')
   return nt('members.offline')

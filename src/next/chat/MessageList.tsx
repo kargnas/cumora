@@ -248,16 +248,12 @@ function WorkChip({ item, author }: { item: Extract<Item, { type: 'work' }>; aut
   return (
     <div className="nx-msg nx-msg--work">
       <div className="nx-msg__gutter" aria-hidden />
-      <button
-        type="button"
-        className="nx-work"
-        onClick={() => navigate(withRoute(getRoute(), { panel: 'activity', peek: null, threadId: null }))}
-      >
+      <div className="nx-work">
         <ISpark aria-hidden />
         <span className="nx-work__who">{author?.name ?? nt('msg.someone')}</span>
         <span className="nx-work__what">{label}</span>
         <span className="nx-work__count nx-mono">{tools > 0 ? nt('msg.toolCount', { n: tools }) : nt('msg.thoughtCount', { n: item.msgs.length })}</span>
-      </button>
+      </div>
     </div>
   )
 }

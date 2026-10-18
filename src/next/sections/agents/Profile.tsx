@@ -1,7 +1,9 @@
 /**
  * One participant's profile. Agents get status, placement (computer, engine,
  * model), tools, email, autonomy and the hire/off-board actions; people get
- * the parts that apply to them (message, email).
+ * the parts that apply to them (message, email). An agent's Handbook, its
+ * standing files with what changed, opens in place of the profile
+ * (`?view=handbook`).
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from '@/api/client'
@@ -13,11 +15,12 @@ import { engineLabel } from '@/lib/engines'
 import type { Computer, Participant } from '@/types'
 import { haptic } from '../../haptics'
 import { useNT } from '../../i18n'
-import { linkClick, type Route } from '../../router'
+import { getRoute, linkClick, navigate, withRoute, type Route } from '../../router'
 import { useOpenDirect } from '../../hooks'
 import { Avatar } from '../../ui/Avatar'
-import { Spinner } from '../../ui/primitives'
+import { Segmented, Spinner } from '../../ui/primitives'
 import { ICheck, ICompose, ICopy, IExit, IPencil, IRepeat } from '../../ui/icons'
+import { Handbook } from '../../panel/HandbookTab'
 import {
   agentState, defaultModelOf, dialogHref, engineOf, errorText, listHref, LoadError, providerLabel, StateText, type Roster,
 } from './shared'
@@ -279,5 +282,21 @@ export function AgentProfile({ id, route, roster, onRefresh }: {
       </div>
     )
   }
-  return <Profile p={p} route={route} onRefresh={onRefresh} />
+  if (p.kind !== 'agent') return <Profile p={p} route={route} onRefresh={onRefresh} />
+  const view = route.search.get('view') === 'handbook' ? 'handbook' : 'profile'
+  return (
+    <>
+      <div className="nx-agents-views">
+        <Segmented
+          label={nt('agents.views')}
+          value={view}
+          onChange={(v) => navigate(withRoute(getRoute(), { params: { view: v === 'handbook' ? v : null } }), { replace: true })}
+          items={[{ key: 'profile', label: nt('agents.viewProfile') }, { key: 'handbook', label: nt('agents.viewHandbook') }]}
+        />
+      </div>
+      {view === 'handbook'
+        ? <div className="nx-agents-handbook"><Handbook agentId={p.id} /></div>
+        : <Profile p={p} route={route} onRefresh={onRefresh} />}
+    </>
+  )
 }

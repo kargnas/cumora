@@ -152,6 +152,11 @@
 .nx-agents-detail .nx-btn svg,
 .nx-agents-list .nx-btn svg { flex: none; width: 16px; height: 16px; }
 
+/* Profile | Handbook, above whichever is open. The handbook takes the pane's
+   whole width: its lines read better long than wrapped. */
+.nx-agents-views { display: flex; justify-content: center; padding: 16px 16px 0; }
+.nx-agents-handbook { width: 100%; padding: 16px; }
+
 .nx-agents-profile {
   display: flex;
   flex-direction: column;

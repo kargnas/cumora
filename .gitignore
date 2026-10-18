@@ -57,6 +57,10 @@ server/uploads/
 # The fork's own SQLite database (server/src/fork/store.ts)
 server/data/
 
+# The computer's agent homes and shared skills, which compose mounts here for
+# the Handbook (server/src/fork/recorder.ts); sample files in local runs
+server/computer/
+
 # Backup files left by one-off scripts (e.g. icon regeneration)
 *.prev.png
 
