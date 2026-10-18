@@ -108,7 +108,6 @@ export function RightPanel({ route, layout }: { route: Route; layout: Layout }) 
           // Opened from a job in the Routines tab, it steps back to the job.
           stack={layout === 'stack' || route.search.has('routine')}
           onClose={() => goBack(withRoute(getRoute(), { peek: null }))}
-          onGone={() => navigate(withRoute(getRoute(), { peek: null }), { replace: true })}
           editHref={href({ section: 'calendar', params: { event: id, edit: '1' } })}
         />
       </Suspense>

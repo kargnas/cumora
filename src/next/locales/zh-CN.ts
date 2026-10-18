@@ -242,8 +242,6 @@ export const zhCN: Partial<Record<keyof typeof en, string>> = {
 
   'routines.none': '没有例行任务会发到这个对话。',
   'routines.open': '打开日历',
-  'routines.runNow': '立即运行',
-  'routines.started': '已开始',
   'routines.active': '{title} 已启用',
   'routines.once': '一次 · {when}',
   'routines.everyHour': '每小时',
@@ -256,11 +254,8 @@ export const zhCN: Partial<Record<keyof typeof en, string>> = {
   'routines.repeats': '重复',
   'routines.times': '时间',
   'routines.nextUp': '下一次',
-  'routines.ran': '{when} 已运行',
   'routines.plan': '新增 {add} 个，移除 {drop} 个。',
   'routines.apply': '应用',
-  'routines.showAll': '展开全部',
-  'routines.showLess': '收起',
 
   'palette.label': '前往',
   'palette.placeholder': '搜索对话、成员和消息',

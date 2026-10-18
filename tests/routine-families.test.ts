@@ -53,7 +53,7 @@ test('uneven or doubled times are not an hour rhythm', () => {
 test('every 4 hours keeps the shared times and the anchor, adds the rest, drops the others', () => {
   const digest = familiesOf(digests)[0]
   const plan = planFor(digest, timesFor(minuteOf(digest.events[0]), 4))
-  assert.deepEqual(plan.keep.map((e) => e.id), ['d0', 'd12'])
+  // d0 (the anchor the URL names) and d12 sit on the new rhythm, so they stay.
   assert.deepEqual(plan.drop.map((e) => e.id).sort(), ['d15', 'd18', 'd21', 'd3', 'd6', 'd9'])
   assert.deepEqual(plan.add.map(hhmm), ['04:07', '08:07', '16:07', '20:07'])
 })

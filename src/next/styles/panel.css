@@ -477,8 +477,7 @@ button.nx-hb-note { transition: background-color var(--duration-quick); }
 .nx-routine .nx-spinner { position: relative; z-index: 1; }
 .nx-routine[data-paused] .nx-routine__open { opacity: 0.6; }
 .nx-routine__title { overflow-wrap: anywhere; }
-.nx-routine__state { flex: 1; min-width: 0; font-size: var(--text-caption); color: var(--muted-foreground); }
-.nx-routine__state[data-next] { color: var(--primary); }
+.nx-routine__state { flex: 1; min-width: 0; font-size: var(--text-caption); color: var(--primary); }
 .nx-routine__error { flex-basis: 100%; margin: 0 0 4px; }
 @media (hover: hover) {
   .nx-routine:hover { background: var(--accent); }
@@ -486,7 +485,9 @@ button.nx-hb-note { transition: background-color var(--duration-quick); }
 
 /* A job opened in place: its prompt, its rhythm and its times. */
 .nx-job { display: flex; flex-direction: column; gap: 8px; animation: nx-rise var(--duration-fast) var(--ease-smooth-out) both; }
-.nx-job__bar { display: flex; align-items: center; gap: 8px; min-height: 32px; }
+.nx-job__bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 32px; }
+/* A failed Run now wraps its error under the bar. */
+.nx-job__bar .nx-field__error { flex-basis: 100%; margin: 0; }
 .nx-job__bar h3 { flex: 1; min-width: 0; margin: 0; font-size: var(--text-title); font-weight: 600; overflow-wrap: anywhere; }
 .nx-job__who { display: flex; align-items: center; gap: 8px; margin: 0; padding: 0 4px; font-size: var(--text-caption); color: var(--muted-foreground); }
 .nx-job__select { flex: none; width: auto; }
@@ -494,11 +495,7 @@ button.nx-hb-note { transition: background-color var(--duration-quick); }
 .nx-job__plan p { margin: 0; }
 .nx-job__plan .nx-mono { font-size: var(--text-caption); line-height: 1.6; word-spacing: 4px; }
 .nx-job__actions { display: flex; justify-content: flex-end; gap: 8px; }
-.nx-job__prompt { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 12px; border-radius: var(--radius); background: var(--card); box-shadow: 0 0 0 1px var(--border); }
-.nx-job__prompt p { margin: 0; font-size: var(--text-caption); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
-.nx-job__prompt p[data-folded] { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
-/* Its label lines up with the prompt text, not with the button's padding. */
-.nx-job__prompt .nx-btn { margin-left: -8px; }
+.nx-job__prompt { margin: 0; padding: 12px; border-radius: var(--radius); background: var(--card); box-shadow: 0 0 0 1px var(--border); font-size: var(--text-caption); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* ── Thread ────────────────────────────────────────────────────────── */
 .nx-thread { display: flex; flex-direction: column; height: 100%; min-height: 0; }

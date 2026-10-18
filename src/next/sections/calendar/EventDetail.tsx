@@ -18,29 +18,18 @@ import { nextOccurrenceOnOrAfter } from '@/lib/recurrence'
 import { useResolvedCalendarId } from '@/lib/useArtifactId'
 import type { CalendarDispatch, CalendarEvent } from '@/types'
 import { haptic } from '../../haptics'
-import { useNT, type NT } from '../../i18n'
-import { getRoute, href, linkClick, navigate, withRoute } from '../../router'
+import { useNT } from '../../i18n'
+import { getRoute, href, linkClick, navigate, useRoute, withRoute } from '../../router'
 import { Avatar } from '../../ui/Avatar'
 import { IconButton, Spinner, Switch } from '../../ui/primitives'
 import { IChat, ICheck, IChevronLeft, IHash, IMail, IPencil, IX } from '../../ui/icons'
 import { dateLabel, describeReminder, describeRepeat, stampLabel, whenLabel, zoneName } from './model'
-import { CalLink, EDITOR_PARAMS, IPlay, KindMark } from './parts'
+import { EDITOR_PARAMS, errText, KindMark, RunNow, runLabel } from './parts'
 // Here as well as in the section: the room panel loads this view on its own.
 import './calendar.css'
 
 /** Dispatch rows shown; the server keeps up to 200 per event. */
 const RUNS_SHOWN = 10
-const RUN_STATES = ['dispatched', 'skipped', 'failed', 'duplicate', 'pending'] as const
-type RunState = typeof RUN_STATES[number]
-
-/** Dispatch status in words; a status the server adds later shows raw. */
-function runLabel(status: string, nt: NT): string {
-  return (RUN_STATES as readonly string[]).includes(status) ? nt(`calendar.run.${status as RunState}`) : status
-}
-
-function errText(e: unknown): string {
-  return e instanceof Error ? e.message : String(e)
-}
 
 function DetailBar({ stack, onClose, children }: { stack: boolean; onClose: () => void; children?: ReactNode }) {
   const nt = useNT()
@@ -111,50 +100,6 @@ function StatusRow({ ev }: { ev: CalendarEvent }) {
       </div>
       {error && <p className="nx-field__error nx-calendar-detail__error" role="alert">{error}</p>}
     </div>
-  )
-}
-
-function RunNow({ ev, onRan }: { ev: CalendarEvent; onRan: () => void }) {
-  const nt = useNT()
-  const [busy, setBusy] = useState(false)
-  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null)
-  useEffect(() => {
-    if (!note?.ok) return
-    const t = window.setTimeout(() => setNote(null), 2500)
-    return () => window.clearTimeout(t)
-  }, [note])
-  return (
-    <>
-      <button
-        type="button"
-        className="nx-btn nx-btn--outline"
-        disabled={busy}
-        aria-busy={busy || undefined}
-        onClick={async () => {
-          setBusy(true)
-          setNote(null)
-          try {
-            const r = await useCalendar.getState().runNow(ev.id)
-            const state = runLabel(r.status, nt)
-            // Same split as the note below: anything but a dispatch is a failure.
-            haptic(r.status === 'dispatched' ? 'success' : 'error')
-            setNote(r.status === 'dispatched'
-              ? { ok: true, text: nt('calendar.started') }
-              : { ok: false, text: nt('calendar.notStarted', { reason: r.error ? `${state}: ${r.error}` : state }) })
-          } catch (e) {
-            haptic('error')
-            setNote({ ok: false, text: errText(e) })
-          } finally {
-            setBusy(false)
-            onRan()
-          }
-        }}
-      >
-        {busy ? <Spinner /> : note?.ok ? <ICheck /> : <IPlay />}
-        {note?.ok ? note.text : nt('calendar.runNow')}
-      </button>
-      {note && !note.ok && <p className="nx-field__error nx-calendar-detail__error" role="alert">{note.text}</p>}
-    </>
   )
 }
 
@@ -268,6 +213,7 @@ function Runs({ ev, nonce }: { ev: CalendarEvent; nonce: number }) {
 
 function EventBody({ ev, stack, onClose, editHref }: { ev: CalendarEvent; stack: boolean; onClose: () => void; editHref?: string }) {
   const nt = useNT()
+  const route = useRoute()
   const locale = useLocale()
   const me = useMe()
   const assignee = useParticipants((s) => (ev.assigneeId ? s.byId[ev.assigneeId] : undefined))
@@ -280,15 +226,9 @@ function EventBody({ ev, stack, onClose, editHref }: { ev: CalendarEvent; stack:
   return (
     <aside className="nx-calendar-detail" aria-label={nt('calendar.detail')}>
       <DetailBar stack={stack} onClose={onClose}>
-        {editHref ? (
-          <a className="nx-btn nx-btn--sm nx-btn--outline" href={editHref} onClick={linkClick}>
-            <IPencil />{nt('calendar.edit')}
-          </a>
-        ) : (
-          <CalLink className="nx-btn nx-btn--sm nx-btn--outline" params={{ ...EDITOR_PARAMS, edit: '1' }}>
-            <IPencil />{nt('calendar.edit')}
-          </CalLink>
-        )}
+        <a className="nx-btn nx-btn--sm nx-btn--outline" href={editHref ?? withRoute(route, { params: { ...EDITOR_PARAMS, edit: '1' } })} onClick={linkClick}>
+          <IPencil />{nt('calendar.edit')}
+        </a>
       </DetailBar>
       <div className="nx-calendar-detail__body nx-scroll">
         <div className="nx-calendar-detail__title">
@@ -349,15 +289,12 @@ function EventBody({ ev, stack, onClose, editHref }: { ev: CalendarEvent; stack:
   )
 }
 
-/** `editHref` and `onGone` are for hosts outside the Calendar section, where
- *  the editor and the `?event=` param do not live. */
-export function EventDetail({ rawId, stack, onClose, editHref, onGone }: {
+/** `editHref` is for hosts outside the Calendar section, where the editor does not live. */
+export function EventDetail({ rawId, stack, onClose, editHref }: {
   rawId: string
   stack: boolean
   onClose: () => void
   editHref?: string
-  /** Replaces the default close-in-place when the event is deleted while open. */
-  onGone?: () => void
 }) {
   const nt = useNT()
   const id = useResolvedCalendarId(rawId)
@@ -373,13 +310,12 @@ export function EventDetail({ rawId, stack, onClose, editHref, onGone }: {
     if (event) return
     if (last.current) {
       // Deleted while open (here, in the editor, or by someone else):
-      // nothing is left to show, so close in place.
-      if (onGone) {
-        onGone()
-        return
-      }
+      // nothing is left to show, so close in place, in Calendar (`?event=`)
+      // or in a room's panel (an event peek).
       const r = getRoute()
-      if (r.search.get('event') === rawId) navigate(withRoute(r, { params: { ...EDITOR_PARAMS, event: null } }), { replace: true })
+      if (r.search.get('event') === rawId || (r.peek?.kind === 'event' && r.peek.id === rawId)) {
+        navigate(withRoute(r, { peek: null, params: { ...EDITOR_PARAMS, event: null } }), { replace: true })
+      }
       return
     }
     if (!listSettled) return

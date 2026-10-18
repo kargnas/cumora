@@ -232,8 +232,6 @@ const core = {
 
   'routines.none': 'No routines post into this room.',
   'routines.open': 'Open Calendar',
-  'routines.runNow': 'Run now',
-  'routines.started': 'Started',
   'routines.active': '{title} active',
   'routines.once': 'Once · {when}',
   'routines.everyHour': 'Every hour',
@@ -246,11 +244,8 @@ const core = {
   'routines.repeats': 'Repeats',
   'routines.times': 'Times',
   'routines.nextUp': 'Next',
-  'routines.ran': 'Ran {when}',
   'routines.plan': 'Adds {add}, removes {drop}.',
   'routines.apply': 'Apply',
-  'routines.showAll': 'Show all',
-  'routines.showLess': 'Show less',
 
   'palette.label': 'Go to',
   'palette.placeholder': 'Search rooms, people and messages',

@@ -3,8 +3,8 @@
  * job every few hours books one daily event per time: the PR digest is eight
  * events that differ only in their hour. A family is such a set (same agent,
  * prompt and repeat rule, titles that share a stem), shown as one job.
- * `timesFor` + `planFor` turn "every N hours" back into the events to keep,
- * add and delete, so the schedule changes without hourly support on the server.
+ * `timesFor` + `planFor` turn "every N hours" back into the events to add and
+ * delete, so the schedule changes without hourly support on the server.
  */
 import type { CalendarEventInput } from '@/api/client'
 import type { CalendarEvent, CalendarEventStatus } from '@/types'
@@ -38,11 +38,7 @@ export function isDaily(f: Family): boolean {
 /** "PR digest check 18:07 KST" and "PR digest check 21:07 KST" → "PR digest check". */
 function stem(titles: string[]): string {
   let p = titles[0]
-  for (const t of titles) {
-    let i = 0
-    while (i < p.length && i < t.length && p[i] === t[i]) i++
-    p = p.slice(0, i)
-  }
+  for (const t of titles) while (!t.startsWith(p)) p = p.slice(0, -1)
   return p.replace(/[\s\d:.,·|-]+$/u, '').trim()
 }
 
@@ -69,13 +65,9 @@ export function familiesOf(events: CalendarEvent[]): Family[] {
 
 /** Hours between runs when a daily family's times split the day evenly, else null. */
 export function everyHours(f: Family): number | null {
-  if (!isDaily(f)) return null
   const m = f.events.map(minuteOf)
-  const n = m.length
-  const gap = 1440 / n
-  if (!Number.isInteger(gap) || gap % 60 !== 0) return null
-  // Each time sits one gap after the one before it; the first wraps from the last.
-  return m.every((v, i) => (i === 0 ? m[n - 1] - 1440 : m[i - 1]) + gap === v) ? gap / 60 : null
+  const h = 24 / m.length
+  return isDaily(f) && Number.isInteger(h) && timesFor(m[0], h).every((t, i) => t === m[i]) ? h : null
 }
 
 /** The times of day for "every `hours` hours" starting at `anchor`. */
@@ -83,45 +75,28 @@ export function timesFor(anchor: number, hours: number): number[] {
   return Array.from({ length: 24 / hours }, (_, k) => (anchor + k * hours * 60) % 1440).sort((a, b) => a - b)
 }
 
-export interface Plan {
-  keep: CalendarEvent[]
-  drop: CalendarEvent[]
-  add: number[]
-}
-
-/** Members already at a wanted time stay (with their run history); the rest go, and the missing times are added. */
-export function planFor(f: Family, times: number[]): Plan {
+/** Members already at a wanted time stay (with their run history); the rest
+ *  are dropped, and the wanted times nobody covers are added. */
+export function planFor(f: Family, times: number[]): { drop: CalendarEvent[]; add: number[] } {
   const want = new Set(times)
-  const keep: CalendarEvent[] = []
-  const drop: CalendarEvent[] = []
-  for (const e of f.events) {
-    const m = minuteOf(e)
-    if (want.delete(m)) keep.push(e)
-    else drop.push(e)
-  }
-  return { keep, drop, add: [...want] }
+  const drop = f.events.filter((e) => !want.delete(minuteOf(e)))
+  return { drop, add: [...want] }
 }
 
 /** Titles for new times. When every member names its own time the same way
  *  ("PR digest check 18:07 KST"), a new one follows suit; otherwise it gets
  *  the family title. */
 export function titleFor(f: Family): (minute: number) => string {
-  let frame: [string, string] | null | undefined
-  for (const e of f.events) {
-    const t = hhmm(minuteOf(e))
-    const i = e.title.indexOf(t)
-    const cur: [string, string] | null = i < 0 ? null : [e.title.slice(0, i), e.title.slice(i + t.length)]
-    frame = frame === undefined || (frame && cur && frame[0] === cur[0] && frame[1] === cur[1]) ? cur : null
-    if (!frame) break
-  }
-  return (m) => (frame ? `${frame[0]}${hhmm(m)}${frame[1]}` : f.title)
+  const frames = new Set(f.events.map((e) => e.title.replace(hhmm(minuteOf(e)), '\0')))
+  const [frame] = frames
+  return (m) => (frames.size === 1 && frame.includes('\0') ? frame.replace('\0', hhmm(m)) : f.title)
 }
 
 /** A copy of `t` at another time of day. It starts at the next such time
  *  after `now`, because the scheduler fires a start that is already past. */
 export function memberAt(t: CalendarEvent, minute: number, title: string, status: CalendarEventStatus, now: Date): CalendarEventInput {
   const start = new Date(now)
-  start.setHours(Math.floor(minute / 60), minute % 60, 0, 0)
+  start.setHours(0, minute, 0, 0)
   if (start.getTime() <= now.getTime()) start.setDate(start.getDate() + 1)
   const span = t.endAt ? Date.parse(t.endAt) - Date.parse(t.startAt) : null
   return {
