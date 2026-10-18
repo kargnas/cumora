@@ -19,6 +19,16 @@ const ARM_MS = 700
  *  server/src/fork/stop.ts refuses them with the same list. */
 const STOPPABLE_ENGINES: ReadonlySet<string> = new Set(['claude', 'codex'])
 
+/** The agent runs on a computer whose engine can stop a turn. */
+export function canStopAgent(p: Participant): boolean {
+  return p.kind === 'agent' && !!p.computerId && !!p.engine && STOPPABLE_ENGINES.has(p.engine)
+}
+
+/** Stops one agent's turn in a room; rejects when the server refused it. */
+export function stopAgent(convoId: string, agentId: string): Promise<unknown> {
+  return http(`/fork/rooms/${encodeURIComponent(convoId)}/agents/${encodeURIComponent(agentId)}/stop`, { method: 'POST' })
+}
+
 export function useAgentStop(convoId: string | null, idle: boolean): {
   /** The box is empty and an agent that can be stopped shows "typing" in this room. */
   stoppable: boolean
@@ -33,8 +43,7 @@ export function useAgentStop(convoId: string | null, idle: boolean): {
   const typing = useMessages((s) => (convoId ? s.typing[convoId] : undefined))
   const byId = useParticipants((s) => s.byId)
   const agents = useMemo<Participant[]>(
-    () => (typing ?? []).map((id) => byId[id]).filter((p): p is Participant =>
-      !!p && p.id !== me && p.kind === 'agent' && !!p.computerId && !!p.engine && STOPPABLE_ENGINES.has(p.engine)),
+    () => (typing ?? []).map((id) => byId[id]).filter((p): p is Participant => !!p && p.id !== me && canStopAgent(p)),
     [typing, me, byId],
   )
   const stoppable = idle && agents.length > 0
@@ -46,8 +55,7 @@ export function useAgentStop(convoId: string | null, idle: boolean): {
     if (!convoId || agents.length === 0 || Date.now() < armedAt.current) return null
     setBusy(true)
     try {
-      await Promise.all(agents.map((a) =>
-        http(`/fork/rooms/${encodeURIComponent(convoId)}/agents/${encodeURIComponent(a.id)}/stop`, { method: 'POST' })))
+      await Promise.all(agents.map((a) => stopAgent(convoId, a.id)))
       return true
     } catch {
       return false

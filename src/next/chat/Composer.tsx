@@ -24,6 +24,7 @@ import { Avatar } from '../ui/Avatar'
 import { IconButton, Kbd, Menu, Spinner, T_QUICK, useCoarse, useMenu } from '../ui/primitives'
 import { IArrowUp, IAt, IClip, IFile, IPlus, IPoll, ISmile, IStop, IX } from '../ui/icons'
 import { EmojiPicker } from './EmojiPicker'
+import { WorkingHeads } from './WorkingHeads'
 
 /** Same cadence as the classic composer: re-ping "typing" at most every 3 s
  *  while keys move, and clear it 2 s after the last keystroke or on send. */
@@ -299,49 +300,53 @@ export function Composer({ convoId, threadRootId = null }: {
         )}
       </AnimatePresence>
 
-      <div className="nx-composer__bar">
-        <IconButton label={nt('composer.add')} onClick={(e) => plus.toggleFrom(e.currentTarget)}><IPlus /></IconButton>
-        <RichInput
-          key={scope}
-          ref={editor}
-          defaultValue={useApp.getState().composerDrafts[scope]?.text ?? ''}
-          className="nx-composer__input"
-          placeholder={placeholder}
-          ariaLabel={placeholder}
-          maxHeight={coarse ? 140 : 200}
-          enterKeyHint={coarse ? 'enter' : 'send'}
-          onChange={(value, caret) => {
-            setDraft((d) => ({ ...d, text: value }))
-            detectMention(value, caret)
-          }}
-          onKeyDown={onKeyDown}
-          onPaste={(e) => {
-            for (const it of e.clipboardData?.items ?? []) {
-              const f = it.kind === 'file' ? it.getAsFile() : null
-              if (f && f.type.startsWith('image/')) { e.preventDefault(); void upload(f); return }
-            }
-          }}
-          resolveMention={(id) => {
-            const p = byId[id]
-            return p ? { name: p.name, initial: p.initial || p.name.charAt(0), avatarBg: p.avatarBg, kind: p.kind, avatarUrl: p.avatarUrl ?? undefined } : null
-          }}
-        />
-        <IconButton label={nt('composer.emoji')} active={emoji} data-emoji-toggle onClick={() => setEmoji((v) => !v)}><ISmile /></IconButton>
-        {!coarse && canSend && <Kbd>↵</Kbd>}
-        <button
-          type="button"
-          className="nx-send"
-          data-ready={canSend || undefined}
-          data-stop={stoppable || undefined}
-          disabled={stoppable ? agentStop.busy : !canSend || uploading}
-          aria-busy={agentStop.busy || undefined}
-          aria-label={stoppable ? nt('composer.stop', { name: agentStop.names }) : nt('composer.send')}
-          aria-keyshortcuts={stoppable ? undefined : 'Enter'}
-          onPointerDown={(e) => e.preventDefault() /* keep the keyboard up on phones */}
-          onClick={stoppable ? stopAgents : send}
-        >
-          {stoppable ? (agentStop.busy ? <Spinner /> : <IStop />) : <IArrowUp />}
-        </button>
+      {/* The dock anchors the working agents, who peek out from behind the bar. */}
+      <div className="nx-composer__dock">
+        {!isThread && <WorkingHeads convoId={convoId} />}
+        <div className="nx-composer__bar">
+          <IconButton label={nt('composer.add')} onClick={(e) => plus.toggleFrom(e.currentTarget)}><IPlus /></IconButton>
+          <RichInput
+            key={scope}
+            ref={editor}
+            defaultValue={useApp.getState().composerDrafts[scope]?.text ?? ''}
+            className="nx-composer__input"
+            placeholder={placeholder}
+            ariaLabel={placeholder}
+            maxHeight={coarse ? 140 : 200}
+            enterKeyHint={coarse ? 'enter' : 'send'}
+            onChange={(value, caret) => {
+              setDraft((d) => ({ ...d, text: value }))
+              detectMention(value, caret)
+            }}
+            onKeyDown={onKeyDown}
+            onPaste={(e) => {
+              for (const it of e.clipboardData?.items ?? []) {
+                const f = it.kind === 'file' ? it.getAsFile() : null
+                if (f && f.type.startsWith('image/')) { e.preventDefault(); void upload(f); return }
+              }
+            }}
+            resolveMention={(id) => {
+              const p = byId[id]
+              return p ? { name: p.name, initial: p.initial || p.name.charAt(0), avatarBg: p.avatarBg, kind: p.kind, avatarUrl: p.avatarUrl ?? undefined } : null
+            }}
+          />
+          <IconButton label={nt('composer.emoji')} active={emoji} data-emoji-toggle onClick={() => setEmoji((v) => !v)}><ISmile /></IconButton>
+          {!coarse && canSend && <Kbd>↵</Kbd>}
+          <button
+            type="button"
+            className="nx-send"
+            data-ready={canSend || undefined}
+            data-stop={stoppable || undefined}
+            disabled={stoppable ? agentStop.busy : !canSend || uploading}
+            aria-busy={agentStop.busy || undefined}
+            aria-label={stoppable ? nt('composer.stop', { name: agentStop.names }) : nt('composer.send')}
+            aria-keyshortcuts={stoppable ? undefined : 'Enter'}
+            onPointerDown={(e) => e.preventDefault() /* keep the keyboard up on phones */}
+            onClick={stoppable ? stopAgents : send}
+          >
+            {stoppable ? (agentStop.busy ? <Spinner /> : <IStop />) : <IArrowUp />}
+          </button>
+        </div>
       </div>
 
       <input
