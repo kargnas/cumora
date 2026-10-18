@@ -20,7 +20,7 @@ import { pool } from '../../db/pool.js'
 import { CH_MESSAGE_NEW, CH_TYPING, publish, redis } from '../../redis.js'
 import { enqueueBroadcast, nudgeRealtimeOutbox } from '../../realtime-outbox.js'
 import { notifyAlert } from '../../alerting.js'
-import { agentAttachmentUrl, type StoredAttachment } from '../../storage.js'
+import { freshenAttachmentUrl, type StoredAttachment } from '../../storage.js'
 
 /** Re-sign attachment download URLs just-in-time when loading messages for an
  *  agent turn. The url stored in `messages.attachment` is signed with a TTL
@@ -34,7 +34,7 @@ async function refreshAttachmentUrls(rows: ReadonlyArray<{ attachment?: unknown 
     const a = r.attachment as StoredAttachment | null | undefined
     if (!a || typeof a !== 'object' || !a.url) return
     try {
-      ;(r as { attachment?: unknown }).attachment = await agentAttachmentUrl(a)
+      ;(r as { attachment?: unknown }).attachment = await freshenAttachmentUrl(a)
     } catch { /* keep the stored (possibly stale) url */ }
   }))
 }

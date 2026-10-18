@@ -11,7 +11,7 @@ import assert from 'node:assert/strict'
 process.env.OPENAI_API_KEY ??= 'test-key'
 process.env.CUMORA_PUBLIC_ORIGIN = 'https://chat.example.com'
 
-const { storage, localUploadRefusal, storageKeyFromPublicUrl, signedUrlExpiresSoon } =
+const { storage, localUploadRefusal, storageKeyFromPublicUrl, messageAttachmentStorageKey, signedUrlExpiresSoon } =
   await import('../storage.js')
 
 /** What the `/uploads` handler sees for a URL publicUrl minted. */
@@ -26,7 +26,7 @@ function refusalFor(url: string): string | null {
 
 test('an attachment URL is signed and only its own signature opens it', async () => {
   const url = await storage.publicUrl('attachments/01e6.png')
-  assert.match(url, /^\/uploads\/attachments\/01e6\.png\?exp=\d+&sig=[0-9a-f]{64}$/)
+  assert.match(url, /^https:\/\/chat\.example\.com\/uploads\/attachments\/01e6\.png\?exp=\d+&sig=[0-9a-f]{64}$/)
   assert.equal(refusalFor(url), null)
 
   const { searchParams } = new URL(url, 'http://local.test')
@@ -40,21 +40,32 @@ test('an attachment URL is signed and only its own signature opens it', async ()
   assert.equal(localUploadRefusal('/attachments/01e6.png', tooFar, sig), 'exp too far')
 })
 
+test('upload URLs open from the apps, which render from their own origin', async () => {
+  // The Android app runs at https://localhost and the desktop app at
+  // app://cumora. A generated portrait stored as `/uploads/avatars/…` resolved
+  // into the app's own bundle there and showed as a broken image.
+  for (const key of ['avatars/a.png', 'attachments/01e6.png']) {
+    for (const appOrigin of ['https://localhost', 'app://cumora']) {
+      assert.equal(new URL(await storage.publicUrl(key), appOrigin).origin, 'https://chat.example.com')
+    }
+  }
+})
+
 test('portraits stay public and paths outside storage stay shut', async () => {
-  assert.equal(await storage.publicUrl('avatars/a.png'), '/uploads/avatars/a.png')
+  assert.equal(await storage.publicUrl('avatars/a.png'), 'https://chat.example.com/uploads/avatars/a.png')
   assert.equal(localUploadRefusal('/avatars/a.png', undefined, undefined), null)
   assert.equal(localUploadRefusal('/attachments/../avatars/a.png', undefined, undefined), 'not a storage key')
   assert.equal(localUploadRefusal('/secret.txt', undefined, undefined), 'not a storage key')
 })
 
-test('an agent-posted public URL still resolves to its storage key', () => {
-  // Agents read absolute URLs (agentAttachmentUrl) and may post one back into
-  // a message or document; recognising it lets that copy be re-signed instead
-  // of dying when its signature expires.
-  assert.equal(
-    storageKeyFromPublicUrl('https://chat.example.com/uploads/attachments/01e6.png?exp=1&sig=ab'),
-    'attachments/01e6.png',
-  )
+test('an absolute local URL still resolves to its storage key', () => {
+  // Clients and agents hold absolute URLs and may post one back into a message
+  // or document; recognising it lets that copy be re-signed instead of dying
+  // when its signature expires.
+  const posted = 'https://chat.example.com/uploads/attachments/01e6.png?exp=1&sig=ab'
+  assert.equal(storageKeyFromPublicUrl(posted), 'attachments/01e6.png')
+  assert.equal(messageAttachmentStorageKey({ url: posted }), 'attachments/01e6.png')
+  assert.equal(messageAttachmentStorageKey({ url: posted, key: 'attachments/01e6.png' }), 'attachments/01e6.png')
   assert.equal(storageKeyFromPublicUrl('https://elsewhere.example/uploads/attachments/01e6.png'), null)
 })
 

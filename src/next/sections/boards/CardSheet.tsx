@@ -167,9 +167,6 @@ function AssigneeRow({ boardId, card }: { boardId: string; card: BoardCard }) {
   const choose = async (id: string | null) => {
     menu.close()
     if (id === card.assigneeId) return
-    // A pick from a list, like the Menu pickers: select at the pick, not on
-    // the save, whose own spinner and error line report the outcome.
-    haptic('select')
     setBusy(true)
     setError(null)
     try {

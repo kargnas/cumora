@@ -27,19 +27,22 @@ An action that exists on one screen needs a way to do it on the others (a mouse 
 
 ## Haptics
 
-The phone app answers the finger with haptics the way a native app does. Use `haptic(kind)` from `haptics.ts`, never `@capacitor/haptics` or the classic helpers in `lib/native.ts`. On Android it plays the system's own effects through `NxHapticsPlugin` (`android/app/src/main/java/io/cumora/app/`), which follow the user's touch-feedback setting; `@capacitor/haptics` would play fixed vibration waveforms that feel like a buzz. On the web and in the desktop app it does nothing.
+The phone app vibrates only where it tells the user something: a click when a finger lands on a room in the chat list, a section in the tab bar or rail, or a reaction; a deeper click when a press turns into a hold; one click when a message leaves; and a double click when someone else's message arrives in the room on screen. Use `haptic(kind)` from `haptics.ts`, never `@capacitor/haptics` or the classic helpers in `lib/native.ts`. On Android it plays the system's own effects through `NxHapticsPlugin` (`android/app/src/main/java/io/cumora/app/`), which follow the user's touch-feedback setting; `@capacitor/haptics` would play fixed vibration waveforms that feel like a buzz. On the web and in the desktop app it does nothing.
 
-| Kind | When |
-| --- | --- |
-| `select` | The finger changed what is chosen: a tab, a segment, a switch, a menu item, a reaction, a collapsed group, a picked day. |
-| `tap` | The finger committed a light action that shows at once: sending, dropping a card in a new place, a rename. |
-| `hold` | A press turned into a hold: a long-press menu, a drag lift. |
-| `success` / `error` | An action the user waited on (its button shows busy) or a copy to the clipboard finished or failed. |
+| Kind | When | Android |
+| --- | --- | --- |
+| `press` | A finger lands on an element marked `data-haptic`. Only the touch layer fires it. | `GESTURE_START` |
+| `hold` | A press turned into a hold: a long-press menu, a drag lift. | `LONG_PRESS` |
+| `sent` | A message leaves: the composer sends it, or a failed one is retried. | `CONFIRM` |
+| `received` | Someone else's message arrives in the room on screen. | `EFFECT_DOUBLE_CLICK` (API 33+) |
+| `success` / `error` | An action the user waited on (its button shows busy) finished or failed; `error` also for a failed copy. | `CONFIRM` / `REJECT` |
 
-- No haptic for navigation, opening or closing a sheet, dialog or menu, scrolling, typing, hover, or anything that happens without a touch (store updates, WebSocket events, timers). A background failure the user did not just cause stays silent.
-- One haptic per interaction. An action that waits for the server fires only its outcome, not `tap` at the press as well. An action picked from a `Menu` already got `select` from the menu, so the action's function adds nothing.
-- Fire it at the interaction, in the same handler as the visual change, not inside a shared action, a store or an effect. The primitives already do it: `Segmented` and `Switch` fire `select` on change, `Menu` on every item, `useHold` fires `hold`.
-- When unsure, leave it out: a haptic on every tap stops meaning anything.
+- Touch haptics are opt-in. The touch layer (`bindPressHaptics`, bound once in `NextApp`) plays one `press` when a finger lands on an element marked `data-haptic`, and nothing when it lifts. Only rooms in the chat list (rows and pinned tiles), the sections of the tab bar and rail, and reaction chips carry it, because the screen answers those late (a room or section loads) or barely (a count changes). Do not mark more places unless the owner asks: a click on every button was too much.
+- Inside a scroller a touch becomes a press only after it holds still for 100 ms (Android's tap timeout), so starting a scroll on a row plays nothing; a quicker tap plays its press when its click arrives. Moving more than 8 px, a `pointercancel` or a `hold` ends the touch silently, and so does a lift without a click (a tap that stopped a fling).
+- Nothing vibrates while a finger rests on a press: a vibration that runs on feels like a buzz, not a button, so a hold plays only its one `hold`.
+- `received` is the only haptic without a touch. `useReceivedHaptic` in `chat/ChatView.tsx` plays it on the live `message.new` event for a message someone else wrote (text, attachment, email or poll; not agent work rows or system lines) in an unmuted room on screen while the app is visible, at most once every 2 seconds. Opening a room and the catch-up after a reconnect play nothing.
+- No haptic for anything else: scrolling, typing, hover, opening or closing a sheet, store updates, timers, or a copy that worked (its button shows a check). A background failure the user did not just cause stays silent.
+- Fire `hold`, `sent`, `success` and `error` at the interaction, in the same handler as the visual change, not inside a shared action, a store or an effect. `useHold` fires `hold`.
 
 ## Isolation
 

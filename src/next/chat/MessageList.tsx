@@ -69,8 +69,9 @@ function Reactions({ msg, mine }: { msg: Message; mine: boolean }) {
           type="button"
           className="nx-react"
           data-mine={r.mine || undefined}
+          data-haptic
           aria-pressed={!!r.mine}
-          onClick={() => { haptic('select'); void toggleReaction(msg.id, r.emoji) }}
+          onClick={() => void toggleReaction(msg.id, r.emoji)}
         >
           <span aria-hidden>{r.emoji}</span>
           <span className="nx-mono">{r.count}</span>
@@ -152,7 +153,7 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, showName, f
   // Selects a string, so status churn on participants does not re-render the bubble.
   const quoteText = useParticipants((s) => quote?.body.replace(/@([A-Za-z][\w-]*)/g, (m, id: string) => (s.byId[id] ? `@${s.byId[id].name}` : m)))
 
-  const react = (emoji: string) => { haptic('select'); void toggleReaction(msg.id, emoji) }
+  const react = (emoji: string) => { void toggleReaction(msg.id, emoji) }
   const reply = () => useApp.getState().setReplyingTo(msg.conversationId, msg.id)
   const thread = () => navigate(withRoute(getRoute(), { threadId: msg.id, peek: null }))
   const entries: MenuEntry[] = [
@@ -215,10 +216,8 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, showName, f
         {(msg.failed || msg.unconfirmed) && (
           <div className="nx-msg__failed">
             <span>{msg.unconfirmed ? nt('msg.unconfirmed') : nt('msg.failed')}</span>
-            {/* Retry re-sends optimistically like the composer, discard drops the
-                row locally: both show at once, so both get the composer's tap. */}
-            <button type="button" onClick={() => { haptic('tap'); void retryFailedMessage(msg.conversationId, msg.id) }}>{nt('msg.retry')}</button>
-            <button type="button" onClick={() => { haptic('tap'); discardFailedMessage(msg.conversationId, msg.id) }}>{nt('msg.discard')}</button>
+            <button type="button" onClick={() => { haptic('sent'); void retryFailedMessage(msg.conversationId, msg.id) }}>{nt('msg.retry')}</button>
+            <button type="button" onClick={() => discardFailedMessage(msg.conversationId, msg.id)}>{nt('msg.discard')}</button>
           </div>
         )}
       </div>

@@ -80,7 +80,7 @@ export default function LibrarySection({ route }: SectionProps) {
   return <section className="nx-library">
     <header className="nx-library__head"><div><h1>{nt('library.title')}</h1><p>{nt('library.subtitle')}</p></div></header>
     <nav className="nx-library__tabs" aria-label={nt('library.tabs')}>
-      {TABS.map((key) => <button type="button" key={key} aria-current={tab === key ? 'page' : undefined} className="nx-library__tab" onClick={() => { if (tab !== key) haptic('select'); navigate(href({ section: 'library', params: { tab: key } })) }}>{icons[key]}{labels[key]}</button>)}
+      {TABS.map((key) => <button type="button" key={key} aria-current={tab === key ? 'page' : undefined} className="nx-library__tab" onClick={() => navigate(href({ section: 'library', params: { tab: key } }))}>{icons[key]}{labels[key]}</button>)}
     </nav>
     <LibraryItems key={tab} tab={tab} route={route} />
   </section>

@@ -161,7 +161,7 @@ export function Composer({ convoId, threadRootId = null }: {
     const text = draft.text.trim()
     if (text === '/poll' && !isThread) { openPoll(); return }
     if (!canSend || uploading) return
-    haptic('tap')
+    haptic('sent')
     finishTyping()
     void sendUserMessage(convoId, text, draft.attachment, isThread ? threadRootId : replyingId)
     setDraft(() => EMPTY_DRAFT)

@@ -11,7 +11,7 @@ import { EmailComposer } from '@/components/EmailComposer'
 import { isElectron } from '@/lib/runtime'
 import { useAppearanceStore, type Appearance } from '@/lib/theme'
 import { initPushNotifications } from '@/lib/push'
-import { haptic } from './haptics'
+import { bindPressHaptics } from './haptics'
 import { useNativeChrome, useNextDocument } from './document'
 import { bindLegacyWrites, goBack, href, linkClick, navigate, projectRoute, useRoute, type Route, type Section } from './router'
 import { useLayout, type Layout } from './layout'
@@ -60,6 +60,7 @@ function RailLink({ item, active }: { item: NavItem; active: boolean }) {
       href={href({ section: item.section })}
       onClick={linkClick}
       className="nx-rail__item"
+      data-haptic
       aria-current={active ? 'page' : undefined}
       aria-label={nt(item.label)}
       {...tip}
@@ -151,6 +152,7 @@ function MeLink({ active }: { active: boolean }) {
       href={href({ section: 'me' })}
       onClick={linkClick}
       className="nx-rail__me"
+      data-haptic
       aria-current={active ? 'page' : undefined}
       aria-label={nt('nav.me')}
       {...tip}
@@ -188,9 +190,10 @@ function TabBar({ route }: { route: Route }) {
     <a
       key={section}
       href={href({ section })}
-      onClick={(e) => { if (route.section !== section) haptic('select'); linkClick(e, { replace: true }) }}
+      onClick={(e) => linkClick(e, { replace: true })}
       className="nx-tabbar__item"
       aria-current={route.section === section ? 'page' : undefined}
+      data-haptic
     >
       <span className="nx-tabbar__icon">
         {icon}
@@ -209,6 +212,7 @@ function TabBar({ route }: { route: Route }) {
         type="button"
         className="nx-tabbar__item"
         aria-current={moreActive ? 'page' : undefined}
+        data-haptic
         onClick={(e) => menu.toggleFrom(e.currentTarget)}
       >
         <span className="nx-tabbar__icon"><IGrid /></span>
@@ -265,6 +269,7 @@ export default function NextApp() {
   const stack = layout === 'stack'
 
   useEffect(() => bindLegacyWrites(), [])
+  useEffect(() => bindPressHaptics(), [])
   useEffect(() => { projectRoute(route, stack) }, [route, stack])
   useHardwareBack(route, layout)
   // The classic mobile shell owned push registration (APNs/FCM); this shell

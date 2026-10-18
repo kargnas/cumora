@@ -306,7 +306,6 @@ function CategoryDialog({ open, initial = '', title, action, onClose, onSubmit }
           if (!value || busy) return
           const pending = onSubmit(value)
           if (!pending) {
-            haptic('tap')
             onClose()
             return
           }
@@ -503,6 +502,7 @@ const RoomTile = memo(function RoomTile({ c, active }: { c: Conversation; active
       onClick={(e) => linkClick(e, { replace: active })}
       className="nx-tile"
       title={c.title}
+      data-haptic
       aria-current={active ? 'page' : undefined}
       data-drop-side={target.side ?? undefined}
       {...hold}
@@ -604,6 +604,7 @@ const RoomRow = memo(function RoomRow({ c, active }: { c: Conversation; active: 
       onClick={(e) => linkClick(e, { replace: active })}
       className="nx-room"
       aria-current={active ? 'page' : undefined}
+      data-haptic
       data-unread={unread > 0 && !muted ? '' : undefined}
       {...hold}
       {...drag}
@@ -706,7 +707,7 @@ function GroupSection({ g, activeId }: { g: Group; activeId: string | null }) {
             type="button"
             className="nx-group__toggle"
             aria-expanded={!collapsed}
-            onClick={() => { haptic('select'); useRoomLayout.getState().toggleCollapsed(g.key) }}
+            onClick={() => useRoomLayout.getState().toggleCollapsed(g.key)}
             {...hold}
             {...drag}
           >
@@ -739,7 +740,7 @@ function HiddenGroups({ groups, activeId }: { groups: Group[]; activeId: string 
   const unread = groups.reduce((n, g) => n + g.rooms.reduce((m, c) => m + (isMuted(c) ? 0 : c.unread ?? 0), 0), 0)
   return (
     <>
-      <button type="button" className="nx-hidden-row" aria-expanded={open} onClick={() => { haptic('select'); setOpen((v) => !v) }}>
+      <button type="button" className="nx-hidden-row" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
         <IEyeOff />
         <span className="nx-hidden-row__label">{nt('chats.hiddenCount', { n: groups.length })}</span>
         {unread > 0 && <span className="nx-badge nx-badge--muted">{unread > 99 ? '99+' : unread}</span>}

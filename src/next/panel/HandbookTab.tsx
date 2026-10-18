@@ -19,7 +19,6 @@ import { useMe } from '@/stores/auth'
 import { useParticipants } from '@/stores/participants'
 import { useLocale } from '@/lib/i18n'
 import type { Conversation } from '@/types'
-import { haptic } from '../haptics'
 import { useNT } from '../i18n'
 import { dateTime } from '../format'
 import { getRoute, href, navigate, useRoute, withRoute } from '../router'
@@ -246,7 +245,7 @@ const RowView = memo(function RowView({ row }: { row: Row }) {
         type="button"
         className="nx-hb-file nx-hb-file--fold"
         aria-expanded={row.fold === 'open'}
-        onClick={() => { haptic('select'); toggle(f.key) }}
+        onClick={() => toggle(f.key)}
       >
         <IChevronDown aria-hidden />
         {/* SKILL.md sits in a folder named after the skill. */}
@@ -362,7 +361,6 @@ function Scrubber({ changes, at }: { changes: HandbookChange[]; at: string | nul
           onChange={(e) => {
             const v = Number(e.target.value)
             if (v === value) return
-            haptic('select')
             setDraft(v)
             window.clearTimeout(timer.current)
             timer.current = window.setTimeout(() => commit(v), 200)
@@ -504,7 +502,6 @@ export function HandbookTab({ c, docked }: { c: Conversation; docked: boolean })
               aria-pressed={a.id === agent.id}
               onClick={() => {
                 if (a.id === agent.id) return
-                haptic('select')
                 // Another agent has other change times, so the scrubber starts at now.
                 navigate(withRoute(getRoute(), { params: { agent: a.id, at: null } }), { replace: true })
               }}

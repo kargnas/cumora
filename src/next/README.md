@@ -26,13 +26,13 @@ The computer keeps no history of these files, so the server records one. `server
 
 ## Haptics
 
-In the phone app, a touch that changes something (switching a tab, picking from a menu, a long press, sending, dropping a card, a save that finished or failed) answers with a haptic. Android plays the system's own effects, so the phone's touch-feedback setting turns them off. The web and the desktop app have none.
+In the phone app, opening a room from the chat list, switching sections and toggling a reaction answer with a click when the finger lands. A long press answers with a deeper click, sending a message with one click, and someone else's message arriving in the open room with a double click (not in muted rooms, at most once every 2 seconds). A save the user waited on ends with a success or error haptic. Android plays the system's own effects, so the phone's touch-feedback setting turns them off. The web and the desktop app have none.
 
 ## Local verification
 
 The redesign can run against a throwaway local backend:
 
-1. Postgres + Redis in the `default` Colima profile (never the `circlechat` one), migrate with `npx tsx server/src/migrate-bin.ts`, start `npx tsx server/src/index.ts` with `DATABASE_URL`, `REDIS_URL` and a dummy `OPENAI_API_KEY`. The server seeds demo agents and rooms on first boot. `server/data/fork.sqlite` is created on the first `/api/fork` request, which opening the redesign's chat list sends, or at boot when `server/computer/` exists (step 4).
+1. Postgres + Redis in the `default` Colima profile (never the `circlechat` one), migrate with `npx tsx server/src/migrate-bin.ts`, start `npx tsx server/src/index.ts` with `DATABASE_URL`, `REDIS_URL`, a dummy `OPENAI_API_KEY` and `CUMORA_PUBLIC_ORIGIN` set to the origin the device opens (the Vite server, which proxies `/uploads`). Upload URLs carry that origin, so the default `http://localhost:5181` breaks uploaded images and portraits on any other device. The server seeds demo agents and rooms on first boot. `server/data/fork.sqlite` is created on the first `/api/fork` request, which opening the redesign's chat list sends, or at boot when `server/computer/` exists (step 4).
 2. Mint a session with `createSession` from `server/src/auth.ts` and open `/next#token=<token>&companyId=personal`.
 3. Live states (typing, streaming, working) can be driven from the browser console in dev: `(await import('/src/stores/messages.ts')).useMessages.setState(...)`.
 4. For the Handbook, put sample files under `server/computer/agents/<agent id>/` and `server/computer/skills/<name>/SKILL.md` (gitignored) before starting the server; editing one afterwards records a change. A row in `agent_runs` around the file's mtime and a person's message before it show the attribution.
