@@ -362,22 +362,23 @@ test('persistent sessions finish active turns and then resume with a changed or 
   assert.equal((await calls()).filter(call => call.argv?.includes('app-server'))[1].authAccount, 'new-account')
 })
 
-test('compatibility Codex uses one-shot turns so the legacy Cumora CLI stays reachable', { skip: IS_WIN }, async () => {
+test('compatibility Codex keeps a persistent full-access session, so its turns can be steered and stopped', { skip: IS_WIN }, async () => {
   process.env.CUMORA_BYOA_ALLOW_UNSANDBOXED = '1'
   const adapter = getAdapter('codex')
   const env = { ...process.env, CUMORA_AGENT_IPC_DIR: join(root, 'ipc'), CUMORA_AGENT_MCP_SHIM: join(root, 'shim') }
 
   const session = adapter.startSession?.({ home: root, env, onLog() {} }) ?? null
+  assert.ok(session)
   try {
-    assert.equal(session, null)
+    assert.equal((await session.send('hello')).exitCode, 0)
   } finally {
-    await session?.stop({ force: true })
+    await session.stop({ force: true })
   }
-  const result = await adapter.run({ home: root, env, prompt: 'hello', onLog() {}, signal: AbortSignal.timeout(10_000) })
-  assert.equal(result.exitCode, 0, result.error)
-  const exec = (await calls()).find(call => call.argv?.includes('exec'))
-  assert.ok(exec)
-  assert.ok(exec.argv.includes('--dangerously-bypass-approvals-and-sandbox'))
+  // Full access is what lets the legacy `cumora` PATH shim reach the daemon's
+  // IPC directory from a model command.
+  const start = (await calls()).find(call => call.method === 'thread/start')
+  assert.equal(start?.params.sandbox, 'danger-full-access')
+  assert.equal(start?.params.approvalPolicy, 'never')
 })
 
 test('the login command uses the dedicated home and exits without pairing or starting a daemon', async () => {
