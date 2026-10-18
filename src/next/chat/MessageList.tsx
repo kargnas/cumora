@@ -2,8 +2,9 @@
  * Transcript. Rendering budget rules:
  *  - Virtuoso mounts only what is near the viewport; rows are memoized on the
  *    message object, which the store replaces only when that message changes.
- *  - Streaming text and typing bubbles live in the list footer and subscribe
- *    to their own slice, so a token stream re-renders one bubble, not the list.
+ *  - Streaming replies live in the list footer and subscribe to their own
+ *    slice, so a token stream re-renders one bubble, not the list. Agents
+ *    still at work show over the composer (WorkingHeads), not in the list.
  *  - Entrance motion is CSS on transform/opacity/clip-path and plays once per
  *    message per session, so scrolling back never replays it.
  */
@@ -26,8 +27,8 @@ import type { Message, Participant } from '@/types'
 import { haptic } from '../haptics'
 import { useNT } from '../i18n'
 import { href, navigate, getRoute, withRoute } from '../router'
-import { bytes, clock, dayLabel, elapsed } from '../format'
-import { useHold, useNow } from '../hooks'
+import { bytes, clock, dayLabel } from '../format'
+import { useHold } from '../hooks'
 import { Avatar } from '../ui/Avatar'
 import { IconButton, Menu, Spinner, useMenu, type MenuEntry } from '../ui/primitives'
 import { IArrowDown, ICopy, IDownload, IFile, IMore, IReply, ISpark, IThread, IWhisper } from '../ui/icons'
@@ -270,32 +271,17 @@ function WhisperLine({ msg }: { msg: Message }) {
   )
 }
 
-/* ── Live footer: typing → streaming → final message ───────────────── */
-function LiveBubble({ authorId, body }: { authorId: string; body: string | null }) {
-  const nt = useNT()
+/* ── Live footer: streaming → final message ─────────────────────────── */
+function LiveBubble({ authorId, body }: { authorId: string; body: string }) {
   const p = useParticipants((s) => s.byId[authorId])
-  const startRef = useRef(Date.now())
-  // Prefer the server's status clock: it survives a reload mid-turn.
-  const since = p?.statusUpdatedAt && (p.status === 'working' || p.status === 'thinking')
-    ? Math.min(new Date(p.statusUpdatedAt).getTime(), startRef.current)
-    : startRef.current
-  const now = useNow(body === null)
   if (!p) return null
   return (
     <div className="nx-msg nx-msg--live" data-fresh="reveal">
       <div className="nx-msg__gutter"><Avatar p={p} size={28} presence /></div>
       <div className="nx-msg__col">
         <div className="nx-msg__row">
-          <div className="nx-bubble" data-live={body === null ? 'typing' : 'stream'}>
-            {body === null ? (
-              <span className="nx-typing">
-                <span className="nx-dots" aria-hidden><i /><i /><i /></span>
-                <span className="nx-shimmer">{nt('msg.working', { name: p.name })}</span>
-                <span className="nx-typing__time nx-mono">{elapsed(now - since)}</span>
-              </span>
-            ) : (
-              <div className="nx-bubble__text nx-stream">{body}<span className="nx-caret" aria-hidden /></div>
-            )}
+          <div className="nx-bubble">
+            <div className="nx-bubble__text nx-stream">{body}<span className="nx-caret" aria-hidden /></div>
           </div>
         </div>
       </div>
@@ -304,26 +290,18 @@ function LiveBubble({ authorId, body }: { authorId: string; body: string | null 
 }
 
 function LiveFooter({ convoId, onChange }: { convoId: string; onChange: (grew: boolean) => void }) {
-  const me = useMe()
   const streaming = useMessages((s) => s.streaming)
-  const typing = useMessages((s) => s.typing[convoId])
-  const live = useMemo(() => {
-    const parsed = Object.entries(streaming)
-      .filter(([, x]) => x.conversationId === convoId)
-      .map(([id, x]) => { streamed.add(id); return x })
-    const streamingAuthors = new Set(parsed.map((s) => s.authorId))
-    const typers = (typing ?? []).filter((id) => id !== me && !streamingAuthors.has(id))
-    return [...parsed.map((s) => ({ key: s.authorId, authorId: s.authorId, body: s.body as string | null })),
-      ...typers.map((id) => ({ key: id, authorId: id, body: null as string | null }))]
-  }, [streaming, convoId, typing, me])
-  const sig = live.map((l) => `${l.key}:${l.body?.length ?? -1}`).join('|')
+  const live = useMemo(() => Object.entries(streaming)
+    .filter(([, x]) => x.conversationId === convoId)
+    .map(([id, x]) => { streamed.add(id); return x }), [streaming, convoId])
+  const sig = live.map((l) => `${l.authorId}:${l.body.length}`).join('|')
   const count = useRef(0)
   useEffect(() => {
     onChange(live.length !== count.current)
     count.current = live.length
   }, [sig, live.length, onChange])
   if (live.length === 0) return null
-  return <>{live.map((l) => <LiveBubble key={l.key} authorId={l.authorId} body={l.body} />)}</>
+  return <>{live.map((l) => <LiveBubble key={l.authorId} authorId={l.authorId} body={l.body} />)}</>
 }
 
 /* ── List ───────────────────────────────────────────────────────────── */
@@ -338,7 +316,7 @@ interface ListContext {
 }
 
 // Module-level so Virtuoso never sees new component types: a fresh Footer
-// function per render would remount the live bubbles and reset their clocks.
+// function per render would remount the streaming bubbles.
 const LIST_COMPONENTS = {
   Header: ({ context }: { context?: ListContext }) => (
     <div className="nx-transcript__head">
@@ -397,7 +375,7 @@ export function MessageList({ convoId, group, bottomInset, find }: { convoId: st
     if (hasMore && !loadingOlder) void useMessages.getState().loadOlder(convoId)
   }, [convoId, hasMore, loadingOlder])
 
-  // Typing/streaming bubbles grow the footer, which Virtuoso's followOutput
+  // Streaming bubbles grow the footer, which Virtuoso's followOutput
   // does not watch; keep the bottom pinned ourselves while the user is there.
   // A new bubble glides into view; token growth follows instantly so the
   // text never lags behind the scroll animation.
