@@ -388,6 +388,9 @@ function stripImageInputs(input: ResponseInputItem[]): ResponseInputItem[] {
 
 /** Resolve a message URL to something OpenAI's input_image can fetch. */
 function publicUrlFor(url: string): string {
+  // Local storage puts PUBLIC_ORIGIN in front of /uploads, where the apps and
+  // agents reach the server; OpenAI may not, so re-base on PUBLIC_HOST below.
+  if (url.startsWith(`${env.PUBLIC_ORIGIN}/uploads/`)) url = url.slice(env.PUBLIC_ORIGIN.length)
   if (/^https?:\/\//.test(url)) return url
   // Local /uploads/<file> — make it absolute against the server's public host.
   // For dev we prefer a real reachable URL; if PUBLIC_HOST isn't set we fall back

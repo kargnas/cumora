@@ -80,16 +80,21 @@ export function localUploadRefusal(path: string, exp: unknown, sig: unknown): st
   return given.length === expected.length && timingSafeEqual(given, expected) ? null : 'bad sig'
 }
 
+/** Local uploads carry the public origin (LocalStorage.publicUrl), while rows
+ *  written before that still hold the bare `/uploads/<key>` path. Reduce both
+ *  to the path, so either form maps to its key and is re-signed on read
+ *  instead of breaking when its signature expires. */
+function localUploadPath(raw: string): string {
+  return raw.startsWith(`${env.PUBLIC_ORIGIN}/uploads/`) ? raw.slice(env.PUBLIC_ORIGIN.length) : raw
+}
+
 export function storageKeyFromPublicUrl(raw: string): string | null {
-  // Agents read local uploads as absolute URLs (agentAttachmentUrl). A copy
-  // they post back into a message or document must still map to its key, so
-  // it is re-signed on read instead of breaking when its signature expires.
-  const local = raw.startsWith(`${env.PUBLIC_ORIGIN}/uploads/`) ? raw.slice(env.PUBLIC_ORIGIN.length) : raw
-  return storageKeyFromPublicUrlForBase(local, env.R2_PUBLIC_BASE)
+  return storageKeyFromPublicUrlForBase(localUploadPath(raw), env.R2_PUBLIC_BASE)
 }
 
 export function messageAttachmentStorageKey(input: { key?: unknown; url?: unknown }): string | null {
-  return messageAttachmentStorageKeyForBase(input, env.R2_PUBLIC_BASE)
+  const url = typeof input.url === 'string' ? localUploadPath(input.url) : input.url
+  return messageAttachmentStorageKeyForBase({ key: input.key, url }, env.R2_PUBLIC_BASE)
 }
 
 export function signedUrlExpiresSoon(raw: string, leewaySeconds = 300): boolean {
@@ -159,9 +164,14 @@ class LocalStorage implements Storage {
   }
 
   async publicUrl(key: string): Promise<string> {
-    if (!needsSignature(key)) return `/uploads/${key}`
+    // Absolute on the public origin, like R2's public base. The Android app
+    // (https://localhost) and the desktop app (app://cumora) render from their
+    // own bundle, and agents fetch from a BYOA computer or a pod: a bare
+    // `/uploads/<key>` path resolves to nothing for all of them.
+    const url = `${env.PUBLIC_ORIGIN}/uploads/${key}`
+    if (!needsSignature(key)) return url
     const exp = Math.floor(Date.now() / 1000) + env.R2_URL_TTL_SECONDS
-    return `/uploads/${key}?exp=${exp}&sig=${localUploadSignature(key, exp)}`
+    return `${url}?exp=${exp}&sig=${localUploadSignature(key, exp)}`
   }
 
   async listObjectsByPrefix(prefix: string): Promise<StorageObject[]> {
@@ -379,20 +389,4 @@ export async function freshenAttachmentUrl<T extends StoredAttachment | null | u
   const url = await storage.publicUrl(key)
   if (url === att.url && att.key === key) return att
   return { ...att, url, key } as T
-}
-
-/** `freshenAttachmentUrl` for what an agent reads (its inbox, context and CLI
- *  output). Agents fetch off the web app's origin, from a BYOA computer or a
- *  pod, where local mode's `/uploads/<key>` path resolves to nothing, so it
- *  becomes absolute on the server's public origin. That URL also still renders
- *  when the agent posts it back into a message or document, which an internal
- *  address such as the daemon's server URL would not. PUBLIC_HOST is not used:
- *  it is the address OpenAI's fetcher needs (a tunnel in dev), while agents
- *  reach the server where its users do. */
-export async function agentAttachmentUrl<T extends StoredAttachment | null | undefined>(
-  att: T,
-): Promise<T> {
-  const fresh = await freshenAttachmentUrl(att)
-  if (!fresh?.url?.startsWith('/uploads/')) return fresh
-  return { ...fresh, url: `${env.PUBLIC_ORIGIN}${fresh.url}` } as T
 }
