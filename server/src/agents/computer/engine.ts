@@ -1398,6 +1398,8 @@ class ClaudeSession implements EngineSession {
   private interrupting: (() => void)[] | null = null
   /** The finished turn whose follow-up a still-queued steer will start. */
   private carried: EngineRunResult | null = null
+  /** A steer started the follow-up turn; its result settles the send(). */
+  private followUpStarted = false
   readonly carriesStandingPrompt: boolean
 
   constructor(bin: string, args: string[], opts: EngineSessionArgs, carriesStandingPrompt: boolean) {
@@ -1517,9 +1519,10 @@ class ClaudeSession implements EngineSession {
         if (done) {
           this.queuedSteers.delete(ev.command_uuid)
           done(ev.state === 'started')
+          if (ev.state === 'started' && this.carried) this.followUpStarted = true
           // The CLI dropped the last steer this send() waited on after its turn
-          // ended, so no follow-up turn (and no further result) is coming.
-          if (ev.state !== 'started' && this.carried && this.queuedSteers.size === 0) {
+          // ended, and none started a follow-up turn, so no further result is coming.
+          if (ev.state !== 'started' && this.carried && !this.followUpStarted && this.queuedSteers.size === 0) {
             this.settle(this.interrupting ? { ...this.carried, interrupted: true } : this.carried)
           }
         }
@@ -1615,6 +1618,7 @@ class ClaudeSession implements EngineSession {
     const p = this.pending
     this.pending = null
     this.carried = null
+    this.followUpStarted = false
     for (const done of this.queuedSteers.values()) done(false)
     this.queuedSteers.clear()
     const stopped = this.interrupting
