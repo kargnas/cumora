@@ -60,6 +60,7 @@ function RailLink({ item, active }: { item: NavItem; active: boolean }) {
       href={href({ section: item.section })}
       onClick={linkClick}
       className="nx-rail__item"
+      data-haptic
       aria-current={active ? 'page' : undefined}
       aria-label={nt(item.label)}
       {...tip}
@@ -151,6 +152,7 @@ function MeLink({ active }: { active: boolean }) {
       href={href({ section: 'me' })}
       onClick={linkClick}
       className="nx-rail__me"
+      data-haptic
       aria-current={active ? 'page' : undefined}
       aria-label={nt('nav.me')}
       {...tip}
@@ -191,6 +193,7 @@ function TabBar({ route }: { route: Route }) {
       onClick={(e) => linkClick(e, { replace: true })}
       className="nx-tabbar__item"
       aria-current={route.section === section ? 'page' : undefined}
+      data-haptic
     >
       <span className="nx-tabbar__icon">
         {icon}
@@ -209,6 +212,7 @@ function TabBar({ route }: { route: Route }) {
         type="button"
         className="nx-tabbar__item"
         aria-current={moreActive ? 'page' : undefined}
+        data-haptic
         onClick={(e) => menu.toggleFrom(e.currentTarget)}
       >
         <span className="nx-tabbar__icon"><IGrid /></span>

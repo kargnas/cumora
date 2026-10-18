@@ -65,8 +65,7 @@ function LibraryItems({ tab, route }: { tab: Tab; route: Route }) {
         <span className="nx-library__item-icon">{tab === 'documents' ? <IDoc /> : <IBoard />}</span><span className="nx-library__item-text"><b>{row.title}</b><small>{row.sub}</small></span><span className="nx-library__chevron">›</span>
       </button>)}
     </div>}
-    {/* The classic calendar plays its own haptics on every tap. */}
-    {tab === 'calendar' && <div className="nx-library__calendar" data-own-haptics><MobileCalendar /></div>}
+    {tab === 'calendar' && <div className="nx-library__calendar"><MobileCalendar /></div>}
     {error && <div className="nx-library__error" role="alert"><span>{error}</span><button type="button" className="nx-btn nx-btn--sm" onClick={() => { setError(''); if (tab === 'documents') void loadDocs().catch((e) => setError(String(e))); else if (tab === 'boards') void loadBoards().catch((e) => setError(String(e))) }}>{nt('library.retry')}</button></div>}
     <button className="nx-library__add" type="button" aria-label={nt(tab === 'documents' ? 'library.newDocument' : tab === 'boards' ? 'library.newBoard' : 'library.newEvent')} disabled={busy} onClick={() => void create()}>{busy ? <Spinner /> : <IPlus />}</button>
     {route.search.get('create') === 'event' && tab === 'calendar' && <EventEditor event={null} onClose={() => navigate(href({ section: 'library', params: { tab } }))} />}

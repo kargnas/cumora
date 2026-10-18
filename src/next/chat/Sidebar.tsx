@@ -502,6 +502,7 @@ const RoomTile = memo(function RoomTile({ c, active }: { c: Conversation; active
       onClick={(e) => linkClick(e, { replace: active })}
       className="nx-tile"
       title={c.title}
+      data-haptic
       aria-current={active ? 'page' : undefined}
       data-drop-side={target.side ?? undefined}
       {...hold}
@@ -603,6 +604,7 @@ const RoomRow = memo(function RoomRow({ c, active }: { c: Conversation; active: 
       onClick={(e) => linkClick(e, { replace: active })}
       className="nx-room"
       aria-current={active ? 'page' : undefined}
+      data-haptic
       data-unread={unread > 0 && !muted ? '' : undefined}
       {...hold}
       {...drag}

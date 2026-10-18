@@ -1,6 +1,9 @@
 package io.cumora.app;
 
 import android.os.Build;
+import android.os.VibrationAttributes;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
 import android.view.HapticFeedbackConstants;
 
 import com.getcapacitor.Plugin;
@@ -31,6 +34,11 @@ public class NxHapticsPlugin extends Plugin {
     @PluginMethod
     public void perform(PluginCall call) {
         String kind = call.getString("kind", "");
+        if ("received".equals(kind)) {
+            received();
+            call.resolve();
+            return;
+        }
         Integer constant = constantFor(kind);
         if (constant == null) {
             call.reject("Unknown haptic kind: " + kind);
@@ -42,19 +50,29 @@ public class NxHapticsPlugin extends Plugin {
         });
     }
 
+    /**
+     * A message arriving is not a touch, so it plays a pattern no touch plays:
+     * the phone maker's tuned double click. USAGE_TOUCH keeps it under the same
+     * touch-feedback setting as the other kinds. VibrationAttributes arrived in
+     * API 33, so older phones play nothing for it.
+     */
+    private void received() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return;
+        getContext().getSystemService(Vibrator.class).vibrate(
+            VibrationEffect.createPredefined(VibrationEffect.EFFECT_DOUBLE_CLICK),
+            VibrationAttributes.createForUsage(VibrationAttributes.USAGE_TOUCH));
+    }
+
     private static Integer constantFor(String kind) {
-        // GESTURE_START/END, CONFIRM and REJECT arrived in API 30; minSdk is 24.
+        // GESTURE_START, CONFIRM and REJECT arrived in API 30; minSdk is 24.
         boolean api30 = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R;
         switch (kind) {
-            // A button going down and coming back up. One UI plays its
-            // key-press click for GESTURE_START and its lighter key-release
-            // tick for GESTURE_END.
+            // One UI plays its key-press click for GESTURE_START.
             case "press":
                 return api30 ? HapticFeedbackConstants.GESTURE_START : HapticFeedbackConstants.VIRTUAL_KEY;
-            case "release":
-                return api30 ? HapticFeedbackConstants.GESTURE_END : HapticFeedbackConstants.CLOCK_TICK;
             case "hold":
                 return HapticFeedbackConstants.LONG_PRESS;
+            case "sent":
             case "success":
                 return api30 ? HapticFeedbackConstants.CONFIRM : HapticFeedbackConstants.VIRTUAL_KEY;
             case "error":

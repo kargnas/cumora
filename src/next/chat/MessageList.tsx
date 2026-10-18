@@ -24,6 +24,7 @@ import { PollBubble } from '@/components/PollBubble'
 import { LinkPreview, firstUrlInBody } from '@/components/LinkPreview'
 import { ImageViewer } from '@/components/ImageViewer'
 import type { Message, Participant } from '@/types'
+import { haptic } from '../haptics'
 import { useNT } from '../i18n'
 import { href, navigate, getRoute, withRoute } from '../router'
 import { bytes, clock, dayLabel, elapsed } from '../format'
@@ -68,6 +69,7 @@ function Reactions({ msg, mine }: { msg: Message; mine: boolean }) {
           type="button"
           className="nx-react"
           data-mine={r.mine || undefined}
+          data-haptic
           aria-pressed={!!r.mine}
           onClick={() => void toggleReaction(msg.id, r.emoji)}
         >
@@ -214,7 +216,7 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, showName, f
         {(msg.failed || msg.unconfirmed) && (
           <div className="nx-msg__failed">
             <span>{msg.unconfirmed ? nt('msg.unconfirmed') : nt('msg.failed')}</span>
-            <button type="button" onClick={() => void retryFailedMessage(msg.conversationId, msg.id)}>{nt('msg.retry')}</button>
+            <button type="button" onClick={() => { haptic('sent'); void retryFailedMessage(msg.conversationId, msg.id) }}>{nt('msg.retry')}</button>
             <button type="button" onClick={() => discardFailedMessage(msg.conversationId, msg.id)}>{nt('msg.discard')}</button>
           </div>
         )}

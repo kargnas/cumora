@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useShallow } from 'zustand/react/shallow'
-import { useMe } from '@/stores/auth'
-import { useConversations } from '@/stores/conversations'
+import { ws } from '@/api/client'
+import { getMeId, useMe } from '@/stores/auth'
+import { isMuted, useConversations } from '@/stores/conversations'
 import { useMessages } from '@/stores/messages'
 import { useParticipants } from '@/stores/participants'
-import type { Conversation, Participant } from '@/types'
+import type { Conversation, Message, Participant } from '@/types'
+import { haptic } from '../haptics'
 import { useNT } from '../i18n'
 import { getRoute, goBack, href, navigate, withRoute } from '../router'
 import type { Layout } from '../layout'
@@ -137,8 +139,32 @@ function SearchBar({ q, setQ, index, setIndex, count, onClose }: {
   )
 }
 
+// Rows a person reads as a message. Agent work steps (tool, thought) and
+// system lines arrive in bursts while an agent works and are not news.
+const NEWS = new Set<Message['kind']>(['text', 'attachment', 'email', 'poll'])
+// Agents often answer in several rows at once; one double click covers them.
+const RECEIVED_GAP = 2000
+
+/** Someone else's message arriving in the room on screen plays `received`.
+ *  It listens to the live `message.new` event, not the store, because opening
+ *  the room and catching up after a reconnect add rows to the store too. */
+function useReceivedHaptic(convoId: string, muted: boolean): void {
+  useEffect(() => {
+    if (muted) return
+    let last = -Infinity
+    return ws.on((e) => {
+      if (e.type !== 'message.new' || e.conversationId !== convoId) return
+      if (e.message.authorId === getMeId() || !NEWS.has(e.message.kind)) return
+      if (document.visibilityState !== 'visible' || performance.now() - last < RECEIVED_GAP) return
+      last = performance.now()
+      haptic('received')
+    })
+  }, [convoId, muted])
+}
+
 export function ChatView({ convoId, layout, panelOpen }: { convoId: string; layout: Layout; panelOpen: boolean }) {
   const c = useConversations((s) => s.list.find((x) => x.id === convoId))
+  useReceivedHaptic(convoId, !c || isMuted(c))
   // The transcript pads by the whole floating composer region (its padding
   // and the bottom safe area included), so the newest row clears the bar.
   const [composerH, setComposerH] = useState(80)

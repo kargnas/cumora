@@ -6,19 +6,18 @@ import { isNativePlatform, nativePlatform } from '@/lib/native'
  * Haptics for the redesign. Each kind names what happened, not how strong it
  * feels; AGENTS.md ("Haptics") says which interaction gets which kind.
  *
- * - press: a finger landed on something pressable (a button, a link, a row).
- * - release: that finger lifted and the tap went through, or a dragged card
- *   was let go.
+ * - press: a finger landed on one of the few places marked `data-haptic`.
  * - hold: a press turned into a hold (long-press menu, drag lift).
+ * - sent: a message left.
+ * - received: someone else's message arrived in the room on screen.
  * - success / error: an action the user waited on finished or failed.
  *
- * `press` and `release` for taps come from the touch layer
- * (`bindPressHaptics`), never from a component's own handler.
- * Native apps only: the web and the desktop app have nothing to vibrate.
- * Fire it in the same handler as the visual change, never from a store or an
- * effect, so it lines up with the frame the user sees.
+ * `press` comes from the touch layer (`bindPressHaptics`), never from a
+ * component's own handler. Native apps only: the web and the desktop app have
+ * nothing to vibrate. Fire the others where the screen changes, never from a
+ * store, so they line up with the frame the user sees.
  */
-export type HapticKind = 'press' | 'release' | 'hold' | 'success' | 'error'
+export type HapticKind = 'press' | 'hold' | 'sent' | 'received' | 'success' | 'error'
 
 // Android plays the system's own effects (android/.../NxHapticsPlugin.java);
 // @capacitor/haptics would play fixed vibration waveforms there.
@@ -26,12 +25,9 @@ const NxHaptics = registerPlugin<{ perform(o: { kind: HapticKind }): Promise<voi
 
 const ios: Record<HapticKind, () => Promise<void>> = {
   press: () => Haptics.impact({ style: ImpactStyle.Light }),
-  release: async () => {
-    await Haptics.selectionStart()
-    await Haptics.selectionChanged()
-    await Haptics.selectionEnd()
-  },
   hold: () => Haptics.impact({ style: ImpactStyle.Medium }),
+  sent: () => Haptics.impact({ style: ImpactStyle.Light }),
+  received: () => Haptics.notification({ type: NotificationType.Success }),
   success: () => Haptics.notification({ type: NotificationType.Success }),
   error: () => Haptics.notification({ type: NotificationType.Error }),
 }
@@ -46,24 +42,14 @@ export function haptic(kind: HapticKind): void {
   run.catch(() => {})
 }
 
-/* ── Touch layer: every pressable clicks down and back up ──────────── */
+/* ── Touch layer: the places marked data-haptic click when pressed ─── */
 
-/** What a finger presses like a button. A label counts when its control does;
- *  text fields belong to the keyboard. */
-const PRESSABLE = [
-  'a[href]', 'button', 'select', 'summary', 'label', 'input[type="checkbox"]', 'input[type="radio"]',
-  '[role="button"]', '[role="link"]', '[role="tab"]', '[role="switch"]', '[role="checkbox"]', '[role="radio"]',
-  '[role="option"]', '[role="menuitem"]', '[role="menuitemcheckbox"]', '[role="menuitemradio"]',
-].join(',')
 // Android's ViewConfiguration: a touch that holds still this long is a press,
 // and one that moves this far is a scroll or a drag.
 const TAP_TIMEOUT = 100
 const TOUCH_SLOP = 8
-// A quick tap in a scroller lifts before its press has played; the release
-// follows this much later, so the finger feels two clicks rather than one.
-const RELEASE_GAP = 60
 // A tap's click arrives right after the lift. A lift without one (a tap that
-// stopped a fling) did nothing, so it plays no release.
+// stopped a fling) did nothing, so it stays silent.
 const CLICK_WINDOW = 300
 const SCROLLS = /auto|scroll/
 
@@ -75,11 +61,8 @@ function endTouch(): void {
 }
 
 function pressable(target: Element): Element | null {
-  const el = target.closest(PRESSABLE)
-  // A classic component inside the shell that plays its own haptics.
-  if (!el || el.closest('[data-own-haptics]')) return null
-  const control = el instanceof HTMLLabelElement ? el.control : el
-  return control?.matches(PRESSABLE) && !control.matches(':disabled, [aria-disabled="true"]') ? el : null
+  const el = target.closest('[data-haptic]')
+  return el && !el.matches(':disabled, [aria-disabled="true"]') ? el : null
 }
 
 /** Inside a scroller a finger may be starting a scroll, so the press waits
@@ -136,17 +119,13 @@ function onClick(e: MouseEvent): void {
   const t = touch
   if (!t?.upAt) return
   endTouch()
-  if (e.timeStamp - t.upAt > CLICK_WINDOW) return
-  if (t.pressed) {
-    haptic('release')
-    return
-  }
-  haptic('press')
-  window.setTimeout(() => haptic('release'), RELEASE_GAP)
+  // A quick tap in a scroller lifts before its press could play; its click is
+  // the first moment it is surely a tap.
+  if (!t.pressed && e.timeStamp - t.upAt <= CLICK_WINDOW) haptic('press')
 }
 
-/** Plays `press` when a finger lands on anything pressable and `release` when
- *  it lifts into a click, for the whole app. NextApp binds it once. */
+/** Plays `press` when a finger lands on a place marked `data-haptic`, for the
+ *  whole app. NextApp binds it once. */
 export function bindPressHaptics(): () => void {
   if (!isNativePlatform()) return () => {}
   const opts = { capture: true, passive: true }
