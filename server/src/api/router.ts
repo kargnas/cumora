@@ -45,7 +45,6 @@ import {
 } from '../oauth.js'
 import { adminRouter } from './admin-router.js'
 import { isWaitlistEnabled } from '../admin.js'
-import { ogPreview, OgError } from '../og.js'
 import { sendInvitationEmail, type InvitationEmailDelivery } from '../invitation-email.js'
 import { getUserQuota, sub2apiConfigured } from '../sub2api.js'
 import {
@@ -687,43 +686,6 @@ api.get('/health', async (_req, res) => {
     res.json({ ok: true, ts: Date.now() })
   } catch (e) {
     res.status(503).json({ ok: false, error: String(e) })
-  }
-})
-
-/* GET /api/og?url=<encoded url> — Open-Graph / link-preview proxy.
- *
- * The chat renderer calls this when it autodetects a URL in a message body
- * so it can draw a card with the page's title / description / image. We
- * proxy the fetch server-side because:
- *   - Browsers can't read cross-origin HTML to extract og:* themselves.
- *   - One Redis cache here serves every client (and every replay of the
- *     same message), so the upstream site sees one hit instead of N.
- *   - Centralizing the fetch lets us enforce size / time / SSRF safety.
- *
- * Cached responses are returned at sub-ms latency; misses can take up to
- * FETCH_TIMEOUT_MS in og.ts (~6s). Errors that come from the user input
- * (bad URL, blocked private host) return 4xx so the frontend can silently
- * skip rendering the card; transient upstream / network failures map to
- * 502 / 504 the same way. */
-api.get('/og', async (req, res) => {
-  const url = typeof req.query.url === 'string' ? req.query.url : ''
-  if (!url) {
-    res.status(400).json({ error: 'url required' })
-    return
-  }
-  try {
-    const og = await ogPreview(url)
-    // 5min CDN/browser cache so identical requests from sibling clients in
-    // a conversation don't all hit our Redis. Redis itself still owns the
-    // longer 7-day server-side cache.
-    res.setHeader('Cache-Control', 'public, max-age=300')
-    res.json(og ?? { url, empty: true })
-  } catch (e) {
-    if (e instanceof OgError) {
-      res.status(e.status).json({ error: e.message })
-      return
-    }
-    res.status(500).json({ error: 'og fetch failed' })
   }
 })
 

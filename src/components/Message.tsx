@@ -27,7 +27,6 @@ import { useDocuments } from '@/stores/documents'
 import { useBoards } from '@/stores/boards'
 import { useCalendar } from '@/stores/calendar'
 import { PollBubble } from './PollBubble'
-import { LinkPreview, firstUrlInBody } from './LinkPreview'
 import { useT } from '@/lib/i18n'
 import { useChatLayoutStore } from '@/lib/chatLayout'
 
@@ -1774,17 +1773,6 @@ function MessageRowImpl({ msg, author, delay = 0, animate = true }: MessageRowPr
           <RichBody body={msg.body} conversationId={msg.conversationId} />
         </div>
       )}
-
-      {/* Open-Graph card for the first URL in a chat-style body. Skipped
-          for tool / attachment / poll / email kinds — those have their
-          own card UIs and a link preview underneath would be visual
-          noise. The component itself returns null when there's nothing
-          useful to render, so this gate is just to avoid spurious
-          network calls for non-text messages. */}
-      {!isToolOnly && !isAttachOnly && !isPoll && msg.kind !== 'email' && (() => {
-        const linkUrl = firstUrlInBody(msg.body)
-        return linkUrl ? <LinkPreview url={linkUrl} /> : null
-      })()}
 
       {isPoll && <PollBubble msg={msg} />}
 
