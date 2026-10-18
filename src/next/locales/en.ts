@@ -185,6 +185,12 @@ const core = {
   'handbook.lockedBody': 'An agent’s files can quote any room, so only workspace owners and admins can read them.',
   'handbook.unavailable': 'No handbook here',
   'handbook.unavailableBody': 'This server can’t see the agents’ files on the computer.',
+  'handbook.mapHint': 'Press the map to read the full text from that spot.',
+  'handbook.readSection': 'Read {section} in the full text',
+  'handbook.fullText': 'Full text',
+  'handbook.atLine': 'line {n}',
+  'handbook.allLines': 'Show all {n} lines',
+  'handbook.showInText': 'Show it in the full text',
 
   'members.add': 'Add people',
   'members.addTitle': 'Add people to {room}',
