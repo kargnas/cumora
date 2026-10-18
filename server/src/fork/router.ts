@@ -1,7 +1,8 @@
 import { Router, type Request, type Response, type NextFunction } from 'express'
 import type { AuthedRequest } from '../auth.js'
 import { ForkLimitError, getForkStore } from './store.js'
-import { roomActivity } from './activity.js'
+import { agentHandbook } from './handbook.js'
+import { startRecorder } from './recorder.js'
 
 type CompanyContext = { userId: string; companyId: string }
 
@@ -48,16 +49,18 @@ async function requireAgentEditor(companyId: string, userId: string, participant
 }
 
 /** Fork-only endpoints under /api/fork, backed by the SQLite store in ./store.ts.
- *  Every row is scoped by the caller's own (companyId, userId) from requireCompany. */
+ *  Every row is scoped by the caller's own (companyId, userId) from requireCompany.
+ *  Created once at boot, which is also when the Handbook's recorder starts. */
 export function createForkRouter(deps: ForkRouterDeps): Router {
   const router = Router()
+  startRecorder()
 
   router.get('/room-layout', async (req, res) => {
     const { userId, companyId } = await deps.requireCompany(req)
     res.json((await getForkStore()).layout(companyId, userId))
   })
 
-  router.get('/rooms/:conversationId/activity', (req, res) => roomActivity(deps.requireCompany, req, res))
+  router.get('/agents/:agentId/handbook', (req, res) => agentHandbook(deps.requireCompany, req, res))
 
   router.post('/categories', async (req, res) => {
     const { userId, companyId } = await deps.requireCompany(req)

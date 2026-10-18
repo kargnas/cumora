@@ -22,6 +22,9 @@ export const en = {
   'agents.notFound': 'This agent is not on the team.',
   'agents.allAgents': 'All agents',
   'agents.back': 'Back',
+  'agents.views': 'Show',
+  'agents.viewProfile': 'Profile',
+  'agents.viewHandbook': 'Handbook',
 
   'agents.state.working': 'Working',
   'agents.state.thinking': 'Thinking',
@@ -139,6 +142,9 @@ export const zhCN: Partial<Record<keyof typeof en, string>> = {
   'agents.notFound': '团队里没有这个智能体。',
   'agents.allAgents': '全部智能体',
   'agents.back': '返回',
+  'agents.views': '显示',
+  'agents.viewProfile': '资料',
+  'agents.viewHandbook': '手册',
 
   'agents.state.working': '工作中',
   'agents.state.thinking': '思考中',

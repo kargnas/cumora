@@ -42,6 +42,16 @@ export function clock(d: Date, locale: Locale): string {
   return fmt(locale, { hour: '2-digit', minute: '2-digit' }).format(d)
 }
 
+/** The time today, with the date before that, and the year before this one. */
+export function dateTime(iso: string, locale: Locale): string {
+  const d = new Date(iso)
+  const now = new Date()
+  if (startOfDay(d) === startOfDay(now)) return clock(d, locale)
+  return fmt(locale, d.getFullYear() === now.getFullYear()
+    ? { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }
+    : { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(d)
+}
+
 /** "0:42", "12:05", "1:02:09" — elapsed time for live work. */
 export function elapsed(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000))
@@ -49,15 +59,6 @@ export function elapsed(ms: number): string {
   const m = Math.floor((s % 3600) / 60)
   const sec = String(s % 60).padStart(2, '0')
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`
-}
-
-/** "42s", "3m 05s", "1h 02m" — finished durations. */
-export function duration(ms: number): string {
-  const s = Math.max(0, Math.round(ms / 1000))
-  if (s < 60) return `${s}s`
-  const m = Math.floor(s / 60)
-  if (m < 60) return `${m}m ${String(s % 60).padStart(2, '0')}s`
-  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`
 }
 
 export function bytes(n: number): string {

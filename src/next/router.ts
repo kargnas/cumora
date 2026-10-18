@@ -18,7 +18,7 @@ export type Section =
   | 'chats' | 'whispers' | 'agents' | 'boards' | 'calendar' | 'docs'
   | 'shipping' | 'library' | 'observability' | 'convene' | 'me'
 
-export type PanelTab = 'activity' | 'members' | 'details' | 'files' | 'routines'
+export type PanelTab = 'handbook' | 'members' | 'details' | 'files' | 'routines'
 
 /** Right-panel peeks opened from inside a conversation. */
 export type Peek =
@@ -53,7 +53,7 @@ const SECTION_SEGMENTS: Record<string, Section> = {
   me: 'me',
 }
 
-const PANEL_TABS = new Set<PanelTab>(['activity', 'members', 'details', 'files', 'routines'])
+const PANEL_TABS = new Set<PanelTab>(['handbook', 'members', 'details', 'files', 'routines'])
 
 export const SECTION_VIEW: Record<Section, ViewKey['view']> = {
   chats: 'conversations',

@@ -88,6 +88,26 @@ const MIGRATIONS = [
      PRIMARY KEY (company_id, user_id, conversation_id)
    );`,
 
+  // Versions of the computer's standing files, for the Handbook (./recorder.ts).
+  // Rows are scoped by the agent whose home holds the file, not by company:
+  // agent ids are unique across workspaces (participants_agent_id_unique), and
+  // the handbook route checks the agent is the viewer's. Scope '' is the
+  // computer's shared skills folder, read by every agent on it.
+  `CREATE TABLE computer_file_versions (
+     id INTEGER PRIMARY KEY,
+     scope TEXT NOT NULL,
+     -- Relative to the agent's home, or to the shared skills folder.
+     path TEXT NOT NULL,
+     -- ISO time of the change: the file's mtime, or when a deletion was seen.
+     at TEXT NOT NULL,
+     -- NULL: the file was deleted.
+     content TEXT,
+     -- 1 for the first version seen of a file that was there before its home
+     -- was watched: what it held then, not a change.
+     baseline INTEGER NOT NULL
+   );
+   CREATE INDEX computer_file_versions_file ON computer_file_versions (scope, path, at);`,
+
   // The animated bloub avatar an owner or admin picked for an agent. It is the
   // agent's look for the whole workspace, so rows are per company, not per user.
   // The ids are catalogue keys of the client's bloub engine (src/next/bloub).
@@ -100,6 +120,17 @@ const MIGRATIONS = [
      PRIMARY KEY (company_id, participant_id)
    );`,
 ]
+
+export interface FileVersion {
+  id: number
+  scope: string
+  path: string
+  at: string
+  content: string | null
+  baseline: boolean
+}
+
+export type NewFileVersion = Omit<FileVersion, 'id'>
 
 export async function openForkStore(file: string) {
   const SQL = await initSqlJs()
@@ -114,8 +145,11 @@ export async function openForkStore(file: string) {
   // sql.js keeps the database in memory, so every change is written out as a
   // whole new file and renamed over the old one: a crash mid-write leaves the
   // previous file intact instead of a half-written one.
-  // ponytail: rewrites the whole file per change; fine for a few KB of layout
-  // rows, switch to node:sqlite once the image runs Node 22+ or the data grows.
+  // ponytail: rewrites the whole file per change. Fine while it stays at a few
+  // MB: layout rows plus the Handbook's file versions, which start at the
+  // computer's standing files (under 1 MB) and keep every later version in
+  // full. Switch to node:sqlite once the image runs Node 22+, or prune old
+  // versions, before the file outgrows that.
   // When the write fails, the change is undone in memory too, so a later read
   // (the client resyncs after a failed write) never serves a state the file
   // does not have, and the next save does not persist it by accident.
@@ -133,6 +167,18 @@ export async function openForkStore(file: string) {
 
   const ownsCategory = (companyId: string, userId: string, id: string) =>
     rows('SELECT 1 FROM room_categories WHERE id = ? AND company_id = ? AND user_id = ?', [id, companyId, userId]).length > 0
+
+  const VERSION_COLUMNS = 'id, scope, path, at, content, baseline'
+  const toVersion = ([id, scope, path, at, content, baseline]: initSqlJs.SqlValue[]): FileVersion => ({
+    id: Number(id), scope: String(scope), path: String(path), at: String(at),
+    content: content === null ? null : String(content), baseline: Number(baseline) === 1,
+  })
+  // The version a file had at a time: its newest one at or before it. Versions
+  // of one file never go back in time (the recorder clamps them), so `at`
+  // orders them, and the id breaks a tie.
+  const VERSION_AT = `SELECT w.id FROM computer_file_versions w
+                       WHERE w.scope = v.scope AND w.path = v.path AND w.at <= ?
+                       ORDER BY w.at DESC, w.id DESC LIMIT 1`
 
   const version = Number(rows('PRAGMA user_version', null)[0]?.[0] ?? 0)
   for (let v = version; v < MIGRATIONS.length; v++) {
@@ -252,6 +298,57 @@ export async function openForkStore(file: string) {
       )
       save()
       return true
+    },
+
+    /** The newest version of every file ever recorded, tombstones included. */
+    latestFileVersions(): FileVersion[] {
+      return rows(
+        `SELECT ${VERSION_COLUMNS} FROM computer_file_versions v
+          WHERE id = (SELECT w.id FROM computer_file_versions w
+                       WHERE w.scope = v.scope AND w.path = v.path
+                       ORDER BY w.at DESC, w.id DESC LIMIT 1)`,
+        null,
+      ).map(toVersion)
+    },
+
+    /** Adds the versions in one write: the recorder hands over one poll's worth. */
+    recordFileVersions(versions: NewFileVersion[]): void {
+      if (versions.length === 0) return
+      db.run('BEGIN')
+      try {
+        for (const v of versions) {
+          db.run(
+            'INSERT INTO computer_file_versions (scope, path, at, content, baseline) VALUES (?, ?, ?, ?, ?)',
+            [v.scope, v.path, v.at, v.content, v.baseline ? 1 : 0],
+          )
+        }
+        db.run('COMMIT')
+      } catch (err) {
+        db.run('ROLLBACK')
+        throw err
+      }
+      save()
+    },
+
+    /** Every file of these scopes from the version it had at `since` on, or its
+     *  whole history when `since` is null. Ordered by file, then time. */
+    fileVersions(scopes: string[], since: string | null): FileVersion[] {
+      if (scopes.length === 0) return []
+      const inScopes = `scope IN (${scopes.map(() => '?').join(', ')})`
+      return rows(
+        since === null
+          ? `SELECT ${VERSION_COLUMNS} FROM computer_file_versions WHERE ${inScopes} ORDER BY scope, path, at, id`
+          : `SELECT ${VERSION_COLUMNS} FROM computer_file_versions v
+              WHERE ${inScopes} AND (at > ? OR id = (${VERSION_AT}))
+              ORDER BY scope, path, at, id`,
+        since === null ? scopes : [...scopes, since, since],
+      ).map(toVersion)
+    },
+
+    /** Agents whose home has had a recorded file: the ones on this computer. */
+    fileScopes(): string[] {
+      return rows("SELECT DISTINCT scope FROM computer_file_versions WHERE scope <> '' ORDER BY scope", null)
+        .map(([scope]) => String(scope))
     },
 
     /** Every agent in the company that has a bloub look, by participant id. */

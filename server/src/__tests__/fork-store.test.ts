@@ -143,7 +143,7 @@ test('opening an older file runs the steps it has not had', async () => {
   // rows a version-1 client could write, when 'former' was a group key.
   const SQL = await initSqlJs()
   const raw = new SQL.Database(readFileSync(file))
-  raw.run('ALTER TABLE room_categories DROP COLUMN hidden; DROP TABLE pin_order; DROP TABLE bloub_avatars;')
+  raw.run('ALTER TABLE room_categories DROP COLUMN hidden; DROP TABLE pin_order; DROP TABLE computer_file_versions; DROP TABLE bloub_avatars;')
   raw.run("INSERT INTO collapsed_groups VALUES ('c1', 'u1', 'former'), ('c1', 'u1', 'other')")
   raw.run('PRAGMA user_version = 1')
   writeFileSync(file, raw.export())
@@ -154,8 +154,53 @@ test('opening an older file runs the steps it has not had', async () => {
   assert.deepEqual(layout.categories.map((c) => c.hidden), [false], 'existing categories start visible')
   upgraded.setPinOrder('c1', 'u1', ['room-a'])
   assert.deepEqual(upgraded.layout('c1', 'u1').pinOrder, ['room-a'])
+  upgraded.recordFileVersions([{ scope: 'atlas', path: 'CLAUDE.md', at: '2026-10-18T00:00:00.000Z', content: 'x', baseline: true }])
+  assert.equal(upgraded.latestFileVersions().length, 1)
   upgraded.setBloubAvatar('c1', 'agent-a', { shape: 'cercle', color: 'encre', expression: 'neutre' })
   assert.deepEqual(Object.keys(upgraded.bloubAvatars('c1')), ['agent-a'])
+})
+
+test('file versions keep each file’s history, and `since` picks the base', async () => {
+  const file = join(dir, 'versions', 'fork.sqlite')
+  const store = await openForkStore(file)
+  const v = (scope: string, path: string, at: string, content: string | null, baseline = false) =>
+    ({ scope, path, at: `2026-10-18T${at}:00.000Z`, content, baseline })
+  store.recordFileVersions([
+    v('atlas', 'CLAUDE.md', '01:00', 'one', true),
+    v('atlas', 'memory/MEMORY.md', '01:00', 'index', true),
+    v('', 'git-lore/SKILL.md', '01:00', 'shared', true),
+    v('nova', 'CLAUDE.md', '01:00', 'other agent', true),
+  ])
+  store.recordFileVersions([
+    v('atlas', 'CLAUDE.md', '03:00', 'two'),
+    v('atlas', 'CLAUDE.md', '05:00', 'three'),
+    v('atlas', 'memory/MEMORY.md', '04:00', null),
+  ])
+
+  const at = (rows: Array<{ path: string; at: string; content: string | null }>) =>
+    rows.map((r) => `${r.path}@${r.at.slice(11, 16)}=${r.content}`)
+  // At 04:30 CLAUDE.md held "two" (its base), and only later versions follow.
+  assert.deepEqual(at(store.fileVersions(['atlas', ''], '2026-10-18T04:30:00.000Z')), [
+    'git-lore/SKILL.md@01:00=shared',
+    'CLAUDE.md@03:00=two',
+    'CLAUDE.md@05:00=three',
+    'memory/MEMORY.md@04:00=null',
+  ])
+  assert.equal(store.fileVersions(['atlas', ''], null).length, 6, 'no since: the whole history')
+  assert.deepEqual(store.fileVersions([], null), [])
+  assert.deepEqual(at(store.latestFileVersions().filter((r) => r.path !== 'git-lore/SKILL.md')).sort(), [
+    'CLAUDE.md@01:00=other agent',
+    'CLAUDE.md@05:00=three',
+    'memory/MEMORY.md@04:00=null',
+  ], 'the newest version of each file, a deletion included')
+  assert.deepEqual(store.fileScopes(), ['atlas', 'nova'], 'the shared folder is not an agent')
+
+  // A failed write records nothing, so the recorder can send it again.
+  mkdirSync(`${file}.tmp`)
+  assert.throws(() => store.recordFileVersions([v('atlas', 'CLAUDE.md', '06:00', 'four')]))
+  rmSync(`${file}.tmp`, { recursive: true })
+  const reopened = await openForkStore(file)
+  assert.deepEqual(at(reopened.fileVersions(['atlas'], '2026-10-18T05:30:00.000Z')), ['CLAUDE.md@05:00=three', 'memory/MEMORY.md@04:00=null'])
 })
 
 test('a bloub avatar is the agent look for the whole company', async () => {

@@ -54,7 +54,7 @@ function ChatHeader({ c, layout, panelOpen, onSearch, searching }: {
       if (layout === 'full') navigate(withRoute(r, { panel: 'none', peek: null, threadId: null }), { replace: true })
       else goBack(withRoute(r, { panel: null, peek: null, threadId: null }))
     } else {
-      navigate(withRoute(r, { panel: layout === 'full' ? null : 'activity' }), { replace: layout === 'full' })
+      navigate(withRoute(r, { panel: layout === 'full' ? null : 'handbook' }), { replace: layout === 'full' })
     }
   }, [panelOpen, layout])
   const openDetails = () => navigate(withRoute(getRoute(), { panel: 'details', peek: null, threadId: null }), { replace: layout === 'full' })
@@ -93,7 +93,7 @@ function ChatHeader({ c, layout, panelOpen, onSearch, searching }: {
         <IconButton label={nt('chat.search')} active={searching} tipPlace="below" onClick={onSearch}>
           <ISearch />
         </IconButton>
-        <IconButton label={nt('chat.panel')} active={panelOpen} tipPlace="below" onClick={togglePanel}>
+        <IconButton label={nt('panel.label')} active={panelOpen} tipPlace="below" onClick={togglePanel}>
           <IPanelRight />
         </IconButton>
       </div>

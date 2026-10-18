@@ -15,7 +15,7 @@ import { Avatar } from '../ui/Avatar'
 import { IconButton, Segmented, Spinner, T_FAST } from '../ui/primitives'
 import { IChevronLeft, IHash, IX } from '../ui/icons'
 import { useRoomAgents } from '../chat/ChatView'
-import { ActivityTab } from './ActivityTab'
+import { HandbookTab } from './HandbookTab'
 import { MembersTab } from './MembersTab'
 import { DetailsTab } from './DetailsTab'
 import { FilesTab } from './FilesTab'
@@ -74,7 +74,7 @@ function Identity({ c }: { c: Conversation }) {
   )
 }
 
-const TABS: PanelTab[] = ['activity', 'members', 'details', 'files', 'routines']
+const TABS: PanelTab[] = ['handbook', 'members', 'details', 'files', 'routines']
 
 export function RightPanel({ route, layout }: { route: Route; layout: Layout }) {
   const nt = useNT()
@@ -103,7 +103,7 @@ export function RightPanel({ route, layout }: { route: Route; layout: Layout }) 
     return <Classic layout={layout}>{pane}</Classic>
   }
 
-  const tab: PanelTab = route.panel && route.panel !== 'none' ? route.panel : 'activity'
+  const tab: PanelTab = route.panel && route.panel !== 'none' ? route.panel : 'handbook'
   const setTab = (t: PanelTab) => navigate(withRoute(getRoute(), { panel: t }), { replace: true })
 
   return (
@@ -133,7 +133,7 @@ export function RightPanel({ route, layout }: { route: Route; layout: Layout }) 
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.15 }}
           >
-            {tab === 'activity' && <ActivityTab c={c} />}
+            {tab === 'handbook' && <HandbookTab c={c} docked={layout === 'full'} />}
             {tab === 'members' && <MembersTab c={c} />}
             {tab === 'details' && <DetailsTab c={c} />}
             {tab === 'files' && <FilesTab c={c} />}

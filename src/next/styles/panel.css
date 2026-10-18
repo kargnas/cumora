@@ -1,4 +1,4 @@
-/* Next redesign: right panel (activity, members, details, files, routines). */
+/* Next redesign: right panel (handbook, members, details, files, routines). */
 
 .nx-panel {
   display: flex;
@@ -49,131 +49,279 @@
 .nx-panel__tab { display: flex; flex-direction: column; gap: 8px; }
 .nx-panel__tab .nx-group-label { padding: 8px 4px 0; }
 
-/* ── Activity ──────────────────────────────────────────────────────── */
-.nx-activity { display: flex; flex-direction: column; gap: 8px; }
-.nx-live {
-  display: flex;
-  gap: 12px;
-  padding: 12px;
-  border-radius: var(--radius-lg);
-  background: var(--card);
-  box-shadow: 0 0 0 1px color-mix(in oklch, var(--live) 35%, transparent), var(--shadow-card);
-}
-.nx-live__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.nx-live__top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.nx-live__top .nx-mono { font-size: var(--text-caption); color: var(--muted-foreground); }
+/* ── Handbook (also on the agent profile) ──────────────────────────── */
+.nx-hb { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 
-.nx-activity__skel { display: flex; flex-direction: column; gap: 8px; }
-.nx-activity__error {
-  padding: 8px 12px;
+.nx-agent-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.nx-agent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  height: 28px;
+  padding: 0 10px 0 4px;
   border: 0;
-  border-radius: var(--radius);
+  border-radius: 999px;
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--border);
+  font-size: var(--text-caption);
+  color: var(--muted-foreground);
+  transition: background-color var(--duration-quick), color var(--duration-quick);
+}
+.nx-agent-chip span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-agent-chip[aria-pressed="true"] { background: var(--selected); box-shadow: none; color: var(--primary); }
+@media (hover: hover) {
+  .nx-agent-chip:hover:not([aria-pressed="true"]) { background: var(--accent); color: var(--foreground); }
+}
+
+/* The range and the scrubber stay at the top of the scroller while the
+   document scrolls under them. The negative margin cancels the bar's own top
+   padding, so the tab's first line sits where every other tab's does. */
+.nx-hb-bar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: -8px;
+  padding: 8px 0;
+  background: var(--sidebar);
+}
+/* A sticky box stops at its scroller's content edge; the panel body's 12px
+   padding would leave a strip of the document showing above the bar. */
+.nx-panel__body .nx-hb-bar { top: -12px; }
+.nx-agents-detail .nx-hb-bar { background: var(--card); }
+.nx-hb-bar__top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.nx-hb-bar__label { font-size: var(--text-caption); color: var(--muted-foreground); white-space: nowrap; }
+.nx-hb-since svg { transition: transform var(--duration-fast) var(--ease-smooth-out); }
+.nx-hb-since[aria-expanded="true"] svg { transform: rotate(180deg); }
+.nx-hb-bar__count {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  font-size: var(--text-caption);
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.nx-hb-retry {
+  align-self: flex-start;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
   background: none;
   font-size: var(--text-caption);
   color: var(--destructive);
-  text-align: left;
 }
 @media (hover: hover) {
-  .nx-activity__error:hover { background: var(--accent); }
+  .nx-hb-retry:hover { background: var(--accent); }
 }
 
-/* One agent run: who, when, time and cost; then what it changed and what failed. */
-.nx-run {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
+.nx-hb-scrub { --nx-thumb: 16px; display: flex; align-items: center; gap: 12px; }
+.nx-hb-scrub__track { position: relative; flex: 1; min-width: 0; display: grid; align-items: center; }
+/* Drawn under the input, inset by half a thumb so each mark sits under the
+   thumb's centre at its stop. */
+.nx-hb-scrub__rail {
+  position: absolute;
+  left: calc(var(--nx-thumb) / 2);
+  right: calc(var(--nx-thumb) / 2);
+  top: 50%;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 999px;
+  background: var(--muted);
+  pointer-events: none;
+}
+.nx-hb-scrub__fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: color-mix(in oklch, var(--primary) 35%, transparent);
+  transform-origin: left center;
+}
+.nx-hb-scrub__rail i {
+  position: absolute;
+  top: -2px;
+  width: 2px;
+  height: 8px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: color-mix(in oklch, var(--muted-foreground) 50%, transparent);
+}
+.nx-hb-scrub__rail i[data-on] { background: var(--primary); }
+.nx-hb-scrub__input {
+  position: relative;
+  width: 100%;
+  height: 28px;
+  margin: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+}
+/* The thumb carries the focus ring instead of the whole input. */
+html.nx .nx-hb-scrub__input:focus-visible { outline: none; }
+.nx-hb-scrub__input::-webkit-slider-runnable-track { height: 4px; background: transparent; }
+.nx-hb-scrub__input::-moz-range-track { height: 4px; background: transparent; }
+.nx-hb-scrub__input::-webkit-slider-thumb {
+  width: var(--nx-thumb);
+  height: var(--nx-thumb);
+  margin-top: calc(2px - var(--nx-thumb) / 2);
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--input), var(--shadow-card);
+  -webkit-appearance: none;
+}
+.nx-hb-scrub__input::-moz-range-thumb {
+  width: var(--nx-thumb);
+  height: var(--nx-thumb);
+  border: 0;
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--input), var(--shadow-card);
+}
+.nx-hb-scrub__input:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 2px var(--ring); }
+.nx-hb-scrub__input:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 2px var(--ring); }
+.nx-hb-scrub__label {
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-caption);
+  color: var(--muted-foreground);
+}
+
+/* The document card is react-virtuoso's list element, so its surface spans
+   every row, rendered or not. Only padding the list does not set itself. */
+.nx-hb-doc {
+  padding-inline: 12px;
   border-radius: var(--radius);
   background: var(--card);
-  box-shadow: 0 0 0 1px var(--border);
+  box-shadow: 0 0 0 1px var(--border), var(--shadow-card);
+  transition: opacity var(--duration-fast) var(--ease-smooth-out);
 }
-.nx-run[data-enter] { animation: nx-rise var(--duration-slow) var(--ease-smooth-out) both; }
-.nx-run__head { display: flex; align-items: center; gap: 8px; }
-.nx-run__glyph { display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 999px; background: var(--muted); color: var(--muted-foreground); }
-.nx-run__glyph svg { width: 14px; height: 14px; }
-.nx-run__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.nx-run__top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.nx-run__top b { min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nx-run__top .nx-mono { flex: none; font-size: var(--text-caption); color: var(--muted-foreground); }
-.nx-run__sub { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--text-micro); color: var(--muted-foreground); }
-.nx-run__state { font-weight: 500; }
-.nx-run[data-status="running"] .nx-run__state { color: var(--live); }
-.nx-run[data-status="failed"] .nx-run__state,
-.nx-run[data-status="stalled"] .nx-run__state { color: var(--destructive); }
-.nx-run__model { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nx-run__note { margin: 0; font-size: var(--text-caption); color: var(--muted-foreground); }
-.nx-run__part { display: flex; flex-direction: column; gap: 4px; }
-.nx-run__label { margin: 0; font-size: var(--text-caption); font-weight: 500; color: var(--muted-foreground); }
-/* The items' own 4px padding is pulled back so their icons line up with the card edge. */
-.nx-run__list { margin: 0 -4px; padding: 0; list-style: none; display: flex; flex-direction: column; }
-.nx-run__item {
+.nx-hb[data-stale] .nx-hb-doc { opacity: 0.6; }
+.nx-hb-doc--skel { display: flex; flex-direction: column; gap: 8px; padding: 12px; }
+.nx-hb-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 16px 0 4px;
+  font-size: var(--text-title);
+  font-weight: 600;
+}
+.nx-hb-section svg { flex: none; width: 16px; height: 16px; color: var(--muted-foreground); }
+.nx-hb-file { display: flex; align-items: center; gap: 4px; min-width: 0; padding: 12px 0 4px; }
+.nx-hb-file__path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-micro);
+  color: var(--muted-foreground);
+}
+.nx-hb-file .nx-chip { flex: none; }
+.nx-hb-file .nx-chip[data-tone="ins"] { color: var(--live); background: color-mix(in oklch, var(--live) 14%, transparent); }
+.nx-hb-file .nx-chip[data-tone="del"] { color: var(--destructive); background: color-mix(in oklch, var(--destructive) 10%, transparent); }
+.nx-hb-file--fold {
+  width: 100%;
+  gap: 8px;
+  padding: 8px 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.nx-hb-file--fold:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.nx-hb-file--fold svg { flex: none; width: 14px; height: 14px; color: var(--muted-foreground); transform: rotate(-90deg); transition: transform var(--duration-fast) var(--ease-smooth-out); }
+.nx-hb-file--fold[aria-expanded="true"] svg { transform: none; }
+.nx-hb-file__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-body); }
+@media (hover: hover) { .nx-hb-file--fold:hover { background: var(--accent); } }
+@media (pointer: coarse) { .nx-hb-file--fold { min-height: 44px; } }
+.nx-hb-end { height: 12px; }
+
+/* Lines read as written, lightly styled; the left gutter holds change numbers. */
+.nx-hb-lines { font-size: var(--text-body); line-height: 20px; overflow-wrap: anywhere; }
+.nx-hb-line { min-height: 20px; padding-left: 28px; white-space: pre-wrap; }
+.nx-hb-line--li { display: flex; }
+.nx-hb-line__mark { flex: none; white-space: pre; }
+.nx-hb-line--li > :last-child { min-width: 0; }
+.nx-hb-line[data-s="h1"] { font-size: var(--text-title); font-weight: 600; }
+.nx-hb-line[data-s="h2"],
+.nx-hb-line[data-s="h3"] { font-weight: 600; }
+.nx-hb-line[data-s="quote"],
+.nx-hb-line[data-s="meta"] { color: var(--muted-foreground); }
+.nx-hb-line[data-s="code"],
+.nx-hb-line[data-s="meta"] { font-family: var(--font-mono); font-size: var(--text-caption); }
+
+/* Tracked changes: removed text struck through in red, added text on a
+   green tint, a whole added line tinted across the text column. */
+.nx-hb-line del { color: var(--destructive); text-decoration: line-through; }
+.nx-hb-line ins { border-radius: 2px; background: color-mix(in oklch, var(--live) 24%, transparent); text-decoration: none; }
+.nx-hb-line[data-op="ins"] { background: color-mix(in oklch, var(--live) 14%, transparent); background-clip: content-box; }
+.nx-hb-line[data-op="ins"] ins { background: none; }
+.nx-hb-change { position: relative; padding: 4px 0; }
+.nx-hb-badge {
+  position: absolute;
+  top: 6px;
+  left: 0;
+  min-width: 20px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: var(--text-micro);
+  line-height: 16px;
+  text-align: center;
+}
+.nx-hb-note {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  width: 100%;
-  padding: 4px;
+  width: calc(100% - 28px);
+  margin: 4px 0 0 28px;
+  padding: 8px;
   border: 0;
   border-radius: var(--radius-sm);
-  background: none;
-  color: var(--foreground);
+  background: var(--muted);
   font-size: var(--text-caption);
+  line-height: 16px;
+  color: var(--muted-foreground);
   text-align: left;
 }
-.nx-run__item svg { flex: none; width: 14px; height: 14px; margin-top: 2px; color: var(--muted-foreground); }
-.nx-run__item--bad svg { color: var(--destructive); }
+button.nx-hb-note { transition: background-color var(--duration-quick); }
 @media (hover: hover) {
-  button.nx-run__item:hover { background: var(--accent); }
+  button.nx-hb-note:hover { background: color-mix(in oklch, var(--foreground) 8%, transparent); }
 }
-.nx-run__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
-.nx-run__detail {
-  color: var(--muted-foreground);
+.nx-hb-note__n { flex: none; min-width: 16px; font-size: var(--text-micro); color: var(--primary); text-align: center; }
+.nx-hb-note .nx-avatar { flex: none; }
+.nx-hb-note__text {
+  flex: 1;
+  min-width: 0;
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  overflow-wrap: anywhere;
 }
-.nx-run__count { flex: none; color: var(--muted-foreground); }
-.nx-run__toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  align-self: flex-start;
-  margin: 0 -4px;
-  padding: 4px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: none;
-  font-size: var(--text-caption);
-  color: var(--muted-foreground);
-}
-@media (hover: hover) {
-  .nx-run__toggle:hover { background: var(--accent); color: var(--foreground); }
-}
-.nx-run__toggle svg { width: 14px; height: 14px; transition: transform var(--duration-fast) var(--ease-smooth-out); }
-.nx-run__toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
-@media (pointer: coarse) {
-  button.nx-run__item,
-  .nx-run__toggle { min-height: 44px; align-items: center; }
-}
+.nx-hb-note__text b { font-weight: 500; color: var(--foreground); }
+.nx-hb-note__text time { font-size: var(--text-micro); }
 
-.nx-steps {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  animation: nx-rise var(--duration-medium) var(--ease-smooth-out) both;
+@media (pointer: coarse) {
+  .nx-agent-chip { height: 44px; padding: 0 16px 0 8px; font-size: var(--text-body); }
+  .nx-hb-since.nx-btn--sm { height: 44px; }
+  .nx-hb-scrub { --nx-thumb: 24px; }
+  .nx-hb-scrub__input { height: 44px; }
+  .nx-hb-retry { min-height: 44px; }
+  button.nx-hb-note { min-height: 44px; align-items: center; }
 }
-.nx-step { display: flex; align-items: flex-start; gap: 8px; font-size: var(--text-caption); }
-.nx-step__icon { display: grid; place-items: center; flex: none; width: 14px; height: 18px; color: var(--live); }
-.nx-step__icon svg { width: 14px; height: 14px; }
-.nx-step[data-state="failed"] .nx-step__icon { color: var(--destructive); }
-.nx-step[data-state="running"] .nx-step__icon { color: var(--muted-foreground); }
-.nx-step__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.nx-step__detail { font-size: var(--text-micro); color: var(--muted-foreground); overflow-wrap: anywhere; }
-.nx-step__time { flex: none; font-size: var(--text-micro); line-height: 18px; color: var(--muted-foreground); }
-.nx-step__more { font-size: var(--text-micro); color: var(--muted-foreground); }
 
 /* ── People ────────────────────────────────────────────────────────── */
 .nx-people { display: flex; flex-direction: column; gap: 2px; }
@@ -222,6 +370,22 @@
 .nx-row__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .nx-row__hint { font-size: var(--text-caption); color: var(--muted-foreground); }
 .nx-details__actions { display: flex; flex-direction: column; gap: 8px; }
+/* "This room" and the agent are two cards, because an agent's settings follow
+   it into every room while the room's stay here. */
+.nx-details__group { display: flex; flex-direction: column; gap: 12px; padding: 12px; border-radius: var(--radius-lg); background: var(--card); box-shadow: 0 0 0 1px var(--border), var(--shadow-card); }
+.nx-details__group .nx-rows { background: none; box-shadow: none; border-radius: 0; }
+.nx-details__group .nx-row { padding: 0; }
+.nx-details__head { display: flex; align-items: center; gap: 8px; margin: 0; font-size: var(--text-title); font-weight: 600; }
+.nx-details__head > svg { width: 16px; height: 16px; color: var(--muted-foreground); }
+.nx-details__scope { margin: -8px 0 0; font-size: var(--text-caption); color: var(--muted-foreground); }
+.nx-field__saved { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; font-size: var(--text-micro); color: var(--live); animation: nx-rise var(--duration-fast) var(--ease-smooth-out) both; }
+.nx-field__saved svg { width: 12px; height: 12px; }
+.nx-details textarea.nx-input { resize: vertical; }
+.nx-row--link { color: inherit; text-decoration: none; cursor: pointer; border-radius: var(--radius-sm); }
+.nx-row--link:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.nx-row--link > svg { width: 16px; height: 16px; flex: none; color: var(--muted-foreground); }
+.nx-row__value { max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-caption); color: var(--muted-foreground); }
+@media (hover: hover) { .nx-row--link:hover .nx-row__text { color: var(--primary); } }
 
 /* ── Files ─────────────────────────────────────────────────────────── */
 .nx-files { display: flex; flex-direction: column; gap: 8px; }
