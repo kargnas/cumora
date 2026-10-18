@@ -11,9 +11,14 @@
  * skill or a long memory file still runs to thousands of lines, so it renders
  * through react-virtuoso against the page's own scroller, as rows that keep
  * their identity while a file does not change.
+ *
+ * Even so the agent's own instructions alone outrun a phone screen and buried
+ * the changes, so the full text starts folded. Above it sit a map of the whole
+ * document and an excerpt of every change (./handbookMap.ts); a press on
+ * either opens the full text at that row.
  */
-import { createContext, forwardRef, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { Virtuoso, type ListProps } from 'react-virtuoso'
+import { createContext, forwardRef, Fragment, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { Virtuoso, type ListProps, type VirtuosoHandle } from 'react-virtuoso'
 import { useApp } from '@/stores/app'
 import { useMe } from '@/stores/auth'
 import { useParticipants } from '@/stores/participants'
@@ -24,13 +29,14 @@ import { dateTime } from '../format'
 import { getRoute, href, navigate, useRoute, withRoute } from '../router'
 import { Avatar } from '../ui/Avatar'
 import { Menu, Spinner, useMenu } from '../ui/primitives'
-import { ICheck, IChevronDown, IDoc, ILibrary, ISpark } from '../ui/icons'
+import { ICheck, IChevronDown, IChevronRight, IDoc, ILibrary, ISpark } from '../ui/icons'
 import { useRoomAgents } from '../chat/ChatView'
 import { AgentChips, usePickedAgent } from './AgentChips'
 import {
   parseSince, SINCES, sinceTime, useHandbook,
   type ChangedLine, type HandbookChange, type HandbookFile, type ReadyHandbook, type SectionKey, type Seg, type Since,
 } from './handbook'
+import { excerptsOf, mapOf, type Excerpt, type MapColumn } from './handbookMap'
 
 /* ── Rows ───────────────────────────────────────────────────────────── */
 
@@ -286,6 +292,87 @@ const DocList = forwardRef<HTMLDivElement, ListProps>(function DocList({ style, 
 })
 const COMPONENTS = { List: DocList }
 
+/* ── Map and excerpts ───────────────────────────────────────────────── */
+
+// An excerpt shows this many lines; the full text has the rest.
+const EXCERPT_LINES = 6
+// ponytail: only the newest excerpts render, as plain DOM; virtualize them
+// if the older ones ever need reading here rather than in the full text.
+const EXCERPTS = 20
+
+/** A press on a column reads from the line under the pointer; a keyboard
+ *  press, which has no pointer position, from the top. */
+const HandbookMap = memo(function HandbookMap({ columns, onPick }: { columns: MapColumn[]; onPick: (row: number) => void }) {
+  const nt = useNT()
+  return (
+    <div className="nx-hb-map">
+      <div className="nx-hb-map__cols">
+        {columns.map((c) => {
+          const name = nt(`handbook.section.${c.section}`)
+          return (
+            <button
+              key={c.section}
+              type="button"
+              className="nx-hb-map__col"
+              aria-label={nt('handbook.readSection', { section: name })}
+              onClick={(e) => {
+                const box = e.detail ? e.currentTarget.lastElementChild?.getBoundingClientRect() : undefined
+                const i = box ? Math.min(Math.max(Math.floor(((e.clientY - box.top) / box.height) * c.bars.length), 0), c.bars.length - 1) : -1
+                onPick(c.bars[i]?.row ?? c.row)
+              }}
+            >
+              <span className="nx-hb-map__label">
+                <span className="nx-hb-map__name">{name}</span>
+                {c.changes.slice(0, 2).map((n) => <span key={n} className="nx-hb-badge nx-mono">{n}</span>)}
+                {c.changes.length > 2 && <span className="nx-mono">+{c.changes.length - 2}</span>}
+              </span>
+              <span className="nx-hb-map__bars" aria-hidden>
+                {c.bars.map((b, i) => <i key={i} data-mark={b.mark ?? undefined} style={{ width: `${b.width}%` }} />)}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+      <p className="nx-hb-map__hint">{nt('handbook.mapHint')}</p>
+    </div>
+  )
+})
+
+type ChangeRow = Extract<Row, { kind: 'change' }>
+
+/** A change as it reads in the full text, cut to its first lines. */
+const ExcerptView = memo(function ExcerptView({ ex, rows, onOpen }: { ex: Excerpt; rows: Row[]; onOpen: (row: number) => void }) {
+  const nt = useNT()
+  // `gap`: the same change also touched another place in the file.
+  const lines = ex.rows.flatMap((r, i) => {
+    const h = rows[r] as ChangeRow
+    return h.lines.map((line, j) => ({ line, s: h.styles[j], gap: i > 0 && j === 0 }))
+  })
+  const open = () => onOpen(ex.rows[0])
+  return (
+    <div className="nx-hb-ex__item">
+      <button type="button" className="nx-hb-file nx-hb-ex__head" onClick={open} title={nt('handbook.showInText')}>
+        <span className="nx-hb-badge nx-mono">{ex.n}</span>
+        <span className="nx-hb-file__path nx-mono">{ex.file.path}</span>
+        <span className="nx-hb-ex__at nx-mono">{nt('handbook.atLine', { n: ex.line })}</span>
+        <IChevronRight aria-hidden />
+      </button>
+      <div className="nx-hb-lines">
+        {lines.slice(0, EXCERPT_LINES).map((x, k) => (
+          <Fragment key={k}>
+            {x.gap && <div className="nx-hb-ex__gap" aria-hidden>⋯</div>}
+            <Changed line={x.line} s={x.s} />
+          </Fragment>
+        ))}
+      </div>
+      {lines.length > EXCERPT_LINES && (
+        <button type="button" className="nx-hb-ex__more" onClick={open}>{nt('handbook.allLines', { n: lines.length })}</button>
+      )}
+      <Note n={ex.n} />
+    </div>
+  )
+})
+
 /* ── Toolbar ────────────────────────────────────────────────────────── */
 
 function SinceMenu({ since }: { since: Since }) {
@@ -431,12 +518,28 @@ function Document({ data, agentId, since, at, stale, failed, retry, docked }: {
   const root = useCallback((el: HTMLDivElement | null) => {
     if (el) setScroller(el.closest<HTMLElement>('.nx-scroll'))
   }, [])
+  const map = useMemo(() => mapOf(rows), [rows])
+  const excerpts = useMemo(() => excerptsOf(rows), [rows])
+  const [full, setFull] = useState(false)
+  const [target, setTarget] = useState<{ row: number; top: number } | null>(null)
+  const list = useRef<VirtuosoHandle>(null)
+  const bar = useRef<HTMLDivElement>(null)
+  const show = useCallback((row: number) => {
+    setFull(true)
+    // The sticky bar covers the top of the scroller, so the row lands under
+    // it. A new object each time, so pressing the same spot scrolls again.
+    setTarget({ row, top: bar.current?.offsetHeight ?? 0 })
+  }, [])
+  // Runs after the commit that mounts the list when the full text was folded.
+  useEffect(() => {
+    if (target) list.current?.scrollToIndex({ index: target.row, align: 'start', offset: -target.top })
+  }, [target])
 
   // An agent with no files on the computer has nothing to compare either.
   if (rows.length === 0 && data.changes.length === 0) return <div className="nx-empty">{nt('handbook.empty', { name })}</div>
   return (
     <div ref={root} className="nx-hb" data-stale={stale || undefined}>
-      <div className="nx-hb-bar">
+      <div ref={bar} className="nx-hb-bar">
         <div className="nx-hb-bar__top">
           <span className="nx-hb-bar__label">{nt('handbook.since')}</span>
           <SinceMenu since={since} />
@@ -452,8 +555,20 @@ function Document({ data, agentId, since, at, stale, failed, retry, docked }: {
         <div className="nx-empty">{nt('handbook.empty', { name })}</div>
       ) : scroller && (
         <DocContext.Provider value={ctx}>
-          <FoldContext.Provider value={toggle}>
+          <HandbookMap columns={map} onPick={show} />
+          {excerpts.length > 0 && (
+            <div className="nx-hb-ex">
+              {excerpts.slice(0, EXCERPTS).map((ex) => <ExcerptView key={ex.n} ex={ex} rows={rows} onOpen={show} />)}
+              {excerpts.length > EXCERPTS && <p className="nx-hb-ex__older">{nt('handbook.olderChanges', { n: excerpts.length - EXCERPTS })}</p>}
+            </div>
+          )}
+          <button type="button" className="nx-hb-file nx-hb-file--fold" aria-expanded={full} onClick={() => setFull((f) => !f)}>
+            <IChevronDown aria-hidden />
+            <span className="nx-hb-file__name">{nt('handbook.fullText')}</span>
+          </button>
+          {full && <FoldContext.Provider value={toggle}>
             <Virtuoso
+              ref={list}
               customScrollParent={scroller}
               data={rows}
               computeItemKey={(_, r) => r.key}
@@ -461,7 +576,7 @@ function Document({ data, agentId, since, at, stale, failed, retry, docked }: {
               components={COMPONENTS}
               increaseViewportBy={{ top: 400, bottom: 800 }}
             />
-          </FoldContext.Provider>
+          </FoldContext.Provider>}
         </DocContext.Provider>
       )}
     </div>

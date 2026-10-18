@@ -18,6 +18,12 @@ A second UI for cumora, served at `/next` on the same origin. `App.tsx` mounts `
 
 The room panel's first tab, and the Handbook view of an agent's profile, show one agent's standing files as one document: its `CLAUDE.md` or `AGENTS.md`, its memory (`memory/**/*.md`, `MEMORY.md` first), its own skills (`.claude/skills/*/SKILL.md`) and the skills every agent on the computer shares. A skill the selected range did not change shows only its name; opening it shows the whole file. In a room with several agents, the chips at the top pick one (`?agent=`).
 
+The tab opens on the changes, not on the document, whose instructions alone outrun a phone screen:
+
+- **The map** draws the whole document as short bars, one column per section and one bar per line (a long section merges neighbouring lines, keeping a change's colour), with each changed line in its colour: green added, red removed, the primary colour rewritten.
+- **Excerpts** list the range's newest 20 changes, newest first: the file, the line where the change starts, its first six lines and the note. Older ones are marked only in the full text.
+- **Full text** is folded. Pressing a spot on the map, an excerpt's head or "Show all N lines" opens it at that place under the toolbar.
+
 - **Changes since** Today (midnight in your time zone), 7 days, 30 days or All time (`?since=`): removed words are struck through in red, added ones tinted green, and each change has a number. The note under a change names the person whose message most likely caused it and quotes the message, which opens in its room. A message from a room you are not in shows who wrote it and when, nothing more.
 - **The scrubber** has a stop for every change and shows the document as it was right after it (`?at=`). Its far end is now, which keeps up with new changes.
 - **Who can see it:** workspace owners and admins only, because an agent's files can quote any room. Text is redacted for tokens, keys and passwords.
