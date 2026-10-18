@@ -25,8 +25,7 @@ const ProjectRow = memo(function ProjectRow({ p, sep, onArchive }: { p: ApiProje
           {count(nt, p.conversationCount, 'me.projects.roomOne', 'me.projects.rooms')}
         </span>
       </span>
-      {/* Archiving is optimistic (the row moves at once), so a tap, not success. */}
-      <button type="button" className="nx-btn nx-btn--outline nx-btn--sm" onClick={() => { haptic('tap'); onArchive(p) }}>
+      <button type="button" className="nx-btn nx-btn--outline nx-btn--sm" onClick={() => onArchive(p)}>
         {nt(archived ? 'me.projects.restore' : 'me.projects.archive')}
       </button>
     </div>
@@ -124,7 +123,7 @@ export function ProjectsPage({ route }: { route: Route }) {
             type="button"
             className="nx-btn nx-btn--outline"
             aria-pressed={showArchived}
-            onClick={() => { haptic('select'); setParams(route, { archived: showArchived ? null : '1' }) }}
+            onClick={() => setParams(route, { archived: showArchived ? null : '1' })}
           >
             {nt(showArchived ? 'me.projects.hideArchived' : 'me.projects.showArchived', { n: archivedCount })}
           </button>

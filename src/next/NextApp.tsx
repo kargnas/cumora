@@ -11,7 +11,7 @@ import { EmailComposer } from '@/components/EmailComposer'
 import { isElectron } from '@/lib/runtime'
 import { useAppearanceStore, type Appearance } from '@/lib/theme'
 import { initPushNotifications } from '@/lib/push'
-import { haptic } from './haptics'
+import { bindPressHaptics } from './haptics'
 import { useNativeChrome, useNextDocument } from './document'
 import { bindLegacyWrites, goBack, href, linkClick, navigate, projectRoute, useRoute, type Route, type Section } from './router'
 import { useLayout, type Layout } from './layout'
@@ -188,7 +188,7 @@ function TabBar({ route }: { route: Route }) {
     <a
       key={section}
       href={href({ section })}
-      onClick={(e) => { if (route.section !== section) haptic('select'); linkClick(e, { replace: true }) }}
+      onClick={(e) => linkClick(e, { replace: true })}
       className="nx-tabbar__item"
       aria-current={route.section === section ? 'page' : undefined}
     >
@@ -265,6 +265,7 @@ export default function NextApp() {
   const stack = layout === 'stack'
 
   useEffect(() => bindLegacyWrites(), [])
+  useEffect(() => bindPressHaptics(), [])
   useEffect(() => { projectRoute(route, stack) }, [route, stack])
   useHardwareBack(route, layout)
   // The classic mobile shell owned push registration (APNs/FCM); this shell

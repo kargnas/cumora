@@ -353,8 +353,7 @@ export function Choices<K extends string>({ label, items, value, onChange }: {
           role="radio"
           aria-checked={it.key === value}
           className="nx-me-row nx-me-choice"
-          // A radio group like Segmented: only a new pick is a change.
-          onClick={() => { if (it.key !== value) haptic('select'); onChange(it.key) }}
+          onClick={() => onChange(it.key)}
         >
           {it.icon && <span className="nx-me-choice__icon">{it.icon}</span>}
           <span className="nx-me-row__text">
@@ -417,7 +416,7 @@ export function CopyCode({ value }: { value: string }) {
         aria-live="polite"
         onClick={() => {
           copyText(value).then(
-            () => { haptic('success'); setState('copied') },
+            () => setState('copied'),
             () => { haptic('error'); setState('failed') },
           )
         }}

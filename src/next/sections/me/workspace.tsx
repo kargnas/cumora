@@ -177,7 +177,7 @@ function CopyRef({ id }: { id: string }) {
       title={nt('me.invite.copyRefHint')}
       onClick={() => {
         copyText(id).then(
-          () => { haptic('success'); setCopied(true) },
+          () => setCopied(true),
           (e) => { haptic('error'); console.warn('[me] copy failed', e) },
         )
       }}

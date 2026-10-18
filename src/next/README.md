@@ -26,7 +26,7 @@ The data comes from `GET /api/fork/rooms/:conversationId/activity` (`server/src/
 
 ## Haptics
 
-In the phone app, a touch that changes something (switching a tab, picking from a menu, a long press, sending, dropping a card, a save that finished or failed) answers with a haptic. Android plays the system's own effects, so the phone's touch-feedback setting turns them off. The web and the desktop app have none.
+In the phone app every button, link, row, tab and menu item answers the finger like a physical button: a click when the finger lands, a lighter tick when it lifts and the tap goes through, and a deeper click when a press becomes a long press or lifts a card. Starting a scroll plays nothing. A save the user waited on ends with a success or error haptic. Android plays the system's own effects, so the phone's touch-feedback setting turns them off. The web and the desktop app have none.
 
 ## Local verification
 

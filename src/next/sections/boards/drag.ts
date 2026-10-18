@@ -259,7 +259,7 @@ export function useCardDrag(
       swallowNextClick()
       // On the finger's lift, not after the settle animation, so the tick
       // matches the moment the card is let go.
-      if (gs.touch && (shown.to !== gs.from || shown.index !== gs.origin)) haptic('tap')
+      if (gs.touch && (shown.to !== gs.from || shown.index !== gs.origin)) haptic('release')
       settle(() => {
         const v = shown
         // Same tick as finish(): the moved card mounts exactly where the

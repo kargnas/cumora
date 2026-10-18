@@ -143,7 +143,7 @@ function Email({ email }: { email: string }) {
             type="button"
             className="nx-btn nx-btn--sm"
             onClick={() => navigator.clipboard.writeText(email).then(
-              () => { haptic('success'); setCopied(true) },
+              () => setCopied(true),
               (e) => { haptic('error'); console.warn('[next] copy failed', e) },
             )}
           >

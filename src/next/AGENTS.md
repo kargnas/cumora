@@ -27,19 +27,21 @@ An action that exists on one screen needs a way to do it on the others (a mouse 
 
 ## Haptics
 
-The phone app answers the finger with haptics the way a native app does. Use `haptic(kind)` from `haptics.ts`, never `@capacitor/haptics` or the classic helpers in `lib/native.ts`. On Android it plays the system's own effects through `NxHapticsPlugin` (`android/app/src/main/java/io/cumora/app/`), which follow the user's touch-feedback setting; `@capacitor/haptics` would play fixed vibration waveforms that feel like a buzz. On the web and in the desktop app it does nothing.
+The phone app answers the finger the way a physical button does: a click when the finger lands on something pressable, a lighter tick when it lifts and the tap goes through, and a deeper one when the press turns into a hold. Use `haptic(kind)` from `haptics.ts`, never `@capacitor/haptics` or the classic helpers in `lib/native.ts`. On Android it plays the system's own effects through `NxHapticsPlugin` (`android/app/src/main/java/io/cumora/app/`), which follow the user's touch-feedback setting; `@capacitor/haptics` would play fixed vibration waveforms that feel like a buzz. On the web and in the desktop app it does nothing.
 
-| Kind | When |
-| --- | --- |
-| `select` | The finger changed what is chosen: a tab, a segment, a switch, a menu item, a reaction, a collapsed group, a picked day. |
-| `tap` | The finger committed a light action that shows at once: sending, dropping a card in a new place, a rename. |
-| `hold` | A press turned into a hold: a long-press menu, a drag lift. |
-| `success` / `error` | An action the user waited on (its button shows busy) or a copy to the clipboard finished or failed. |
+| Kind | When | Android |
+| --- | --- | --- |
+| `press` | A finger lands on something pressable. Only the touch layer fires it. | `GESTURE_START` |
+| `release` | The finger lifts into a click, or lets go of a dragged card. | `GESTURE_END` |
+| `hold` | A press turned into a hold: a long-press menu, a drag lift. | `LONG_PRESS` |
+| `success` / `error` | An action the user waited on (its button shows busy) finished or failed; `error` also for a failed copy. | `CONFIRM` / `REJECT` |
 
-- No haptic for navigation, opening or closing a sheet, dialog or menu, scrolling, typing, hover, or anything that happens without a touch (store updates, WebSocket events, timers). A background failure the user did not just cause stays silent.
-- One haptic per interaction. An action that waits for the server fires only its outcome, not `tap` at the press as well. An action picked from a `Menu` already got `select` from the menu, so the action's function adds nothing.
-- Fire it at the interaction, in the same handler as the visual change, not inside a shared action, a store or an effect. The primitives already do it: `Segmented` and `Switch` fire `select` on change, `Menu` on every item, `useHold` fires `hold`.
-- When unsure, leave it out: a haptic on every tap stops meaning anything.
+- The touch layer (`bindPressHaptics`, bound once in `NextApp`) plays `press` and `release` for every touch on a link, a button, an element whose role acts like one (tab, switch, option, menu item, checkbox, radio) and a label that presses such a control. A new `<button>` or link gets them without wiring, and a component never fires them for its own taps.
+- Inside a scroller a touch becomes a press only after it holds still for 100 ms (Android's tap timeout), so starting a scroll on a row plays nothing; a quicker tap plays both at the lift. Moving more than 8 px, a `pointercancel` or a `hold` ends the touch without a release, and a lift that produces no click (a tap that stopped a fling) plays no release either.
+- Nothing vibrates while a finger rests on a press: a vibration that runs on feels like a buzz, not a button, so a hold plays only its one `hold`.
+- A region whose classic component plays its own haptics carries `data-own-haptics` (the classic calendar in Library), so its taps do not play twice.
+- No haptic for scrolling, typing, hover, a tap on a scrim or outside a sheet, or anything that happens without a touch (store updates, WebSocket events, timers). A background failure the user did not just cause stays silent.
+- Fire `hold`, `success` and `error` at the interaction, in the same handler as the visual change, not inside a shared action, a store or an effect. `useHold` fires `hold`. An outcome that lands together with the release (a copy that worked) adds nothing.
 
 ## Isolation
 

@@ -17,7 +17,6 @@ import { RichInput, type RichInputHandle } from '@/components/RichInput'
 import { PollComposer } from '@/components/PollComposer'
 import { isImeComposing } from '@/lib/keyboard'
 import type { Participant } from '@/types'
-import { haptic } from '../haptics'
 import { useNT } from '../i18n'
 import { Avatar } from '../ui/Avatar'
 import { IconButton, Kbd, Menu, Spinner, T_QUICK, useCoarse, useMenu } from '../ui/primitives'
@@ -161,7 +160,6 @@ export function Composer({ convoId, threadRootId = null }: {
     const text = draft.text.trim()
     if (text === '/poll' && !isThread) { openPoll(); return }
     if (!canSend || uploading) return
-    haptic('tap')
     finishTyping()
     void sendUserMessage(convoId, text, draft.attachment, isThread ? threadRootId : replyingId)
     setDraft(() => EMPTY_DRAFT)

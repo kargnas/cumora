@@ -17,7 +17,6 @@ import { useMessages } from '@/stores/messages'
 import { useParticipants } from '@/stores/participants'
 import { useLocale } from '@/lib/i18n'
 import type { Conversation, Participant } from '@/types'
-import { haptic } from '../haptics'
 import { useNT } from '../i18n'
 import { clock, duration, elapsed, listStamp } from '../format'
 import { useNow } from '../hooks'
@@ -205,7 +204,7 @@ const RunCard = memo(function RunCard({ run }: { run: ActivityRun }) {
             type="button"
             className="nx-run__toggle"
             aria-expanded={stepsOpen}
-            onClick={() => { haptic('select'); setStepsOpen((v) => !v) }}
+            onClick={() => setStepsOpen((v) => !v)}
           >
             <IChevronDown aria-hidden />
             {stepsOpen ? nt('activity.hideSteps') : nt('activity.showSteps', { n: run.stepCount })}
