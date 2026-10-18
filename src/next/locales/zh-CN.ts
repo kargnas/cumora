@@ -223,6 +223,7 @@ export const zhCN: Partial<Record<keyof typeof en, string>> = {
   'details.agentRole': '角色',
   'details.agentBio': '简介',
   'details.agentStyle': '风格',
+  'details.agentStyleRequired': '智能体需要一种风格。',
   'details.agentMore': '模型、计算机和头像',
 
   'files.none': '这个对话里还没有文件或文档。',

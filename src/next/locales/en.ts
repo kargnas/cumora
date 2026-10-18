@@ -213,6 +213,7 @@ const core = {
   'details.agentRole': 'Role',
   'details.agentBio': 'Bio',
   'details.agentStyle': 'Style',
+  'details.agentStyleRequired': 'An agent needs a style.',
   'details.agentMore': 'Model, computer and avatar',
 
   'files.none': 'No files or documents in this conversation yet.',
