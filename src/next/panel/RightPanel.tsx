@@ -1,15 +1,16 @@
 /**
- * Right panel of a conversation. Thread and artifact peeks reuse the classic
- * panes (they read the useApp fields that the router projects from the URL);
- * the tabs are the redesign's own. The header identity follows whichever
- * agent is working in the room, so a glance says who is busy right now.
+ * Right panel of a conversation. Agent, document and board peeks reuse the
+ * classic panes (they read the useApp fields that the router projects from
+ * the URL); an event peek is the Calendar section's own detail, and the tabs
+ * are the redesign's own. The header identity follows whichever agent is
+ * working in the room, so a glance says who is busy right now.
  */
 import { lazy, Suspense, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useConversations } from '@/stores/conversations'
 import type { Conversation } from '@/types'
 import { useNT } from '../i18n'
-import { getRoute, goBack, navigate, withRoute, type PanelTab, type Route } from '../router'
+import { getRoute, goBack, href, navigate, withRoute, type PanelTab, type Route } from '../router'
 import type { Layout } from '../layout'
 import { Avatar } from '../ui/Avatar'
 import { IconButton, Segmented, Spinner, T_FAST } from '../ui/primitives'
@@ -25,7 +26,7 @@ import { ThreadView } from './ThreadView'
 const InfoPane = lazy(() => import('@/desktop/InfoPane').then((m) => ({ default: m.InfoPane })))
 const DocumentPeekPane = lazy(() => import('@/desktop/DocumentPeekPane').then((m) => ({ default: m.DocumentPeekPane })))
 const BoardPeekPane = lazy(() => import('@/desktop/BoardPeekPane').then((m) => ({ default: m.BoardPeekPane })))
-const CalendarPeekPane = lazy(() => import('@/desktop/CalendarPeekPane').then((m) => ({ default: m.CalendarPeekPane })))
+const EventDetail = lazy(() => import('../sections/calendar/EventDetail').then((m) => ({ default: m.EventDetail })))
 
 function closePanel(layout: Layout): void {
   const r = getRoute()
@@ -95,11 +96,26 @@ export function RightPanel({ route, layout }: { route: Route; layout: Layout }) 
       </aside>
     )
   }
+  if (route.peek?.kind === 'event') {
+    const id = route.peek.id
+    return (
+      <Suspense fallback={<div className="nx-center"><Spinner /></div>}>
+        <EventDetail
+          key={id}
+          rawId={id}
+          // Opened from a job in the Routines tab, it steps back to the job.
+          stack={layout === 'stack' || route.search.has('routine')}
+          onClose={() => goBack(withRoute(getRoute(), { peek: null }))}
+          onGone={() => navigate(withRoute(getRoute(), { peek: null }), { replace: true })}
+          editHref={href({ section: 'calendar', params: { event: id, edit: '1' } })}
+        />
+      </Suspense>
+    )
+  }
   if (route.peek) {
     const pane = route.peek.kind === 'agent' ? <InfoPane />
       : route.peek.kind === 'doc' ? <DocumentPeekPane />
-        : route.peek.kind === 'board' ? <BoardPeekPane />
-          : <CalendarPeekPane />
+        : <BoardPeekPane />
     return <Classic layout={layout}>{pane}</Classic>
   }
 

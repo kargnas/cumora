@@ -3,7 +3,8 @@
  * wakes and where, and its controls: pause/resume, run now, edit, delete,
  * and the dispatch history. The id comes from `?event=`; a short id (the
  * `ce-d53fa1f5` form agents paste) resolves like a git short SHA, and an
- * event the list does not hold yet is fetched on its own.
+ * event the list does not hold yet is fetched on its own. A room's right
+ * panel shows it too (an event peek), where Edit leaves for Calendar.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from '@/api/client'
@@ -24,6 +25,8 @@ import { IconButton, Spinner, Switch } from '../../ui/primitives'
 import { IChat, ICheck, IChevronLeft, IHash, IMail, IPencil, IX } from '../../ui/icons'
 import { dateLabel, describeReminder, describeRepeat, stampLabel, whenLabel, zoneName } from './model'
 import { CalLink, EDITOR_PARAMS, IPlay, KindMark } from './parts'
+// Here as well as in the section: the room panel loads this view on its own.
+import './calendar.css'
 
 /** Dispatch rows shown; the server keeps up to 200 per event. */
 const RUNS_SHOWN = 10
@@ -208,8 +211,11 @@ function RunRow({ d }: { d: CalendarDispatch }) {
           href={href({ section: 'chats', id: d.conversationId })}
           onClick={(e) => {
             linkClick(e)
-            // ChatView consumes the jump once the transcript is mounted.
-            if (e.defaultPrevented) useApp.getState().jumpToMessage(messageId)
+            // ChatView consumes the jump once the transcript is mounted. In a
+            // room's panel this link also leaves the event peek, which useApp
+            // still holds until the next render; clear it with the jump, or
+            // the legacy-write bridge reads it back and reopens the peek.
+            if (e.defaultPrevented) useApp.setState({ pendingJumpMessageId: messageId, openCalendarEventId: null })
           }}
         >{nt('calendar.openMessage')}</a>
       )}
@@ -260,7 +266,7 @@ function Runs({ ev, nonce }: { ev: CalendarEvent; nonce: number }) {
   )
 }
 
-function EventBody({ ev, stack, onClose }: { ev: CalendarEvent; stack: boolean; onClose: () => void }) {
+function EventBody({ ev, stack, onClose, editHref }: { ev: CalendarEvent; stack: boolean; onClose: () => void; editHref?: string }) {
   const nt = useNT()
   const locale = useLocale()
   const me = useMe()
@@ -274,9 +280,15 @@ function EventBody({ ev, stack, onClose }: { ev: CalendarEvent; stack: boolean; 
   return (
     <aside className="nx-calendar-detail" aria-label={nt('calendar.detail')}>
       <DetailBar stack={stack} onClose={onClose}>
-        <CalLink className="nx-btn nx-btn--sm nx-btn--outline" params={{ ...EDITOR_PARAMS, edit: '1' }}>
-          <IPencil />{nt('calendar.edit')}
-        </CalLink>
+        {editHref ? (
+          <a className="nx-btn nx-btn--sm nx-btn--outline" href={editHref} onClick={linkClick}>
+            <IPencil />{nt('calendar.edit')}
+          </a>
+        ) : (
+          <CalLink className="nx-btn nx-btn--sm nx-btn--outline" params={{ ...EDITOR_PARAMS, edit: '1' }}>
+            <IPencil />{nt('calendar.edit')}
+          </CalLink>
+        )}
       </DetailBar>
       <div className="nx-calendar-detail__body nx-scroll">
         <div className="nx-calendar-detail__title">
@@ -337,7 +349,16 @@ function EventBody({ ev, stack, onClose }: { ev: CalendarEvent; stack: boolean; 
   )
 }
 
-export function EventDetail({ rawId, stack, onClose }: { rawId: string; stack: boolean; onClose: () => void }) {
+/** `editHref` and `onGone` are for hosts outside the Calendar section, where
+ *  the editor and the `?event=` param do not live. */
+export function EventDetail({ rawId, stack, onClose, editHref, onGone }: {
+  rawId: string
+  stack: boolean
+  onClose: () => void
+  editHref?: string
+  /** Replaces the default close-in-place when the event is deleted while open. */
+  onGone?: () => void
+}) {
   const nt = useNT()
   const id = useResolvedCalendarId(rawId)
   const event = useCalendar((s) => s.events.find((e) => e.id === id))
@@ -353,6 +374,10 @@ export function EventDetail({ rawId, stack, onClose }: { rawId: string; stack: b
     if (last.current) {
       // Deleted while open (here, in the editor, or by someone else):
       // nothing is left to show, so close in place.
+      if (onGone) {
+        onGone()
+        return
+      }
       const r = getRoute()
       if (r.search.get('event') === rawId) navigate(withRoute(r, { params: { ...EDITOR_PARAMS, event: null } }), { replace: true })
       return
@@ -365,7 +390,7 @@ export function EventDetail({ rawId, stack, onClose }: { rawId: string; stack: b
   }, [event, listSettled, id, rawId, attempt])
 
   const shown = event ?? last.current
-  if (shown) return <EventBody ev={shown} stack={stack} onClose={onClose} />
+  if (shown) return <EventBody ev={shown} stack={stack} onClose={onClose} editHref={editHref} />
   return (
     <aside className="nx-calendar-detail" aria-label={nt('calendar.detail')}>
       <DetailBar stack={stack} onClose={onClose} />
