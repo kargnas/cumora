@@ -14,7 +14,9 @@ import { dirname, resolve } from 'node:path'
 
 export interface RoomCategory { id: string; name: string; position: number; hidden: boolean }
 
-/** An agent's bloub look: catalogue ids of the client's bloub engine. */
+/** An agent's bloub look: catalogue ids of the client's bloub engine. An owner
+ *  picks the shape and colour; the expression is the face of the agent's latest
+ *  message (./mood.ts). */
 export interface BloubLook { shape: string; color: string; expression: string }
 
 /** One user's chat-list layout inside one company. */
@@ -127,6 +129,10 @@ const MIGRATIONS = [
      expression TEXT NOT NULL,
      PRIMARY KEY (company_id, participant_id)
    );`,
+
+  // The expression stopped being picked by people: it is now the face of the
+  // agent's latest message, so the faces picked before start from rest.
+  `UPDATE bloub_avatars SET expression = 'neutre';`,
 ]
 
 export interface FileVersion {
@@ -384,13 +390,23 @@ export async function openForkStore(file: string) {
       )
     },
 
-    setBloubAvatar(companyId: string, participantId: string, look: BloubLook): void {
+    /** A new look starts with the resting face; a changed one keeps the agent's current face. */
+    setBloubAvatar(companyId: string, participantId: string, look: Pick<BloubLook, 'shape' | 'color'>): void {
       db.run(
-        `INSERT OR REPLACE INTO bloub_avatars (company_id, participant_id, shape, color, expression)
-         VALUES (?, ?, ?, ?, ?)`,
-        [companyId, participantId, look.shape, look.color, look.expression],
+        `INSERT INTO bloub_avatars (company_id, participant_id, shape, color, expression)
+         VALUES (?, ?, ?, ?, 'neutre')
+         ON CONFLICT (company_id, participant_id) DO UPDATE SET shape = excluded.shape, color = excluded.color`,
+        [companyId, participantId, look.shape, look.color],
       )
       save()
+    },
+
+    /** The face of the agent's latest message. False when the agent wears no bloub. */
+    setBloubExpression(companyId: string, participantId: string, expression: string): boolean {
+      db.run('UPDATE bloub_avatars SET expression = ? WHERE company_id = ? AND participant_id = ?', [expression, companyId, participantId])
+      if (db.getRowsModified() === 0) return false
+      save()
+      return true
     },
 
     /** Back to the agent's portrait or initial. */

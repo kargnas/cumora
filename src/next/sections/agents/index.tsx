@@ -10,7 +10,6 @@ import { api } from '@/api/client'
 import { useConversations } from '@/stores/conversations'
 import { useParticipants } from '@/stores/participants'
 import { useSwipeBackProps } from '@/mobile/useSwipeBack'
-import { AgentEditor } from '@/components/AgentEditor'
 import type { SectionProps } from '../types'
 import { haptic } from '../../haptics'
 import { useNT } from '../../i18n'
@@ -20,6 +19,7 @@ import { IAgents, IChevronLeft, IPlus } from '../../ui/icons'
 import { DIALOG_PARAMS, dialogHref, errorText, listHref, NO_DIALOG, useRoster } from './shared'
 import { AgentList } from './List'
 import { AgentProfile } from './Profile'
+import { LookEditor } from './LookStudio'
 import './agents.css'
 
 /** Closes a URL-opened dialog exactly once. Esc reaches both `Dialog` and the
@@ -38,7 +38,8 @@ function useCloseDialog(route: Route): () => void {
 }
 
 /** Create (`?new=1`) and edit (`?edit=1` on a profile) reuse the classic
- *  editor inside the redesign's Dialog; agents.css folds its own modal frame. */
+ *  editor inside the redesign's Dialog, with the Look Studio as its avatar
+ *  fields; agents.css folds its own modal frame. */
 function EditorDialog({ route, onSaved }: { route: Route; onSaved: () => void }) {
   const nt = useNT()
   const close = useCloseDialog(route)
@@ -53,7 +54,7 @@ function EditorDialog({ route, onSaved }: { route: Route; onSaved: () => void })
       title={editing ? nt('agents.editAgent', { name: editing.name }) : nt('agents.newAgent')}
     >
       <div className="nx-agents-editor">
-        <AgentEditor key={editing?.id ?? 'new'} agent={editing} onClose={close} onSaved={onSaved} />
+        <LookEditor key={editing?.id ?? 'new'} agent={editing} onClose={close} onSaved={onSaved} />
       </div>
     </Dialog>
   )

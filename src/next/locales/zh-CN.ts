@@ -195,6 +195,13 @@ export const zhCN: Partial<Record<keyof typeof en, string>> = {
   'handbook.lockedBody': '智能体的文件可能引用任何对话，所以只有工作区所有者和管理员可以查看。',
   'handbook.unavailable': '这里没有手册',
   'handbook.unavailableBody': '这台服务器看不到计算机上智能体的文件。',
+  'handbook.mapHint': '点按地图上的位置，从那里阅读全文。',
+  'handbook.readSection': '在全文中阅读{section}',
+  'handbook.fullText': '全文',
+  'handbook.atLine': '第 {n} 行',
+  'handbook.allLines': '显示全部 {n} 行',
+  'handbook.showInText': '在全文中查看',
+  'handbook.olderChanges': '另有 {n} 处更早的改动，已在全文中标出。',
 
   'members.add': '添加成员',
   'members.addTitle': '添加成员到 {room}',

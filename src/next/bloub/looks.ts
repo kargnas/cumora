@@ -4,11 +4,14 @@
  * fork's SQLite store behind /api/fork/bloub-avatars, so upstream's
  * participants.avatar_url keeps the portrait the classic UI, push and email show.
  *
- * There is no realtime event for it: NextApp loads the looks on start and
+ * Owners pick the shape and colour in the agent editor (sections/agents/LookStudio.tsx).
+ * The expression is not picked: the server gives it the face of the agent's
+ * latest message (server/src/fork/mood.ts) and sends `fork.agent.mood`. A
+ * changed pick has no realtime event: NextApp loads the looks on start and
  * whenever the app comes back to the foreground.
  */
 import { create } from 'zustand'
-import { http } from '@/api/client'
+import { http, ws } from '@/api/client'
 import { useAuth } from '@/stores/auth'
 import { loadEngine } from './director'
 import type { ExpressionId } from './engine/expressions'
@@ -16,17 +19,17 @@ import type { ColorId, ShapeId } from './engine/skins'
 
 export interface BloubLook { shape: ShapeId; color: ColorId; expression: ExpressionId }
 
-/** bloub's own defaults: the black ball with its resting face. */
-export const DEFAULT_LOOK: BloubLook = { shape: 'cercle', color: 'encre', expression: 'neutre' }
+/** The part of a look an owner picks. */
+export type BloubPick = Pick<BloubLook, 'shape' | 'color'>
 
 interface State {
   byId: Record<string, BloubLook>
   load: () => Promise<void>
-  /** Saves a look, or goes back to the portrait with null. Applies locally at
+  /** Saves a pick, or goes back to the portrait with null. Applies locally at
    *  once; a failed write reloads the server's copy and rejects. A write made
    *  in a workspace that is no longer active never rejects, and is not sent if
    *  it was still queued. */
-  save: (agentId: string, look: BloubLook | null) => Promise<void>
+  save: (agentId: string, pick: BloubPick | null) => Promise<void>
 }
 
 /** Thrown for a request queued in one workspace once another is active. */
@@ -69,6 +72,18 @@ export const useBloubLooks = create<State>((set, get) => {
     if (s.contextEpoch !== prev.contextEpoch) set({ byId: {} })
   })
 
+  // A fork event, outside the client's event union. A look not loaded yet
+  // arrives with its face from the next load.
+  ws.on((e) => {
+    const mood = e as { type: string; participantId?: unknown; expression?: unknown }
+    if (mood.type !== 'fork.agent.mood' || typeof mood.participantId !== 'string' || typeof mood.expression !== 'string') return
+    const id = mood.participantId
+    const look = get().byId[id]
+    if (look && look.expression !== mood.expression) {
+      set({ byId: { ...get().byId, [id]: { ...look, expression: mood.expression as ExpressionId } } })
+    }
+  })
+
   return {
     byId: {},
 
@@ -86,17 +101,18 @@ export const useBloubLooks = create<State>((set, get) => {
       }
     },
 
-    async save(agentId, look) {
+    async save(agentId, pick) {
       writes++
       set((s) => {
         const byId = { ...s.byId }
-        if (look) byId[agentId] = look
+        // A new pick keeps the face the agent has now; a first one starts at rest, as on the server.
+        if (pick) byId[agentId] = { ...pick, expression: s.byId[agentId]?.expression ?? 'neutre' }
         else delete byId[agentId]
         return { byId }
       })
       const path = `/fork/bloub-avatars/${encodeURIComponent(agentId)}`
       try {
-        await enqueue(() => http(path, look ? { method: 'PUT', body: JSON.stringify(look) } : { method: 'DELETE' }))
+        await enqueue(() => http(path, pick ? { method: 'PUT', body: JSON.stringify(pick) } : { method: 'DELETE' }))
       } catch (e) {
         if (e === SWITCHED) return
         void get().load()

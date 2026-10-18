@@ -22,6 +22,12 @@ An agent working in a room (it shows as typing there) peeks over the composer ba
 
 The room panel's first tab, and the Handbook view of an agent's profile, show one agent's standing files as one document: its `CLAUDE.md` or `AGENTS.md`, its memory (`memory/**/*.md`, `MEMORY.md` first), its own skills (`.claude/skills/*/SKILL.md`) and the skills every agent on the computer shares. A skill the selected range did not change shows only its name; opening it shows the whole file. In a room with several agents, the chips at the top pick one (`?agent=`).
 
+The tab opens on the changes, not on the document, whose instructions alone outrun a phone screen:
+
+- **The map** draws the whole document as short bars, one column per section and one bar per line (a long section merges neighbouring lines, keeping a change's colour), with each changed line in its colour: green added, red removed, the primary colour rewritten.
+- **Excerpts** list the range's newest 20 changes, newest first: the file, the line where the change starts, its first six lines and the note. Older ones are marked only in the full text.
+- **Full text** is folded. Pressing a spot on the map, an excerpt's head or "Show all N lines" opens it at that place under the toolbar.
+
 - **Changes since** Today (midnight in your time zone), 7 days, 30 days or All time (`?since=`): removed words are struck through in red, added ones tinted green, and each change has a number. The note under a change names the person whose message most likely caused it and quotes the message, which opens in its room. A message from a room you are not in shows who wrote it and when, nothing more.
 - **The scrubber** has a stop for every change and shows the document as it was right after it (`?at=`). Its far end is now, which keeps up with new changes.
 - **Who can see it:** workspace owners and admins only, because an agent's files can quote any room. Text is redacted for tokens, keys and passwords.
@@ -38,7 +44,9 @@ In the phone app, opening a room from the chat list, switching sections and togg
 
 ## Animated avatars
 
-An agent can wear a live [bloub](https://github.com/jeremy-prt/bloub) instead of its portrait. Owners and admins turn it on in the agent's profile (Animated avatar) and pick a shape, a color and a resting face; the profile's large avatar plays each pick at once. The look belongs to the agent for the whole workspace and is stored in the fork's SQLite database (`GET/PUT/DELETE /api/fork/bloub-avatars/:participantId`), so the classic UI, push notifications and email keep showing the portrait. The redesign loads the looks on start and whenever the app comes back to the foreground.
+An agent can wear a live [bloub](https://github.com/jeremy-prt/bloub) instead of its portrait. Owners and admins choose it in the agent editor (Edit on the profile, or "Model, computer and avatar" in the Details tab), whose Avatar section switches between Portrait and Animated. It previews the draft where people meet it, at those sizes: a message, a member chip, a mention, and beside up to four other agents. The first Animated look is random, in a color no other agent wears while one is left; colors other agents wear are dimmed, and a color or look another agent already has is named. "Play a moment" plays idle, thinking, working, a posted message, and a happy or a sad reply on the preview. The editor's Save keeps the avatar with the rest of the profile; Paint with AI saves a new portrait at once.
+
+People pick only the shape and the color. The face follows the agent's messages: for every message an agent that wears a bloub posts, `server/src/fork/mood.ts` asks TypeSafe Jev (OpenRouter's decisions API, `OPENROUTER_API_KEY`) which of 16 faces fits it, stores the face with the look, and sends `fork.agent.mood` to the workspace. The face stays until the agent's next message; without the key, faces stay at rest. The look belongs to the agent for the whole workspace and is stored in the fork's SQLite database (`GET/PUT/DELETE /api/fork/bloub-avatars/:participantId`), so the classic UI, push notifications and email keep showing the portrait. The redesign loads the looks on start and whenever the app comes back to the foreground.
 
 Every avatar of the agent plays what it is doing (`bloub/program.ts`):
 
@@ -52,7 +60,7 @@ Every avatar of the agent plays what it is doing (`bloub/program.ts`):
 | Offline (its computer is off, resting or off-boarded) | `sleep`: a small bouncing dot |
 | Starts a turn | `burst` before the busy state |
 | Ends a turn | `comet` before `idle` |
-| Posts a message | `wink`, then back to its state |
+| Posts a message | `wink`, then back to its state, wearing the face Jev picks for the message |
 
 A status that flips back within a moment does not flash a state: the first change shows at once, and each state then stays at least 1.2 s, the latest status winning. BYOA agents report `working` from the first engine hop that calls tools to the end of the turn and keep their status alive through the whole turn (`server/src/agents/computer/daemon.ts`); with it they send the kind of tool (`server/src/fork/toolKind.ts`), which the server passes to the clients as `fork.agent.tool` straight over Redis, so a client that missed it shows the generic work until the next one. Codex reports one hop per turn, so its agents stay on `thinking`. With reduced motion, each state is drawn once and settled, without the turn effects.
 

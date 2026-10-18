@@ -3,6 +3,7 @@ import type { AuthedRequest } from '../auth.js'
 import { ForkLimitError, getForkStore } from './store.js'
 import { agentHandbook } from './handbook.js'
 import { startRecorder } from './recorder.js'
+import { startMoods } from './mood.js'
 import { stopAgent } from './stop.js'
 
 type CompanyContext = { userId: string; companyId: string }
@@ -51,10 +52,12 @@ async function requireAgentEditor(companyId: string, userId: string, participant
 
 /** Fork-only endpoints under /api/fork, backed by the SQLite store in ./store.ts.
  *  Every row is scoped by the caller's own (companyId, userId) from requireCompany.
- *  Created once at boot, which is also when the Handbook's recorder starts. */
+ *  Created once at boot, which is also when the Handbook's recorder and the
+ *  bloub moods start. */
 export function createForkRouter(deps: ForkRouterDeps): Router {
   const router = Router()
   startRecorder()
+  startMoods()
 
   router.get('/room-layout', async (req, res) => {
     const { userId, companyId } = await deps.requireCompany(req)
@@ -144,11 +147,8 @@ export function createForkRouter(deps: ForkRouterDeps): Router {
     const { userId, companyId } = await deps.requireCompany(req)
     const participantId = routeKey(req.params.participantId, 'participantId')
     const body = req.body ?? {}
-    const look = {
-      shape: lookId(body.shape, 'shape'),
-      color: lookId(body.color, 'color'),
-      expression: lookId(body.expression, 'expression'),
-    }
+    // The expression is not picked: it follows the agent's messages (./mood.ts).
+    const look = { shape: lookId(body.shape, 'shape'), color: lookId(body.color, 'color') }
     await requireAgentEditor(companyId, userId, participantId)
     const store = await getForkStore()
     store.setBloubAvatar(companyId, participantId, look)
