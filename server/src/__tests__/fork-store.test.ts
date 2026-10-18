@@ -143,7 +143,7 @@ test('opening an older file runs the steps it has not had', async () => {
   // rows a version-1 client could write, when 'former' was a group key.
   const SQL = await initSqlJs()
   const raw = new SQL.Database(readFileSync(file))
-  raw.run('ALTER TABLE room_categories DROP COLUMN hidden; DROP TABLE pin_order; DROP TABLE computer_file_versions;')
+  raw.run('ALTER TABLE room_categories DROP COLUMN hidden; DROP TABLE pin_order; DROP TABLE computer_file_versions; DROP TABLE bloub_avatars;')
   raw.run("INSERT INTO collapsed_groups VALUES ('c1', 'u1', 'former'), ('c1', 'u1', 'other')")
   raw.run('PRAGMA user_version = 1')
   writeFileSync(file, raw.export())
@@ -156,6 +156,8 @@ test('opening an older file runs the steps it has not had', async () => {
   assert.deepEqual(upgraded.layout('c1', 'u1').pinOrder, ['room-a'])
   upgraded.recordFileVersions([{ scope: 'atlas', path: 'CLAUDE.md', at: '2026-10-18T00:00:00.000Z', content: 'x', baseline: true }])
   assert.equal(upgraded.latestFileVersions().length, 1)
+  upgraded.setBloubAvatar('c1', 'agent-a', { shape: 'cercle', color: 'encre', expression: 'neutre' })
+  assert.deepEqual(Object.keys(upgraded.bloubAvatars('c1')), ['agent-a'])
 })
 
 test('file versions keep each file’s history, and `since` picks the base', async () => {
@@ -224,6 +226,24 @@ test('a file keeps its newest versions, and the oldest one left is its baseline'
   // The pruning is on disk, not only in memory.
   const reopened = await openForkStore(join(dir, 'prune', 'fork.sqlite'))
   assert.equal(reopened.fileVersions(['atlas'], null).length, MAX_FILE_VERSIONS + 1)
+})
+
+test('a bloub avatar is the agent look for the whole company', async () => {
+  const file = join(dir, 'bloub', 'fork.sqlite')
+  const store = await openForkStore(file)
+  store.setBloubAvatar('c1', 'agent-a', { shape: 'galet', color: 'violet', expression: 'heureux' })
+  store.setBloubAvatar('c2', 'agent-a', { shape: 'cercle', color: 'encre', expression: 'neutre' })
+  // Setting it again replaces the look instead of adding a row.
+  store.setBloubAvatar('c1', 'agent-a', { shape: 'nuage', color: 'rose', expression: 'timide' })
+  assert.deepEqual(store.bloubAvatars('c1'), { 'agent-a': { shape: 'nuage', color: 'rose', expression: 'timide' } })
+  assert.deepEqual(store.bloubAvatars('c2'), { 'agent-a': { shape: 'cercle', color: 'encre', expression: 'neutre' } })
+
+  // Clearing one company's look leaves the other's, survives a reopen, and clearing twice is harmless.
+  store.clearBloubAvatar('c1', 'agent-a')
+  store.clearBloubAvatar('c1', 'agent-a')
+  const reopened = await openForkStore(file)
+  assert.deepEqual(reopened.bloubAvatars('c1'), {})
+  assert.deepEqual(Object.keys(reopened.bloubAvatars('c2')), ['agent-a'])
 })
 
 test('hidden categories and the tile order stay per user', async () => {

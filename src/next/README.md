@@ -32,6 +32,26 @@ The room panel's Details tab has two cards. **This room** holds the room's own s
 
 In the phone app, opening a room from the chat list, switching sections and toggling a reaction answer with a click when the finger lands. A long press answers with a deeper click, sending a message with one click, and someone else's message arriving in the open room with a double click (not in muted rooms, at most once every 2 seconds). A save the user waited on ends with a success or error haptic. Android plays the system's own effects, so the phone's touch-feedback setting turns them off. The web and the desktop app have none.
 
+## Animated avatars
+
+An agent can wear a live [bloub](https://github.com/jeremy-prt/bloub) instead of its portrait. Owners and admins turn it on in the agent's profile (Animated avatar) and pick a shape, a color and a resting face; the profile's large avatar plays each pick at once. The look belongs to the agent for the whole workspace and is stored in the fork's SQLite database (`GET/PUT/DELETE /api/fork/bloub-avatars/:participantId`), so the classic UI, push notifications and email keep showing the portrait. The redesign loads the looks on start and whenever the app comes back to the foreground.
+
+Every avatar of the agent plays what it is doing (`bloub/program.ts`):
+
+| Agent | bloub |
+| --- | --- |
+| Available | `idle`: gaze drift and blinking |
+| Thinking | `thinking`: three pulsing dots |
+| Working with a tool it can name | Leans back and acts it out with a prop it looks at: a page read line by line (Read, `cumora glance`), a pen writing on the page (Write, Edit, `cumora reply`), a terminal (Bash), a magnifier (Grep, Glob), a globe (WebFetch, WebSearch) |
+| Working with another tool | `play` and `orbit` in turn |
+| Waiting | `notify`: the blue dot |
+| Offline (its computer is off, resting or off-boarded) | `sleep`: a small bouncing dot |
+| Starts a turn | `burst` before the busy state |
+| Ends a turn | `comet` before `idle` |
+| Posts a message | `wink`, then back to its state |
+
+A status that flips back within a moment does not flash a state: the first change shows at once, and each state then stays at least 1.2 s, the latest status winning. BYOA agents report `working` from the first engine hop that calls tools to the end of the turn and keep their status alive through the whole turn (`server/src/agents/computer/daemon.ts`); with it they send the kind of tool (`server/src/fork/toolKind.ts`), which the server passes to the clients as `fork.agent.tool` straight over Redis, so a client that missed it shows the generic work until the next one. Codex reports one hop per turn, so its agents stay on `thinking`. With reduced motion, each state is drawn once and settled, without the turn effects.
+
 ## Local verification
 
 The redesign can run against a throwaway local backend:

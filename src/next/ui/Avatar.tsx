@@ -3,6 +3,8 @@ import type { Participant } from '@/types'
 import { AVATAR_IMG_LOADING, useAvatarImg, useCachedAvatarSrc } from '@/lib/avatarCache'
 import { useAuth } from '@/stores/auth'
 import { useComputers } from '@/stores/computers'
+import { BloubAvatar } from '../bloub/BloubAvatar'
+import { useBloubLooks } from '../bloub/looks'
 
 export type Presence = 'avail' | 'live' | 'waiting' | 'off'
 
@@ -31,6 +33,13 @@ interface Props {
 }
 
 function AvatarImpl({ p, size = 32, presence = false, className }: Props) {
+  const look = useBloubLooks((s) => (p.kind === 'agent' ? s.byId[p.id] : undefined))
+  // A bloub plays the agent's state itself, so it carries no presence dot or ring.
+  if (look) return <BloubAvatar agentId={p.id} look={look} size={size} className={className} />
+  return <Portrait p={p} size={size} presence={presence} className={className} />
+}
+
+function Portrait({ p, size = 32, presence = false, className }: Props) {
   const src = useCachedAvatarSrc(p.id, p.avatarUrl)
   const { showImg, imgKey, onError } = useAvatarImg(src)
   const state = usePresence(presence ? p : undefined)

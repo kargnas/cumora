@@ -821,7 +821,12 @@ export interface EngineHopReport {
   hopIndex?: number      // 1-based position within the current turn
   toolUses?: number      // tool_use entries in the assistant message
   textChars?: number     // total text length the model returned (chars, not tokens)
+  /** The hop's tool calls, for the agent's live activity (not the ledger). */
+  tools?: EngineToolCall[]
 }
+
+/** A tool call an engine hop made: its name, and the start of a shell command. */
+export interface EngineToolCall { name: string; command?: string }
 
 /** Args to start a PERSISTENT engine session (spawned ONCE per agent). */
 export interface EngineSessionArgs {
@@ -1040,16 +1045,19 @@ function pushTail(lines: string[], line: string): void {
  *  see at a glance whether a hop's spend went into prose or tool routing —
  *  the two have very different optimization targets. Robust to a malformed
  *  payload: returns zeros, never throws. */
-function countAssistantContent(content: unknown): { toolUses: number; textChars: number } {
-  if (!Array.isArray(content)) return { toolUses: 0, textChars: 0 }
+function countAssistantContent(content: unknown): { toolUses: number; textChars: number; tools: EngineToolCall[] } {
+  if (!Array.isArray(content)) return { toolUses: 0, textChars: 0, tools: [] }
   let toolUses = 0, textChars = 0
+  const tools: EngineToolCall[] = []
   for (const item of content) {
     if (!item || typeof item !== 'object') continue
-    const it = item as { type?: unknown; text?: unknown }
-    if (it.type === 'tool_use') toolUses += 1
-    else if (it.type === 'text' && typeof it.text === 'string') textChars += it.text.length
+    const it = item as { type?: unknown; text?: unknown; name?: unknown; input?: { command?: unknown } }
+    if (it.type === 'tool_use') {
+      toolUses += 1
+      if (typeof it.name === 'string') tools.push({ name: it.name, command: typeof it.input?.command === 'string' ? it.input.command.slice(0, 200) : undefined })
+    } else if (it.type === 'text' && typeof it.text === 'string') textChars += it.text.length
   }
-  return { toolUses, textChars }
+  return { toolUses, textChars, tools }
 }
 
 /** Exported for tests: pure, and the only way to pin what an operator actually
@@ -1190,8 +1198,8 @@ function spawnEngine(
               const startedAt = hopStartedAt
               hopStartedAt = null
               hopIndex += 1
-              const { toolUses, textChars } = countAssistantContent(obj.message.content)
-              try { onHopUsage({ model: m, usage: obj.message.usage, latencyMs: startedAt != null ? Date.now() - startedAt : undefined, hopIndex, toolUses, textChars }) }
+              const { toolUses, textChars, tools } = countAssistantContent(obj.message.content)
+              try { onHopUsage({ model: m, usage: obj.message.usage, latencyMs: startedAt != null ? Date.now() - startedAt : undefined, hopIndex, toolUses, textChars, tools }) }
               catch { /* never break the run on a ledger error */ }
             } else if (hopStartedAt == null && (obj.type === 'assistant' || obj.type === 'user' || obj.type === 'system')) {
               hopStartedAt = Date.now()
@@ -1543,7 +1551,7 @@ class ClaudeSession implements EngineSession {
         // text length. These two numbers explain a lot of why a hop is
         // expensive — a 5000-char prose reply is a different optimization
         // target from a single tool_use that triggered 6 follow-up hops.
-        const { toolUses, textChars } = countAssistantContent(ev.message.content)
+        const { toolUses, textChars, tools } = countAssistantContent(ev.message.content)
         try {
           this.onHopUsage?.({
             model: evModel,
@@ -1552,6 +1560,7 @@ class ClaudeSession implements EngineSession {
             hopIndex: this.hopIndex,
             toolUses,
             textChars,
+            tools,
           })
         } catch { /* ledger best-effort, never break the stream */ }
       } else if (this.hopStartedAt == null && (ev.type === 'assistant' || ev.type === 'user' || ev.type === 'system')) {

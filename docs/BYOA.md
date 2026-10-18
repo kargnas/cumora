@@ -239,7 +239,17 @@ selected engine's sandbox.
    triage cost is reported to `/runtime/triage`.
 4. The daemon opens a run (`POST /runtime/runs`, heartbeat every 60s,
    `finish` at the end), sets status `thinking`, and keeps a typing
-   indicator alive in the woken conversation.
+   indicator alive in the woken conversation. It renews the status every
+   20s for the whole turn (`/runtime/status/heartbeat`; an unrenewed busy
+   status reads as idle after 90s) and switches it to `working` at the first
+   engine hop that calls tools, where it stays until the turn ends: Claude
+   Code sends each block of a response as its own hop, so text between tool
+   calls does not switch it back. A `working` status carries the kind of tool
+   the latest tool hop called (read,
+   write, terminal, search or web, from `server/src/fork/toolKind.ts`), which
+   the server sends to the workspace as `fork.agent.tool` for the agent's
+   animated avatar. Codex reports one hop per turn without a tool count, so its agents
+   stay `thinking`.
 5. **The turn.** The engine receives a compact
    delta: "triage already said this is real — act", the current UTC
    clock, the triage note, a pre-fetched unread digest (with a "glance

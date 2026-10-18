@@ -1,0 +1,100 @@
+/**
+ * What a bloub avatar plays for its agent. The mistakes worth catching: an
+ * offline computer still shown as busy, a turn's opening or closing effect
+ * replayed on every mount, work that stops animating once its first cycle
+ * ends, and a view back on screen replaying everything it missed in one frame.
+ */
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import type { Computer, Participant } from '../src/types'
+import { advance, flash, modeOf, POSTED, programFor, type Playhead } from '../src/next/bloub/program.ts'
+import { TOOL_KINDS as CLIENT_KINDS } from '../src/next/bloub/tools.ts'
+import { TOOL_KINDS as SERVER_KINDS, toolKindOf } from '../server/src/fork/toolKind.ts'
+
+const agent = (over: Partial<Participant> = {}): Participant =>
+  ({ id: 'a1', kind: 'agent', name: 'A', initial: 'A', avatarBg: '#000', status: 'avail', ...over }) as Participant
+const host = (over: Partial<Computer>): Computer => ({ id: 'c1', kind: 'local', status: 'online', ...over }) as Computer
+
+test('the mode follows the status, and an offline computer wins over it', () => {
+  assert.equal(modeOf(agent({ status: 'thinking' }), host({})), 'thinking')
+  assert.equal(modeOf(agent({ status: 'working' }), undefined), 'working')
+  assert.equal(modeOf(agent({ status: 'waiting' }), undefined), 'waiting')
+  assert.equal(modeOf(agent({ status: 'resting' }), undefined), 'offline')
+  assert.equal(modeOf(agent({ status: 'thinking' }), host({ status: 'offline' })), 'offline')
+  // Cumora Cloud has no computer of the user's to go offline.
+  assert.equal(modeOf(agent({ status: 'thinking' }), host({ kind: 'cloud', status: 'offline' })), 'thinking')
+  assert.equal(modeOf(agent({ departedAt: '2026-10-18T00:00:00Z' }), undefined), 'offline')
+})
+
+test('a turn opens with burst and closes with comet, only on a live change', () => {
+  const states = (from: Parameters<typeof programFor>[0], to: Parameters<typeof programFor>[1]) =>
+    programFor(from, to).steps.map(([state]) => state)
+  assert.deepEqual(states('idle', 'thinking'), ['burst', 'thinking'])
+  assert.deepEqual(states('offline', 'working'), ['burst', 'play', 'orbit'])
+  assert.deepEqual(states('working', 'idle'), ['comet', 'idle'])
+  assert.deepEqual(states('thinking', 'working'), ['play', 'orbit'])
+  assert.deepEqual(states('working', 'offline'), ['sleep'])
+  assert.deepEqual(states('offline', 'idle'), ['idle'])
+  // A freshly mounted avatar shows the state it finds, with no effect.
+  assert.deepEqual(states(null, 'thinking'), ['thinking'])
+})
+
+test('work keeps alternating after its intro, and a held state stays', () => {
+  const entered: Array<[string, number]> = []
+  const head: Playhead = { program: programFor('idle', 'working'), index: 0, since: 100 }
+  // Frame by frame, the way the director advances it.
+  for (let now = 100; now <= 100 + 1.5 + 2 + 3.4 + 2 + 0.1; now += 0.25) {
+    advance(head, now, (state, at) => entered.push([state, Number(at.toFixed(2))]))
+  }
+  assert.deepEqual(entered, [['play', 101.5], ['orbit', 103.5], ['play', 106.9], ['orbit', 108.9]])
+
+  const held: Playhead = { program: programFor('idle', 'thinking'), index: 0, since: 0 }
+  const after: string[] = []
+  advance(held, 3600, (state) => after.push(state))
+  assert.deepEqual(after, ['thinking'])
+  assert.equal(held.index, 1)
+})
+
+test('a view shown again after an hour skips the loops it missed instead of replaying them', () => {
+  const entered: Array<[string, number]> = []
+  const head: Playhead = { program: programFor('idle', 'working'), index: 0, since: 0 }
+  advance(head, 3600, (state, at) => entered.push([state, Number(at.toFixed(2))]))
+  assert.ok(entered.length < 5, `${entered.length} steps entered in one frame`)
+  // After the 1.5 s burst, 3598.5 s is 666 loops of play and orbit (5.4 s) and
+  // 2.1 s more: 0.1 s into orbit.
+  assert.deepEqual(entered.at(-1), ['orbit', 3599.9])
+  assert.equal(head.program.steps[head.index][0], 'orbit')
+})
+
+test('a posted message winks, then the mode plays on without its intro', () => {
+  const head: Playhead = { program: flash(POSTED, 'working'), index: 0, since: 0 }
+  const entered: string[] = []
+  advance(head, 1.6 + 2 + 0.1, (state) => entered.push(state))
+  assert.deepEqual(entered, ['play', 'orbit'])
+})
+
+test('work with a known tool acts it out on the resting body, and changing tool needs no intro', () => {
+  assert.deepEqual(programFor('thinking', 'working', 'read').steps, [['idle', Infinity, 'read']])
+  assert.deepEqual(programFor('idle', 'working', 'write').steps.map(([state, , tool]) => [state, tool]), [['burst', undefined], ['idle', 'write']])
+  assert.deepEqual(programFor('working', 'working', 'terminal').steps, [['idle', Infinity, 'terminal']])
+  // A tool only matters while working.
+  assert.deepEqual(programFor('working', 'thinking', 'read').steps, [['thinking', Infinity]])
+  assert.deepEqual(flash(POSTED, 'working', 'search').steps.at(-1), ['idle', Infinity, 'search'])
+})
+
+test('the client draws every kind of tool the server sends', () => {
+  assert.deepEqual([...CLIENT_KINDS], [...SERVER_KINDS])
+})
+
+test('tool calls are classified by what the agent does with them', () => {
+  assert.equal(toolKindOf('Read'), 'read')
+  assert.equal(toolKindOf('MultiEdit'), 'write')
+  assert.equal(toolKindOf('Glob'), 'search')
+  assert.equal(toolKindOf('WebFetch'), 'web')
+  assert.equal(toolKindOf('Bash', 'npm test'), 'terminal')
+  // The cumora CLI is how agents read and write the workspace.
+  assert.equal(toolKindOf('Bash', 'cumora reply --to room "done"'), 'write')
+  assert.equal(toolKindOf('Bash', '  cumora glance room'), 'read')
+  assert.equal(toolKindOf('Bash', 'cumora whoami'), 'terminal')
+  assert.equal(toolKindOf('mcp__linear__create_issue'), null)
+})

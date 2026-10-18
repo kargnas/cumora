@@ -57,6 +57,7 @@ import { EngineSessionStore, sessionIdPreview } from './session-store.js'
 import { CODEX_LOGIN_COMMAND, CODEX_MIGRATE_COMMAND, CODEX_SESSION_SCOPE, codexRuntimeHome } from './codex-runtime.js'
 import { migrateCodexSession, migrateCodexSessions } from './codex-session-migration.js'
 import { runWithSessionRecovery } from './session-recovery.js'
+import { toolKindOf, type ToolKind } from '../../fork/toolKind.js'
 
 export { conversationHeader }
 
@@ -115,6 +116,12 @@ const ENGINE_RESCAN_MS = 5 * 60 * 1000
 // turn (a multi-hour Bash, a deep task) as "orphaned". 60s = 10× margin under the
 // 10-min reaper; cheap (one tiny UPDATE). A long task NO LONGER hits a hidden cap.
 const RUN_HEARTBEAT_MS = 60_000
+// A busy status (thinking/working) that is not renewed within the server's
+// BUSY_STATUS_LEASE_MS (90 s, server/src/status.ts) reads as idle on the server
+// and in every client, and BYOA turns run for minutes. Renew it on the server's
+// own BUSY_STATUS_HEARTBEAT_MS; that module is not imported because it loads the
+// database pool.
+const STATUS_HEARTBEAT_MS = 20_000
 // Fallback inbox drain. The wake-stream SSE can be silently severed by the
 // network edge (the server writes the wake onto a half-dead socket, counts it
 // delivered, and does nothing more), so a live wake can be lost until the daemon
@@ -1774,6 +1781,9 @@ export function resolveTriageModel(
   return resolveEngineFastModel(configured, engineOverride)?.trim() || computerDefault?.trim() || undefined
 }
 
+/** The statuses an AgentRunner posts for its agent. */
+type PostedStatus = 'avail' | 'thinking' | 'working'
+
 export class AgentRunner {
   /** Aborted once in stop(). Handed to every one-shot `adapter.run(...)` so the
    *  engine child dies with its runner, the way the persistent session already
@@ -1877,6 +1887,15 @@ export class AgentRunner {
   /** The last status POST that succeeded, and when — see AVAIL_REASSERT_MS. */
   private lastPostedStatus: string | null = null
   private lastPostedStatusAt = 0
+  /** The status (and tool kind) last asked for, whether or not it has landed. */
+  private requestedStatus: PostedStatus | null = null
+  private requestedTool: ToolKind | null = null
+  /** The newest status asked for and not sent yet; see postStatus. */
+  private pendingStatus: { token: string; status: PostedStatus; tool: ToolKind | null } | null = null
+  /** The pump sending pendingStatus while it runs; null once it has drained. */
+  private statusPump: Promise<void> | null = null
+  /** The runtime token of the turn in flight, while beatStatus runs; null between turns. */
+  private turnStatusToken: string | null = null
   private readonly adapter
   /** Privileged local broker: the engine sees only its IPC directory, while the
    *  daemon keeps the short-lived runtime JWT in memory. */
@@ -1935,6 +1954,21 @@ export class AgentRunner {
    *  the columns the operator needs to ANSWER "why was this hop expensive?"
    *  without having to pull the prompt body back. */
   private onEngineHop(report: EngineHopReport, purpose: PendingHop['purpose']): void {
+    // A hop that called tools turns the agent to working for the rest of the
+    // turn. Claude Code emits every content block of one model response as its
+    // own event, so its text and thinking blocks arrive as hops without tools
+    // between tool calls; switching back to thinking on those would flip the
+    // status on every block. Clients animate the agent's avatar from this.
+    // Codex reports one hop per turn without a tool count and stays thinking.
+    const token = this.turnStatusToken
+    if (token && (report.toolUses ?? 0) > 0) {
+      // Which kind of tool runs (read, write, ...), so the avatar can act it out.
+      const tool = (report.tools ?? []).map((t) => toolKindOf(t.name, t.command)).find((kind) => kind !== null) ?? null
+      // Compared with what was asked for last, not with what has landed: while
+      // `write` is in flight after a landed `read`, a `read` hop must still be
+      // posted and another `write` hop must not.
+      if (this.requestedStatus !== 'working' || tool !== this.requestedTool) void this.postStatus(token, 'working', tool)
+    }
     try {
       const extras: Record<string, unknown> = {}
       if (typeof report.hopIndex === 'number') extras.hopIndex = report.hopIndex
@@ -2150,16 +2184,71 @@ export class AgentRunner {
   }
 
   /** POST /status, skipping an idle `avail` the server already holds. Any other
-   *  status (thinking, resting…) always posts, and the avail right after it
+   *  status (thinking, working) always posts, and the avail right after it
    *  posts too — only avail-after-avail is elided, and even that is re-asserted
    *  every AVAIL_REASSERT_MS. A failed post is not remembered, so the next tick
-   *  retries it. */
-  private async postStatus(token: string, status: 'avail' | 'thinking'): Promise<void> {
-    const now = Date.now()
-    if (status === 'avail' && this.lastPostedStatus === 'avail' && now - this.lastPostedStatusAt < AVAIL_REASSERT_MS) return
-    const ok = await runtimeBest(this.cfg.serverUrl, '/status', token, { status })
-    if (ok) { this.lastPostedStatus = status; this.lastPostedStatusAt = now }
-    else this.lastPostedStatus = null
+   *  retries it.
+   *
+   *  Posts go out one at a time, and only the newest status waits for its turn:
+   *  a call while a post is in flight replaces the one waiting. So the turn's
+   *  closing `avail` waits for at most the post in flight plus itself, and a
+   *  `working` asked for before it can never land after it. Every caller's
+   *  promise resolves once nothing is left to send. */
+  private postStatus(token: string, status: PostedStatus, tool: ToolKind | null = null): Promise<void> {
+    this.requestedStatus = status
+    this.requestedTool = tool
+    this.pendingStatus = { token, status, tool }
+    // The pump starts on a later microtask, so it is stored here before it can
+    // drain and clear statusPump, even when it has nothing to send.
+    this.statusPump ??= Promise.resolve().then(() => this.pumpStatus())
+    return this.statusPump
+  }
+
+  private async pumpStatus(): Promise<void> {
+    try {
+      while (this.pendingStatus) {
+        const next = this.pendingStatus
+        this.pendingStatus = null
+        const now = Date.now()
+        if (next.status === 'avail' && this.lastPostedStatus === 'avail' && now - this.lastPostedStatusAt < AVAIL_REASSERT_MS) continue
+        const token = await this.statusToken(next.token)
+        const ok = await runtimeBest(this.cfg.serverUrl, '/status', token, next.status === 'working' ? { status: next.status, tool: next.tool } : { status: next.status })
+        if (ok) { this.lastPostedStatus = next.status; this.lastPostedStatusAt = now }
+        else this.lastPostedStatus = null
+      }
+    } finally {
+      // In the same tick as the empty check above: a status asked for after it
+      // starts a new pump instead of waiting on this finished one.
+      this.statusPump = null
+    }
+  }
+
+  /** The token for a status call. A turn can outlive the token it started with
+   *  (they last 2 h), so each call asks for the current one, and keeps the
+   *  caller's when a fresh one cannot be minted. */
+  private async statusToken(fallback: string): Promise<string> {
+    try { return await this.ensureToken() } catch { return fallback }
+  }
+
+  /** Keep the turn's busy status alive until the returned stop fn runs, and let
+   *  onEngineHop switch it to working meanwhile. */
+  private beatStatus(token: string): () => void {
+    this.turnStatusToken = token
+    const timer = setInterval(() => {
+      const status = this.requestedStatus
+      if (status !== 'thinking' && status !== 'working') return
+      if (this.lastPostedStatus === status) {
+        void this.statusToken(token).then((current) => runtimeBest(this.cfg.serverUrl, '/status/heartbeat', current, { status }))
+      } else if (!this.statusPump) {
+        // Its post failed, so the server still holds an older status: send it
+        // again. While a post is in flight there is nothing to retry yet.
+        void this.postStatus(token, status, this.requestedTool)
+      }
+    }, STATUS_HEARTBEAT_MS)
+    return () => {
+      clearInterval(timer)
+      this.turnStatusToken = null
+    }
   }
 
   /** Phase 1 of shutdown: stop accepting NEW wakes/turns, but leave any in-flight
@@ -2849,6 +2938,7 @@ export class AgentRunner {
     // in finally below alongside the heartbeat stop.
     this.currentRunId = run?.runId ?? null
     const stopRunBeat = this.beatRun(token, run?.runId)
+    const stopStatusBeat = this.beatStatus(token)
     let exitCode = 0
     let engineError: string | null = null
     let turnUsage: EngineUsage | undefined
@@ -2883,6 +2973,7 @@ export class AgentRunner {
       engineError = this.visibleEngineError(1, err instanceof Error ? (err.stack || err.message) : String(err))
     } finally {
       stopRunBeat()
+      stopStatusBeat()
       this.clearAutoStops()
       this.lastTurnEndedAt = Date.now()
       // Per-turn ledger drain: turn just ended, push any queued hops promptly
@@ -3300,6 +3391,7 @@ export class AgentRunner {
         // maybeAgendaTurn for the same hook).
         this.currentRunId = run?.runId ?? null
         const stopRunBeat = this.beatRun(token, run?.runId)
+        const stopStatusBeat = this.beatStatus(token)
         let exitCode = 0
         let engineError: string | null = null
         let turnUsage: EngineUsage | undefined
@@ -3358,6 +3450,7 @@ export class AgentRunner {
           engineError = this.visibleEngineError(exitCode, err instanceof Error ? (err.stack || err.message) : String(err))
         } finally {
           stopRunBeat()
+          stopStatusBeat()
           this.clearAutoStops()
           if (typingTimer) clearInterval(typingTimer)
           // Per-turn ledger drain (mirrors the agenda finally above).
