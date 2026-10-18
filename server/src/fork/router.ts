@@ -2,6 +2,7 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import type { AuthedRequest } from '../auth.js'
 import { ForkLimitError, getForkStore } from './store.js'
 import { roomActivity } from './activity.js'
+import { stopAgent } from './stop.js'
 
 type CompanyContext = { userId: string; companyId: string }
 
@@ -35,6 +36,7 @@ export function createForkRouter(deps: ForkRouterDeps): Router {
   })
 
   router.get('/rooms/:conversationId/activity', (req, res) => roomActivity(deps.requireCompany, req, res))
+  router.post('/rooms/:conversationId/agents/:agentId/stop', (req, res) => stopAgent(deps.requireCompany, req, res))
 
   router.post('/categories', async (req, res) => {
     const { userId, companyId } = await deps.requireCompany(req)

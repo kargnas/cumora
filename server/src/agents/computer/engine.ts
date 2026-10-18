@@ -267,6 +267,40 @@ function terminateEngineTree(child: ChildProcess, force = false): Promise<void> 
   return state.promise
 }
 
+/** Process groups under a detached engine other than its own. Codex starts
+ * every model command in a group of its own under its app-server. */
+function descendantGroups(child: ChildProcess): Promise<Set<number>> {
+  const root = child.pid
+  if (!root || IS_WIN) return Promise.resolve(new Set())
+  return new Promise((resolve) => {
+    execFile('ps', ['-axo', 'pid=,ppid=,pgid='], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => {
+      const parents = new Map<number, number>()
+      const groups = new Map<number, number>()
+      for (const line of err ? [] : stdout.split('\n')) {
+        const match = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)$/)
+        if (!match) continue
+        parents.set(Number(match[1]), Number(match[2]))
+        groups.set(Number(match[1]), Number(match[3]))
+      }
+      const tree = new Set([root])
+      expandDescendants(tree, parents)
+      const own = groups.get(root) ?? root
+      resolve(new Set([...tree].map((pid) => groups.get(pid)).filter((g): g is number => g !== undefined && g !== own)))
+    })
+  })
+}
+
+/** Stop the commands a turn started without stopping the engine. Groups that
+ * existed when the turn began (MCP servers start with the thread) stay. */
+async function terminateTurnGroups(child: ChildProcess, before: Promise<Set<number>>): Promise<void> {
+  const known = await before
+  const groups = [...await descendantGroups(child)].filter((group) => !known.has(group))
+  if (groups.length === 0) return
+  for (const group of groups) signalPid(-group, 'SIGTERM')
+  await new Promise((resolve) => setTimeout(resolve, 1_000))
+  for (const group of groups) signalPid(-group, 'SIGKILL')
+}
+
 /** Bind an AbortSignal to one engine child and retain the exact termination
  * promise. One-shot helpers must await `wait()` before resolving an aborted
  * operation; otherwise AgentRunner's active-run barrier can finish while the
@@ -588,6 +622,18 @@ export interface EngineUsage {
   cache_creation_input_tokens?: number
 }
 
+/** Sum two turns' usage: one send() can span the turn a steer starts. */
+function addUsage(a: EngineUsage | undefined, b: EngineUsage | undefined): EngineUsage | undefined {
+  if (!a || !b) return b ?? a
+  const sum = (x?: number, y?: number) => (x === undefined && y === undefined ? undefined : (x ?? 0) + (y ?? 0))
+  return {
+    input_tokens: sum(a.input_tokens, b.input_tokens),
+    output_tokens: sum(a.output_tokens, b.output_tokens),
+    cache_read_input_tokens: sum(a.cache_read_input_tokens, b.cache_read_input_tokens),
+    cache_creation_input_tokens: sum(a.cache_creation_input_tokens, b.cache_creation_input_tokens),
+  }
+}
+
 export type EngineFailureKind =
   | 'resume-not-found'
   | 'context-overflow'
@@ -683,6 +729,9 @@ export interface EngineRunResult {
   /** The actual model id the engine used this turn (parsed from its events), so
    *  cost is priced on the REAL model rather than a fallback guess. */
   model?: string | null
+  /** The turn ended because `EngineSession.interrupt()` stopped it. Not a
+   *  failure: the session is intact and its next turn continues the context. */
+  interrupted?: boolean
 }
 
 /** A LOCAL small-brain (cerebellum) completion: feed a self-contained prompt,
@@ -808,10 +857,16 @@ export interface EngineSession {
   /** Feed ONE turn; resolves when the engine emits its turn `result`. The daemon
    *  serializes calls (one turn at a time). */
   send(prompt: string): Promise<EngineRunResult>
-  /** Same-turn steering: inject a message into the RUNNING turn at the next safe
-   *  stream-json boundary so the agent answers a direct ping mid-task, then
-   *  continues. No-op if no turn is in flight. */
-  steer(text: string): void
+  /** Same-turn steering: inject a message into the RUNNING turn. The engine
+   *  hands it to the model at its next tool boundary, so the agent answers a
+   *  direct ping mid-task, then continues. `onDelivered` reports whether that
+   *  happened (true) or the turn ended or rejected it first (false); engines
+   *  that cannot tell never call it. No-op if no turn is in flight. */
+  steer(text: string, onDelivered?: (delivered: boolean) => void): void
+  /** Stop the running turn now, its running tool included, and drop steers
+   *  that have not reached the model yet. Resolves once the turn has settled
+   *  with `interrupted: true`. Absent on engines that cannot stop a turn. */
+  interrupt?(): Promise<void>
   /** Process is up and stdin is writable. */
   readonly alive: boolean
   /** The latest session id seen (to `--resume` if the process must be respawned). */
@@ -1334,7 +1389,15 @@ class ClaudeSession implements EngineSession {
   private stderrTail: string[] = []
   private stdoutTail: string[] = []
   private pendingTimer: ReturnType<typeof setTimeout> | null = null
-  private steerQueue: string[] = []
+  /** Protocol features the CLI announces on every turn's `system/init`. */
+  private capabilities = new Set<string>()
+  /** Steers written to stdin that the CLI has not handed to the model yet,
+   *  keyed by the uuid its `command_lifecycle` frames carry. */
+  private queuedSteers = new Map<string, (delivered: boolean) => void>()
+  /** Callers waiting for an interrupt() to settle the turn. */
+  private interrupting: (() => void)[] | null = null
+  /** Usage of the turns a steer turned this send() into, before the last one. */
+  private carriedUsage: EngineUsage | undefined
   readonly carriesStandingPrompt: boolean
 
   constructor(bin: string, args: string[], opts: EngineSessionArgs, carriesStandingPrompt: boolean) {
@@ -1392,20 +1455,38 @@ class ClaudeSession implements EngineSession {
     return terminateEngineTree(this.child, options.force)
   }
 
-  /** Same-turn STEERING: queue a message to inject into the
-   *  RUNNING turn at the next safe stream-json boundary, so the agent can answer a
-   *  direct ping mid-task — in the SAME session (full task context) — then continue.
+  /** Same-turn STEERING: write the message to stdin at once. Claude Code queues
+   *  it and folds it into the RUNNING turn right after the tool that is running
+   *  finishes, so the agent answers a direct ping mid-task — in the SAME session
+   *  (full task context) — then continues. The CLI decides the next request as
+   *  soon as a tool ends, so a steer must already be queued by then.
    *  No-op when no turn is in flight (the daemon's normal turn handles it instead). */
-  steer(text: string): void {
-    if (this.pending && this.alive && text.trim()) this.steerQueue.push(text)
+  steer(text: string, onDelivered?: (delivered: boolean) => void): void {
+    if (!this.pending || !this.alive || !text.trim()) return
+    // A steer that misses the turn's last tool call runs as a turn of its own.
+    // Only the uuid lifecycle frames tell this session that such a turn is
+    // coming; without them its result would settle the daemon's NEXT send().
+    if (!this.capabilities.has('msg_lifecycle_v1')) return
+    const uuid = randomUUID()
+    this.queuedSteers.set(uuid, onDelivered ?? (() => {}))
+    const line = JSON.stringify({ type: 'user', uuid, message: { role: 'user', content: [{ type: 'text', text: stripLoneSurrogates(text) }] } })
+    if (!writeStdin(this.child, line + '\n')) {
+      this.queuedSteers.delete(uuid)
+      onDelivered?.(false)
+    }
   }
 
-  private flushSteer(): void {
-    if (!this.pending || !this.alive) return
-    while (this.steerQueue.length > 0) {
-      const text = this.steerQueue.shift()!
-      if (!writeStdin(this.child, JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: stripLoneSurrogates(text) }] } }) + '\n')) break
-    }
+  /** Stop the running turn: the CLI aborts the model call and kills the running
+   *  tool. `cancel_queued` drops steers that have not reached the model, which
+   *  would otherwise start a fresh turn right after the stop. */
+  interrupt(): Promise<void> {
+    if (!this.pending || !this.alive) return Promise.resolve()
+    return new Promise((resolve) => {
+      if (this.interrupting) { this.interrupting.push(resolve); return }
+      this.interrupting = [resolve]
+      const request = { subtype: 'interrupt', cancel_queued: true }
+      writeStdin(this.child, JSON.stringify({ type: 'control_request', request_id: `interrupt-${randomUUID()}`, request }) + '\n')
+    })
   }
 
   private onStdout(buf: Buffer): void {
@@ -1419,9 +1500,22 @@ class ClaudeSession implements EngineSession {
       if (this.pending) pushTail(this.pending.stdout, line)
       this.onLog(line)
       if (!line.startsWith('{')) continue
-      let ev: { type?: unknown; session_id?: unknown; is_error?: unknown; subtype?: unknown; status?: unknown; result?: unknown; error?: unknown; usage?: EngineUsage; model?: unknown; message?: { model?: unknown; usage?: EngineUsage; content?: unknown } }
+      let ev: { type?: unknown; session_id?: unknown; is_error?: unknown; subtype?: unknown; status?: unknown; result?: unknown; error?: unknown; usage?: EngineUsage; model?: unknown; message?: { model?: unknown; usage?: EngineUsage; content?: unknown }; capabilities?: unknown; command_uuid?: unknown; state?: unknown }
       try { ev = JSON.parse(line) } catch { continue }
       if (typeof ev.session_id === 'string' && ev.session_id) this.sid = ev.session_id
+      if (ev.type === 'system' && ev.subtype === 'init' && Array.isArray(ev.capabilities)) {
+        this.capabilities = new Set(ev.capabilities.filter((c): c is string => typeof c === 'string'))
+      }
+      // 'started' is the moment a steer reaches the model, folded into the
+      // running turn or as the first prompt of the turn it starts. Any other
+      // state after 'queued' (cancelled, discarded, refused) means it never will.
+      if (ev.type === 'command_lifecycle' && typeof ev.command_uuid === 'string' && ev.state !== 'queued') {
+        const done = this.queuedSteers.get(ev.command_uuid)
+        if (done) {
+          this.queuedSteers.delete(ev.command_uuid)
+          done(ev.state === 'started')
+        }
+      }
       // Capture the real model id (assistant events carry message.model) for pricing.
       const evModel = typeof ev.message?.model === 'string' ? ev.message.model : (typeof ev.model === 'string' ? ev.model : null)
       if (evModel) this.curModel = evModel
@@ -1460,7 +1554,20 @@ class ClaudeSession implements EngineSession {
       if (ev.type === 'result') {
         this.hopStartedAt = null // turn boundary — drop any half-set hop timer
         this.hopIndex = 0        // reset the per-turn hop counter
-        this.steerQueue = [] // turn ending — any unflushed steer falls to the daemon's coalesced rerun
+        const usage = addUsage(this.carriedUsage, ev.usage && typeof ev.usage === 'object' ? ev.usage : undefined)
+        if (this.interrupting) {
+          this.resumePending = false
+          this.settle({ exitCode: 0, sessionId: this.sid, usage, model: this.curModel, interrupted: true })
+          continue
+        }
+        // A steer still queued here missed the turn's last tool call, and the
+        // CLI now runs it as the next turn on its own. That turn belongs to this
+        // send(): settling now would let the daemon write its next prompt into
+        // a turn it cannot see, and that turn's result would settle it.
+        if (this.queuedSteers.size > 0) {
+          this.carriedUsage = usage
+          continue
+        }
         const isErr = ev.is_error === true
         const diagnostic = isErr
           ? engineDiagnosticText([
@@ -1480,15 +1587,9 @@ class ClaudeSession implements EngineSession {
             diagnostic: diagnostic || message,
           } : undefined,
           sessionId: this.sid,
-          usage: ev.usage && typeof ev.usage === 'object' ? ev.usage : undefined,
+          usage,
           model: this.curModel,
         })
-      } else if (ev.type === 'user') {
-        // A tool_result echo is a SAFE stream-json boundary (not mid signed-thinking
-        // block) → inject any queued steering into THIS running turn so the agent can
-        // answer a direct ping mid-task, then continue — same-turn steering
-        // gated on stream-json boundaries.
-        this.flushSteer()
       }
     }
   }
@@ -1507,7 +1608,13 @@ class ClaudeSession implements EngineSession {
     if (this.pendingTimer) { clearTimeout(this.pendingTimer); this.pendingTimer = null }
     const p = this.pending
     this.pending = null
+    this.carriedUsage = undefined
+    for (const done of this.queuedSteers.values()) done(false)
+    this.queuedSteers.clear()
+    const stopped = this.interrupting
+    this.interrupting = null
     if (p) p.resolve(classifyEngineResult(r, this.resumePending))
+    for (const resolve of stopped ?? []) resolve()
   }
 
   /** Process died (error/close). Mark dead and fail any in-flight turn. */
@@ -2025,7 +2132,16 @@ class CodexSession implements EngineSession {
   private pending: { resolve: (r: EngineRunResult) => void } | null = null
   private queuedPrompt: string | null = null
   private activeTurnId: string | null = null
-  private steerGate = false
+  /** turn/steer requests waiting for the app-server's answer, by request id. */
+  private steerRequests = new Map<number, { text: string; done: (delivered: boolean) => void }>()
+  /** Accepted steers that have not shown up as a userMessage item yet. */
+  private acceptedSteers: { text: string; done: (delivered: boolean) => void }[] = []
+  /** Request ids whose answer carries no turn state (turn/interrupt). */
+  private ignoredReplies = new Set<number>()
+  /** Callers waiting for an interrupt() to settle the turn. */
+  private interrupting: (() => void)[] | null = null
+  /** Process groups already under the app-server when the turn started. */
+  private groupsAtTurnStart: Promise<Set<number>> = Promise.resolve(new Set())
   private readonly model: string | null
   readonly carriesStandingPrompt: boolean
   // Codex reports a RUNNING thread token total; per-turn usage is the delta.
@@ -2089,10 +2205,30 @@ class CodexSession implements EngineSession {
     })
   }
 
-  steer(text: string): void {
-    if (!this.alive || !text.trim() || !this.threadId || !this.activeTurnId || this.steerGate) return
-    writeStdin(this.child, JSON.stringify({ jsonrpc: '2.0', id: this.nextId(), method: 'turn/steer',
-      params: { threadId: this.threadId, expectedTurnId: this.activeTurnId, input: [{ type: 'text', text: stripLoneSurrogates(text) }] } }) + '\n')
+  /** The app-server accepts a steer at any point of an active turn, a running
+   *  command included, and hands it to the model right after that command ends. */
+  steer(text: string, onDelivered?: (delivered: boolean) => void): void {
+    if (!this.alive || !text.trim() || !this.threadId || !this.activeTurnId) return
+    const id = this.nextId()
+    const input = stripLoneSurrogates(text)
+    this.steerRequests.set(id, { text: input, done: onDelivered ?? (() => {}) })
+    writeStdin(this.child, JSON.stringify({ jsonrpc: '2.0', id, method: 'turn/steer',
+      params: { threadId: this.threadId, expectedTurnId: this.activeTurnId, input: [{ type: 'text', text: input }] } }) + '\n')
+  }
+
+  /** turn/interrupt ends the turn at once but leaves the command it was running
+   *  alive (its `processId` is not an OS pid), so stop that command here. */
+  interrupt(): Promise<void> {
+    if (!this.pending || !this.alive || !this.threadId || !this.activeTurnId) return Promise.resolve()
+    return new Promise((resolve) => {
+      if (this.interrupting) { this.interrupting.push(resolve); return }
+      this.interrupting = [resolve]
+      const id = this.nextId()
+      this.ignoredReplies.add(id)
+      writeStdin(this.child, JSON.stringify({ jsonrpc: '2.0', id, method: 'turn/interrupt',
+        params: { threadId: this.threadId, turnId: this.activeTurnId } }) + '\n')
+      void terminateTurnGroups(this.child, this.groupsAtTurnStart)
+    })
   }
 
   stop(options: { force?: boolean } = {}): Promise<void> {
@@ -2113,6 +2249,7 @@ class CodexSession implements EngineSession {
   private startTurn(prompt: string): void {
     if (this.threadId) {
       this.turnStartedAt = Date.now()
+      this.groupsAtTurnStart = descendantGroups(this.child)
       this.req('turn/start', { threadId: this.threadId, input: [{ type: 'text', text: stripLoneSurrogates(prompt) }] })
     }
   }
@@ -2139,6 +2276,21 @@ class CodexSession implements EngineSession {
   }
 
   private handle(msg: CodexRpcMsg): void {
+    // Answers to turn/steer and turn/interrupt never fail the turn: a steer the
+    // app-server rejects (the turn just ended) is still in the inbox, and the
+    // daemon's coalesced rerun carries it.
+    if (msg.id !== undefined && msg.method === undefined) {
+      const steer = this.steerRequests.get(msg.id)
+      if (steer) {
+        this.steerRequests.delete(msg.id)
+        if (msg.error) {
+          this.onLog(`[codex] steer not accepted: ${String(msg.error.message || '')}`)
+          steer.done(false)
+        } else this.acceptedSteers.push(steer)
+        return
+      }
+      if (this.ignoredReplies.delete(msg.id)) return
+    }
     // initialize response → initialized + open the thread (start or resume).
     if (msg.id !== undefined && msg.id === this.initializeId) {
       this.initializeId = null
@@ -2166,7 +2318,7 @@ class CodexSession implements EngineSession {
     if (typeof threadId === 'string') { this.onThreadReady(threadId); return }
     // turn id (for steering) — from the turn/start response or turn/started notif.
     const turnId = msg.result?.turn?.id ?? msg.result?.turnId ?? (msg.method === 'turn/started' ? (msg.params?.turn as { id?: unknown } | undefined)?.id : undefined)
-    if (typeof turnId === 'string') { this.activeTurnId = turnId; this.steerGate = false }
+    if (typeof turnId === 'string') this.activeTurnId = turnId
     // running thread token total.
     if (msg.method === 'thread/tokenUsage/updated') { this.updateUsage((msg.params?.tokenUsage as { total?: unknown } | undefined)?.total); return }
     // surface the account rate limit ONLY when it's getting tight (would have flagged
@@ -2177,17 +2329,18 @@ class CodexSession implements EngineSession {
       return
     }
     // items: observe native compaction; log the commands the agent runs
-    // + its final answer (concise signal); a completed item briefly gates steering.
+    // + its final answer (concise signal); a steer reaches the model as a
+    // userMessage item of the running turn.
     if (msg.method === 'item/started' || msg.method === 'item/completed') {
-      const item = msg.params?.item as { type?: unknown; command?: unknown; text?: unknown } | undefined
+      const item = msg.params?.item as { type?: unknown; command?: unknown; text?: unknown; content?: unknown } | undefined
       const ty = item?.type
       if (ty === 'contextCompaction') this.onLog(`[codex] native context compaction ${msg.method === 'item/started' ? 'started' : 'finished'}`)
       else if (ty === 'commandExecution' && msg.method === 'item/started' && typeof item?.command === 'string') this.onLog(`[codex] $ ${item.command.replace(/\s+/g, ' ').slice(0, 200)}`)
       else if (ty === 'agentMessage' && msg.method === 'item/completed' && typeof item?.text === 'string' && item.text.trim()) this.onLog(`[codex] » ${item.text.replace(/\s+/g, ' ').slice(0, 200)}`)
-      if (msg.method === 'item/completed') this.steerGate = true
+      else if (ty === 'userMessage' && msg.method === 'item/started') this.markSteerDelivered(item?.content)
       return
     }
-    if (msg.method === 'item/agentMessage/delta' || msg.method === 'item/reasoning/textDelta' || msg.method === 'item/reasoning/summaryTextDelta') { this.steerGate = false; return }
+    if (msg.method === 'item/agentMessage/delta' || msg.method === 'item/reasoning/textDelta' || msg.method === 'item/reasoning/summaryTextDelta') return
     // request-level error (e.g. thread/start failed) → fail the in-flight turn.
     if (msg.error && msg.id !== undefined) { this.failPending(String(msg.error.message || 'codex app-server request failed')); return }
     // turn finished → resolve the pending send.
@@ -2215,7 +2368,7 @@ class CodexSession implements EngineSession {
         } catch { /* never break the stream */ }
       }
       this.turnStartedAt = null
-      this.activeTurnId = null; this.steerGate = false
+      this.activeTurnId = null
       this.settle(failed)
       return
     }
@@ -2252,10 +2405,27 @@ class CodexSession implements EngineSession {
     }
   }
 
+  private markSteerDelivered(content: unknown): void {
+    const texts = Array.isArray(content)
+      ? content.map((part) => (part as { text?: unknown } | null)?.text).filter((t): t is string => typeof t === 'string')
+      : []
+    const i = this.acceptedSteers.findIndex((s) => texts.includes(s.text))
+    if (i < 0) return
+    const [steer] = this.acceptedSteers.splice(i, 1)
+    steer.done(true)
+  }
+
   private settle(error?: string): void {
     const p = this.pending
     this.pending = null
-    if (p) p.resolve(classifyEngineResult({ exitCode: error ? 1 : 0, error, sessionId: this.threadId, usage: this.turnUsage(), model: this.model }, this.threadWasResume))
+    // Codex drops steers that the turn did not reach before it ended.
+    for (const s of this.acceptedSteers) s.done(false)
+    this.acceptedSteers = []
+    const stopped = this.interrupting
+    this.interrupting = null
+    const interrupted = stopped !== null && !error
+    if (p) p.resolve(classifyEngineResult({ exitCode: error ? 1 : 0, error, sessionId: this.threadId, usage: this.turnUsage(), model: this.model, ...(interrupted ? { interrupted } : {}) }, this.threadWasResume))
+    for (const resolve of stopped ?? []) resolve()
   }
   private failPending(error: string): void {
     if (this.pending) this.settle(error)

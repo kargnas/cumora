@@ -42,7 +42,9 @@ import { type ProviderProfile, providerProfileEnv, providerProfileFingerprint, p
 import { modelIdOrNull } from './model-id.js'
 import { parseComputerControlEvent } from './control-event.js'
 import {
+  type InterruptWakeData,
   mergeWakeBackgroundBriefs,
+  parseInterruptData,
   parseWakeData,
   type WakeBackgroundBrief,
   wakeHasActionableInput,
@@ -162,6 +164,19 @@ const STEER_GROUP_IN_TURN = process.env.CUMORA_BYOA_STEER_GROUP !== '0'
 // Throttle for the content-free group notice so a fast room can't spam the live
 // session — at most one group nudge per this window (direct pings are unthrottled).
 const GROUP_STEER_MIN_INTERVAL_MS = Math.max(0, Number(process.env.CUMORA_BYOA_STEER_GROUP_INTERVAL_MS ?? 8_000))
+// The engine folds a steer in when the tool it is running ends. When a person's
+// DM or @mention has not reached the model this long after (a long command is
+// still running), the turn is stopped so the agent answers now, and the rerun
+// tells it to pick the stopped task back up.
+const AUTO_STOP_AFTER_MS = 60_000
+
+/** Does this row stop a busy turn when it waits too long? Only a person writing
+ *  to the agent: a DM, or an @mention in a group. Agent pings and group chatter
+ *  wait for the tool boundary or the coalesced rerun. */
+export function autoStopsTurn(row: { conversation_kind?: unknown; author_kind?: unknown; body?: unknown }, agentId: string): boolean {
+  if (row.author_kind !== 'human') return false
+  return row.conversation_kind === 'direct' || (typeof row.body === 'string' && row.body.includes(`@${agentId}`))
+}
 // Board-awareness: when chat is idle, check the agent's AGENDA (assigned Kanban
 // cards + due calendar events) so it PROACTIVELY picks up assigned board work
 // instead of only reacting to a chat push. Gated like the cloud idle scheduler:
@@ -1835,6 +1850,18 @@ export class AgentRunner {
    *  message (throttled by GROUP_STEER_MIN_INTERVAL_MS). */
   private lastGroupSteeredMsgId: string | null = null
   private lastGroupSteerAt = 0
+  /** Bumped at every turn start, so a timer armed in one turn never stops a later one. */
+  private turnSeq = 0
+  /** AUTO_STOP_AFTER_MS timers of steers the engine has not delivered yet. */
+  private autoStopTimers = new Set<ReturnType<typeof setTimeout>>()
+  /** Why the running turn is being stopped, read when it settles: a person
+   *  pressed Stop, or a steered message waited too long. */
+  private stopReason:
+    | { kind: 'manual'; byName: string; conversationId: string }
+    | { kind: 'auto'; who: string; conversationId: string }
+    | null = null
+  /** Told to the model at the start of the rerun that follows an automatic stop. */
+  private stopNote: string | null = null
   private pollTimer: ReturnType<typeof setInterval> | undefined
   /** Wake-stream liveness for fallbackPollDue: when the stream last showed
    *  signs of life (connect, any event, any `: ping`); null while disconnected. */
@@ -2135,6 +2162,7 @@ export class AgentRunner {
     if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = undefined }
     this.streamAbort?.abort()
     if (this.wakeDebounceTimer) { clearTimeout(this.wakeDebounceTimer); this.wakeDebounceTimer = null }
+    this.clearAutoStops()
   }
 
   async stop(options: { forceEngine?: boolean } = {}): Promise<void> {
@@ -2982,13 +3010,51 @@ export class AgentRunner {
       this.lastSteeredMsgId = latest.id
       const who = latest.author_name ?? 'someone'
       const body = (latest.body ?? '').replace(/\s+/g, ' ').slice(0, 300)
+      let autoStop: ReturnType<typeof setTimeout> | null = null
+      if (autoStopsTurn(latest, this.agent.id) && session.interrupt) {
+        const seq = this.turnSeq
+        autoStop = setTimeout(() => {
+          if (autoStop) this.autoStopTimers.delete(autoStop)
+          if (!this.busy || this.turnSeq !== seq || this.engineSession !== session || this.stopReason) return
+          console.log(`[computer] ${this.agent.id} AUTO-STOP — ${who}'s message in ${convo} waited ${AUTO_STOP_AFTER_MS / 1000}s behind a running tool`)
+          this.stopReason = { kind: 'auto', who, conversationId: convo }
+          void session.interrupt?.()
+        }, AUTO_STOP_AFTER_MS)
+        autoStop.unref?.()
+        this.autoStopTimers.add(autoStop)
+      }
       session.steer(
         `⚡ A direct message arrived while you work — answer it BRIEFLY, then resume your current task (do NOT drop it). ${who} in ${convo}: "${body}". Reply one line now: \`cumora reply ${convo} 'text'\` — a quick answer, or "on it, mid-task, will follow up". Then continue what you were doing.`,
+        // Delivered: the model has it, nothing to stop. Not delivered: the turn
+        // ended first, and the coalesced rerun carries the message.
+        () => {
+          if (!autoStop) return
+          clearTimeout(autoStop)
+          this.autoStopTimers.delete(autoStop)
+        },
       )
       console.log(`[computer] ${this.agent.id} STEER → live turn (direct msg in ${convo} from ${who})`)
     } catch { /* best-effort; the coalesced rerun still handles it at turn end */ } finally {
       this.sideSteering = false
     }
+  }
+
+  private clearAutoStops(): void {
+    for (const timer of this.autoStopTimers) clearTimeout(timer)
+    this.autoStopTimers.clear()
+  }
+
+  /** A person pressed Stop in a room this agent works in. The turn settles as
+   *  interrupted, and runTurn stands the agent down (see stopReason). */
+  private async stopTurn(stop: InterruptWakeData): Promise<void> {
+    const session = this.engineSession
+    if (!this.busy || !session?.interrupt) {
+      console.log(`[computer] ${this.agent.id} stop from ${stop.byName} ignored — ${this.busy ? 'this engine cannot stop a running turn' : 'no turn is running'}`)
+      return
+    }
+    console.log(`[computer] ${this.agent.id} STOP requested by ${stop.byName} in ${stop.conversationId}`)
+    this.stopReason = { kind: 'manual', byName: stop.byName, conversationId: stop.conversationId }
+    await session.interrupt()
   }
 
   /** Run one turn. Coalesces concurrent wakes: a wake during a run schedules
@@ -3136,6 +3202,7 @@ export class AgentRunner {
           ? `manual brief ${activeBackgroundBrief.source ?? 'unknown'}`
           : `triage ${triageMs}ms`
         console.log(`[computer] ${this.agent.id} turn START (${reason}) — ${gateLabel}, spawning ${this.adapter.id}${convo ? ` for ${convo}` : ''}`)
+        this.turnSeq += 1
         await this.postStatus(token, 'thinking')
         // "<agent> is typing…" in the conversation that woke us, refreshed
         // while the engine works (BYOA runs can be long), cleared at the end.
@@ -3185,6 +3252,7 @@ export class AgentRunner {
         let engineError: string | null = null
         let turnUsage: EngineUsage | undefined
         let turnModel: string | null | undefined
+        let turnInterrupted = false
         // Per-computer concurrency gate + deterministic spawn pacer.
         // Pacer enforces a minimum interval between back-to-back spawns
         // (shared with triage path) so the provider never sees a burst of
@@ -3212,13 +3280,19 @@ export class AgentRunner {
               .then((r) => r?.roster ?? '').catch(() => ''),
           ])
           this.teardown.signal.throwIfAborted()
-          const delta = turnBackgroundBrief
+          const stopNote = this.stopNote
+          this.stopNote = null
+          const delta = (stopNote ? `${stopNote}\n\n` : '') + (turnBackgroundBrief
             ? this.manualBriefDelta(turnBackgroundBrief, memoryDigest, digest, roster)
-            : this.chatDelta(memoryDigest, triageNote, digest, roster)
-          const result = await this.runWithSessionRecovery(delta)
+            : this.chatDelta(memoryDigest, triageNote, digest, roster))
+          // Stop pressed before the engine got this turn's prompt: skip it.
+          const result: EngineRunResult = this.stopReason?.kind === 'manual'
+            ? { exitCode: 0, interrupted: true }
+            : await this.runWithSessionRecovery(delta)
           exitCode = result.exitCode
           turnUsage = result.usage
           turnModel = result.model
+          turnInterrupted = result.interrupted === true
           if (result.error) engineError = this.visibleEngineError(exitCode, result.failure?.message ?? result.error)
           // A stale resume OR a context-window overflow means this session can't
           // be carried forward — drop it AND tear down any persistent process so
@@ -3232,6 +3306,7 @@ export class AgentRunner {
           engineError = this.visibleEngineError(exitCode, err instanceof Error ? (err.stack || err.message) : String(err))
         } finally {
           stopRunBeat()
+          this.clearAutoStops()
           if (typingTimer) clearInterval(typingTimer)
           // Per-turn ledger drain (mirrors the agenda finally above).
           this.currentRunId = null
@@ -3310,6 +3385,36 @@ export class AgentRunner {
         // from re-waking the big brain on the next drain. On engine FAILURE we
         // skip the ack so the unread survives for a retry / next wake.
         if (!engineError) await this.ackSeen(token, seen)
+        const stop = this.stopReason
+        this.stopReason = null
+        if (stop?.kind === 'manual') {
+          // A person stopped this agent: stand down. What arrived up to now
+          // counts as read, so the poll does not restart the stopped work;
+          // messages that land after this wake the agent as usual.
+          const { seen: unread } = await this.snapshotUnread(token)
+          await this.ackSeen(token, unread)
+          this.pendingRerun = false
+          if (turnInterrupted) {
+            await runtimeBest(this.cfg.serverUrl, '/notices', token, {
+              conversationId: stop.conversationId,
+              agentId: this.agent.id,
+              noticeKind: 'agent_stopped',
+              text: `${stop.byName} stopped ${this.agent.name}.`,
+              dedupeKey: `agent_stopped:${this.agent.id}:${run?.runId ?? turnStart}`,
+              dedupeTtlSec: 60,
+            })
+          }
+          console.log(`[computer] ${this.agent.id} stood down after ${stop.byName} pressed Stop`)
+        } else if (stop?.kind === 'auto' && turnInterrupted) {
+          // The message that waited is still unread (it arrived after this
+          // turn's snapshot), so the rerun answers it; this note brings the
+          // stopped task back.
+          this.stopNote =
+            `Your previous turn was stopped so you could answer ${stop.who} in ${stop.conversationId}: their message waited ` +
+            `more than ${AUTO_STOP_AFTER_MS / 60_000} minute while a command ran, and that command did not finish. ` +
+            `Answer them first, then continue the task you were working on, re-running the stopped command if it is still needed.`
+          this.pendingRerun = true
+        }
         await this.postStatus(token, 'avail')
         // A chat turn resets the "quiet" anchor: an agent that just acted in chat
         // isn't immediately pulled into an agenda turn (mirrors the cloud idle
@@ -3335,6 +3440,9 @@ export class AgentRunner {
         err instanceof Error ? err.message : err)
     } finally {
       this.busy = false
+      // A stop applies to this run only (stopTurn needs a busy agent); one that
+      // landed while triage skipped the turn must not skip a later turn.
+      this.stopReason = null
     }
   }
 
@@ -3366,6 +3474,11 @@ export class AgentRunner {
         for await (const evt of parseSseStream(res.body as unknown as AsyncIterable<unknown>, { onComment: alive })) {
           alive()
           if (this.stopped) break
+          if (evt.event === 'interrupt') {
+            const stop = parseInterruptData(evt.data)
+            if (stop) void this.stopTurn(stop)
+            continue
+          }
           if (evt.event === 'wake' || evt.event === 'steer') {
             // 'wake': normal new-activity nudge. 'steer': a peer posted while we
             // were mid-turn. We can't inject into the running engine (claude -p
