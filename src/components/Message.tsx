@@ -47,7 +47,7 @@ function MentionChip({ id }: { id: string }) {
     return (
       <span
         className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 rounded-full font-semibold text-coral-deep bg-coral-soft"
-        style={{ verticalAlign: '-0.15em' }}
+        style={{ verticalAlign: 'top' }}
       >
         <img src="/everyone.png" alt="" className="w-4 h-4 rounded-full object-cover" />
         <span style={{ lineHeight: '16px' }}>{t('msgview.atAll')}</span>
@@ -85,17 +85,17 @@ function MentionChip({ id }: { id: string }) {
         className={cn(
           // Symmetric horizontal padding (avatar + text feel balanced in the
           // chip instead of the avatar grazing the left edge), 4px gap so
-          // the @ sign reads as paired with the avatar. The chip is taller
-          // than the 14px text line, so we pin its vertical-align with an em
-          // offset to center it on the surrounding CJK glyphs. -0.15em was
-          // measured against 14px/leading-1.55 CJK text (see RichInput, which
-          // uses the same value): `baseline`/`middle` ride high, -0.25em (the
-          // old value) sat visibly low. Keep this in sync with RichInput.
+          // the @ sign reads as paired with the avatar. The 20px chip is
+          // shorter than a message line (14px × 1.5–1.55), so `top` seats it
+          // inside the line box: the line keeps its height and the chip sits
+          // centered on it whatever the font. An em offset (the old -0.15em)
+          // moved with each font's ascent and descent and pushed lines apart.
+          // Keep this in sync with RichInput.
           'inline-flex items-center justify-center gap-1 px-1.5 py-0.5 rounded-full font-semibold cursor-pointer transition',
           isAgent ? 'text-skype-deep bg-sky2-50 hover:bg-sky2-100'
                   : 'text-coral-deep bg-coral-soft hover:brightness-95',
         )}
-        style={{ verticalAlign: '-0.15em' }}
+        style={{ verticalAlign: 'top' }}
       >
         <Avatar p={p} size={16} ringColor="var(--cloud)" showStatus={false} />
         {/* Wrap the label in its own inline-flex box so the parent chip's

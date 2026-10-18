@@ -19,6 +19,7 @@ import { TwEmoji } from '@/components/TwEmoji'
 import { cn } from '@/lib/utils'
 import { COMPOSER_EMOJIS } from '@/lib/emoji'
 import { isImeComposing } from '@/lib/keyboard'
+import { useAgentStop } from '@/lib/agentStop'
 import { MessageRow, TypingRow } from '@/components/Message'
 import { PollComposer } from '@/components/PollComposer'
 import { ScrollToLatestButton } from '@/components/ScrollToLatestButton'
@@ -1008,6 +1009,9 @@ export function Composer({
   }, [scopeKey])
 
   const canSend = (draft.trim().length > 0 || attachment !== null) && !uploading
+  // Fork: an empty box turns Send into Stop while an agent works in this room.
+  const agentStop = useAgentStop(convoId, !canSend && !uploading)
+  const stoppable = agentStop.stoppable
 
   return (
     <div className={isThread ? '' : 'px-[22px] pt-1.5 pb-[18px]'}
@@ -1272,18 +1276,32 @@ export function Composer({
               />
             )}
           </div>
-          <button
-            type="button"
-            onClick={send}
-            disabled={!canSend}
-            className="ml-auto h-[30px] px-3.5 rounded-full font-semibold text-[12px] text-white inline-flex items-center gap-1.5 transition disabled:cursor-not-allowed"
-            style={{
-              background: canSend ? 'var(--skype)' : 'var(--ink-200)',
-              boxShadow: canSend ? '0 4px 12px -3px rgba(0, 168, 240, 0.5)' : 'none',
-            }}
-          >
-            {t('chat.send')} <ISend className="w-3.5 h-3.5" strokeWidth={2} />
-          </button>
+          {stoppable ? (
+            <button
+              type="button"
+              onClick={() => void agentStop.stop()}
+              disabled={agentStop.busy}
+              aria-busy={agentStop.busy || undefined}
+              title={t('chat.stopAgent', { name: agentStop.names })}
+              className="ml-auto h-[30px] px-3.5 rounded-full font-semibold text-[12px] inline-flex items-center gap-1.5 transition disabled:opacity-60"
+              style={{ background: 'var(--ink-900)', color: 'var(--paper)' }}
+            >
+              {t('chat.stop')} <span aria-hidden className="w-2.5 h-2.5 rounded-[2px] bg-current" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={send}
+              disabled={!canSend}
+              className="ml-auto h-[30px] px-3.5 rounded-full font-semibold text-[12px] text-white inline-flex items-center gap-1.5 transition disabled:cursor-not-allowed"
+              style={{
+                background: canSend ? 'var(--skype)' : 'var(--ink-200)',
+                boxShadow: canSend ? '0 4px 12px -3px rgba(0, 168, 240, 0.5)' : 'none',
+              }}
+            >
+              {t('chat.send')} <ISend className="w-3.5 h-3.5" strokeWidth={2} />
+            </button>
+          )}
         </div>
       </div>
     </div>

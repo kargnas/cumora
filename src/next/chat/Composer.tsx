@@ -16,12 +16,13 @@ import { useParticipants } from '@/stores/participants'
 import { RichInput, type RichInputHandle } from '@/components/RichInput'
 import { PollComposer } from '@/components/PollComposer'
 import { isImeComposing } from '@/lib/keyboard'
+import { useAgentStop } from '@/lib/agentStop'
 import type { Participant } from '@/types'
 import { haptic } from '../haptics'
 import { useNT } from '../i18n'
 import { Avatar } from '../ui/Avatar'
 import { IconButton, Kbd, Menu, Spinner, T_QUICK, useCoarse, useMenu } from '../ui/primitives'
-import { IArrowUp, IAt, IClip, IFile, IPlus, IPoll, ISmile, IX } from '../ui/icons'
+import { IArrowUp, IAt, IClip, IFile, IPlus, IPoll, ISmile, IStop, IX } from '../ui/icons'
 import { EmojiPicker } from './EmojiPicker'
 
 /** Same cadence as the classic composer: re-ping "typing" at most every 3 s
@@ -86,6 +87,14 @@ export function Composer({ convoId, threadRootId = null }: {
   const plus = useMenu()
   const finishTyping = useTypingSignal(convoId, draft.text, !isThread)
   const canSend = draft.text.trim().length > 0 || !!draft.attachment
+  // An empty box turns send into Stop while an agent works in this room; a
+  // typed message still goes out, and the agent reads it at its next tool call.
+  const agentStop = useAgentStop(convoId, !canSend && !uploading)
+  const stoppable = agentStop.stoppable
+  const stopAgents = async () => {
+    const ok = await agentStop.stop()
+    if (ok !== null) haptic(ok ? 'success' : 'error')
+  }
 
   // The editor remounts per room (keyed by scope) and hydrates from
   // defaultValue. Calling setValue on open would place a caret, and on
@@ -323,13 +332,15 @@ export function Composer({ convoId, threadRootId = null }: {
           type="button"
           className="nx-send"
           data-ready={canSend || undefined}
-          disabled={!canSend || uploading}
-          aria-label={nt('composer.send')}
-          aria-keyshortcuts="Enter"
+          data-stop={stoppable || undefined}
+          disabled={stoppable ? agentStop.busy : !canSend || uploading}
+          aria-busy={agentStop.busy || undefined}
+          aria-label={stoppable ? nt('composer.stop', { name: agentStop.names }) : nt('composer.send')}
+          aria-keyshortcuts={stoppable ? undefined : 'Enter'}
           onPointerDown={(e) => e.preventDefault() /* keep the keyboard up on phones */}
-          onClick={send}
+          onClick={stoppable ? stopAgents : send}
         >
-          <IArrowUp />
+          {stoppable ? (agentStop.busy ? <Spinner /> : <IStop />) : <IArrowUp />}
         </button>
       </div>
 
