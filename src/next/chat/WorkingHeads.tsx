@@ -1,9 +1,9 @@
 /**
- * Agents at work in the room peek over the composer bar. Every agent that
- * shows "typing" here gets a head that rises from behind the bar when it
- * starts and ducks back when it stops, so the transcript keeps no row for
- * them and the bar gains one fixed band however many agents work: past the
- * cap the rest share one "+N" head. A mouse hovering a head names it; a click
+ * Agents at work in the room sit on the composer bar. Every agent that shows
+ * "typing" here gets a head that pops up on the bar's top edge when it starts
+ * and shrinks away when it stops. The heads float out of the flow, so the
+ * transcript keeps no row for them and never moves, however many agents work:
+ * past the cap the rest share one "+N" head. A mouse hovering a head names it; a click
  * on the heads (a tap on touch) lists everyone at work, with a stop button for
  * the agents whose engine can stop a turn.
  */
@@ -40,15 +40,21 @@ useMessages.subscribe((s, prev) => {
   }
 })
 
+// The heads sit in front of the bar, so they pop up from their base.
+const SHOWN = { scale: 1, opacity: 1 }
+const GONE = { scale: 0.6, opacity: 0 }
+const BASE = { originY: 1 }
+
 const Head = memo(function Head({ p, x, size, since }: { p: Participant; x: number; size: number; since: number }) {
   const [hover, setHover] = useState(false)
   const now = useNow(hover)
   return (
     <motion.span
       className="nx-heads__head"
-      initial={{ x, y: size }}
-      animate={{ x, y: 0 }}
-      exit={{ y: size }}
+      style={BASE}
+      initial={{ x, ...GONE }}
+      animate={{ x, ...SHOWN }}
+      exit={GONE}
       transition={T_FAST}
       onPointerEnter={(e) => { if (e.pointerType === 'mouse') setHover(true) }}
       onPointerLeave={() => setHover(false)}
@@ -143,17 +149,17 @@ export function WorkingHeads({ convoId }: { convoId: string }) {
 
   return (
     <>
-      {/* Heads already up when the room opens stay put, like the messages; later ones rise. */}
+      {/* Heads already up when the room opens stay put, like the messages; later ones pop up. */}
       <AnimatePresence initial={false}>
         {agents.length > 0 && (
           <motion.button
             key="heads"
             type="button"
             className="nx-heads"
-            style={{ width: (Math.min(agents.length, cap) - 1) * step + size, height: size }}
-            initial={{ y: size }}
-            animate={{ y: 0 }}
-            exit={{ y: size }}
+            style={{ ...BASE, width: (Math.min(agents.length, cap) - 1) * step + size, height: size }}
+            initial={GONE}
+            animate={SHOWN}
+            exit={GONE}
             transition={T_FAST}
             aria-label={agents.length === 1 ? nt('chat.oneWorking', { name: agents[0].name }) : nt('chat.manyWorking', { n: agents.length })}
             aria-haspopup="menu"
@@ -171,9 +177,10 @@ export function WorkingHeads({ convoId }: { convoId: string }) {
                 <motion.span
                   key="rest"
                   className="nx-heads__head"
-                  initial={{ x: shown.length * step, y: size }}
-                  animate={{ x: shown.length * step, y: 0 }}
-                  exit={{ y: size }}
+                  style={BASE}
+                  initial={{ x: shown.length * step, ...GONE }}
+                  animate={{ x: shown.length * step, ...SHOWN }}
+                  exit={GONE}
                   transition={T_FAST}
                 >
                   <span className="nx-heads__more nx-mono" style={{ width: size, height: size }}>+{rest}</span>
