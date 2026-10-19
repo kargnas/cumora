@@ -13,6 +13,7 @@ import { ICheck, IChevronRight, IConvene, IExit, IHash } from '../ui/icons'
 import { useRoomAgents } from '../chat/ChatView'
 import { AgentChips, usePickedAgent } from './AgentChips'
 import { AGENT_EDIT_PARAM, AgentEditDialog } from './AgentEditDialog'
+import { CodingGroup } from './CodingGroup'
 
 /** A field that saves on blur/Enter and shows its own pending state, so an
  *  edit never blocks the rest of the panel. */
@@ -164,6 +165,7 @@ export function DetailsTab({ c }: { c: Conversation }) {
   const canRename = c.kind === 'group'
   return (
     <div className="nx-details">
+      {admin && agents.length > 0 && <CodingGroup agents={agents} />}
       <section className="nx-details__group" aria-label={nt('details.thisRoom')}>
         <h3 className="nx-details__head"><IHash aria-hidden />{nt('details.thisRoom')}</h3>
         {canRename && <EditableField label={nt('details.title')} value={c.title} onSave={(v) => api.setTitle(c.id, v)} />}

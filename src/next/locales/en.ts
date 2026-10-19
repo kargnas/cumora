@@ -227,6 +227,15 @@ const core = {
   'details.agentStyleRequired': 'An agent needs a style.',
   'details.agentMore': 'Model, computer and avatar',
 
+  'coding.head': 'Coding',
+  'coding.running': 'Running',
+  'coding.waiting': 'Needs an answer',
+  'coding.completed': 'Finished',
+  'coding.failed': 'Failed',
+  'coding.stopped': 'Stopped',
+  'coding.idle': 'Idle',
+  'coding.serverError': 'T3 server {server}: {error}',
+
   'files.none': 'No files or documents in this conversation yet.',
   'files.images': 'Images',
   'files.files': 'Files',

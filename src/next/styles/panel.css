@@ -449,6 +449,16 @@ button.nx-hb-note { transition: background-color var(--duration-quick); }
 .nx-row--link > svg { width: 16px; height: 16px; flex: none; color: var(--muted-foreground); }
 .nx-row__value { max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-caption); color: var(--muted-foreground); }
 @media (hover: hover) { .nx-row--link:hover .nx-row__text { color: var(--primary); } }
+/* Coding (panel/CodingGroup.tsx): the status sign takes a 16px slot whether it
+   is an icon, the 14px spinner or the idle dot, so titles line up. */
+.nx-coding > svg { width: 16px; height: 16px; flex: none; }
+.nx-coding > .nx-spinner { margin: 0 1px; }
+.nx-coding__dot { flex: none; width: 6px; height: 6px; margin: 0 5px; border-radius: 999px; background: currentColor; }
+.nx-coding[data-tone="live"] > :first-child { color: var(--live); }
+.nx-coding[data-tone="warn"] > :first-child { color: var(--warn); }
+.nx-coding[data-tone="bad"] > :first-child { color: var(--destructive); }
+.nx-coding[data-tone="muted"] > :first-child { color: var(--muted-foreground); }
+.nx-coding__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── Files ─────────────────────────────────────────────────────────── */
 .nx-files { display: flex; flex-direction: column; gap: 8px; }

@@ -2,6 +2,7 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import type { AuthedRequest } from '../auth.js'
 import { ForkLimitError, getForkStore } from './store.js'
 import { agentHandbook } from './handbook.js'
+import { agentCoding, startCodingPoller } from './coding.js'
 import { startRecorder } from './recorder.js'
 import { startMoods } from './mood.js'
 import { stopAgent } from './stop.js'
@@ -79,12 +80,13 @@ async function requireRoom(companyId: string, userId: string, conversationId: st
 /** Fork-only endpoints under /api/fork, backed by the SQLite store in ./store.ts.
  *  Every row is scoped by the caller's own (companyId, userId) from requireCompany.
  *  Created once at boot, which is also when the Handbook's recorder, the bloub
- *  moods and the trigger poller start. */
+ *  moods, the trigger poller and the T3 coding poller start. */
 export function createForkRouter(deps: ForkRouterDeps): Router {
   const router = Router()
   startRecorder()
   startMoods()
   startTriggerPoller()
+  startCodingPoller()
 
   router.get('/room-layout', async (req, res) => {
     const { userId, companyId } = await deps.requireCompany(req)
@@ -92,6 +94,7 @@ export function createForkRouter(deps: ForkRouterDeps): Router {
   })
 
   router.get('/agents/:agentId/handbook', (req, res) => agentHandbook(deps.requireCompany, req, res))
+  router.get('/agents/:agentId/coding', (req, res) => agentCoding(deps.requireCompany, req, res))
   router.post('/rooms/:conversationId/agents/:agentId/stop', (req, res) => stopAgent(deps.requireCompany, req, res))
 
   router.post('/categories', async (req, res) => {

@@ -53,6 +53,34 @@ export interface Trigger {
 
 export type NewTrigger = Pick<Trigger, 'companyId' | 'createdBy' | 'conversationId' | 'assigneeId' | 'title' | 'prompt' | 'repo' | 'profile'>
 
+/** A T3 Code thread an agent launched, as the poller last read it from T3
+ *  (./coding.ts). T3 holds the record; these rows are a copy. */
+export interface CodingThread {
+  /** The MCP server name of the T3 instance it runs on (compose's t3code config). */
+  server: string
+  threadId: string
+  companyId: string
+  agentId: string
+  /** The room the agent launched it from, or null when that could not be told. */
+  conversationId: string | null
+  /** Without the agent's `[@<id>] ` mark. */
+  title: string
+  /** T3's thread status: running, waiting, completed, failed... */
+  status: string
+  runId: string | null
+  pullRequests: Array<{ number: number; url: string; state: string }>
+  createdAt: string
+  /** T3's time of the last change to the status, title, run or pull requests. */
+  updatedAt: string
+}
+
+/** A thread as the poller hands it over. `woken` applies to a new row only: a
+ *  thread first seen long after it came to rest arrives already woken. */
+export type NewCodingThread = CodingThread & { woken: string | null }
+
+/** What the agent of a thread was woken for: once per run and resting status. */
+export const codingWakeKey = (t: Pick<CodingThread, 'runId' | 'status'>): string => `${t.runId ?? ''}:${t.status}`
+
 // Same convention as UPLOAD_DIR in storage.ts: relative to the server's cwd
 // (/app in the image), where compose mounts a volume so the file survives
 // rebuilds.
@@ -190,6 +218,30 @@ const MIGRATIONS = [
      error TEXT,
      PRIMARY KEY (trigger_id, event_key)
    );`,
+
+  // Coding (./coding.ts): the T3 Code threads agents launched, copied from T3
+  // once a minute. `woken` holds the codingWakeKey the agent was last woken
+  // for, and `wake_error` why that wake could not be posted.
+  // ponytail: rows are never pruned, one per launched thread. Prune by age if
+  // agents launch thousands.
+  `CREATE TABLE coding_threads (
+     server TEXT NOT NULL,
+     thread_id TEXT NOT NULL,
+     company_id TEXT NOT NULL,
+     agent_id TEXT NOT NULL,
+     conversation_id TEXT,
+     title TEXT NOT NULL,
+     status TEXT NOT NULL,
+     run_id TEXT,
+     -- JSON: [{ number, url, state }]
+     pull_requests TEXT NOT NULL,
+     created_at TEXT NOT NULL,
+     updated_at TEXT NOT NULL,
+     woken TEXT,
+     wake_error TEXT,
+     PRIMARY KEY (server, thread_id)
+   );
+   CREATE INDEX coding_threads_agent ON coding_threads (company_id, agent_id, updated_at);`,
 ]
 
 export interface FileVersion {
@@ -539,8 +591,72 @@ export async function openForkStore(file: string) {
       )
       save()
     },
+
+    /** An agent's threads, the most recently changed first. */
+    codingThreads(companyId: string, agentId: string, limit: number): CodingThread[] {
+      return rows(
+        `SELECT ${CODING_COLUMNS} FROM coding_threads WHERE company_id = ? AND agent_id = ? ORDER BY updated_at DESC LIMIT ?`,
+        [companyId, agentId, limit],
+      ).map(toCodingThread)
+    },
+
+    /** '<server> <thread id>' of every thread copied so far. */
+    codingThreadKeys(): Set<string> {
+      return new Set(rows("SELECT server || ' ' || thread_id FROM coding_threads", null).map(([key]) => String(key)))
+    },
+
+    /** Copies one poll of T3 in one write. The poller hands over every thread on
+     *  every poll, so nothing is written when no status, title, run or pull
+     *  request changed. A row keeps its agent and its room from the first copy. */
+    saveCodingThreads(threads: NewCodingThread[]): void {
+      let changed = 0
+      db.run('BEGIN')
+      try {
+        for (const t of threads) {
+          db.run(
+            `INSERT INTO coding_threads (server, thread_id, company_id, agent_id, conversation_id, title, status, run_id, pull_requests, created_at, updated_at, woken)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT (server, thread_id) DO UPDATE SET
+               title = excluded.title, status = excluded.status, run_id = excluded.run_id,
+               pull_requests = excluded.pull_requests, updated_at = excluded.updated_at
+             WHERE title IS NOT excluded.title OR status IS NOT excluded.status
+                OR run_id IS NOT excluded.run_id OR pull_requests IS NOT excluded.pull_requests`,
+            [t.server, t.threadId, t.companyId, t.agentId, t.conversationId, t.title, t.status, t.runId,
+              JSON.stringify(t.pullRequests), t.createdAt, t.updatedAt, t.woken],
+          )
+          changed += db.getRowsModified()
+        }
+        db.run('COMMIT')
+      } catch (err) {
+        db.run('ROLLBACK')
+        throw err
+      }
+      if (changed > 0) save()
+    },
+
+    /** Threads resting in one of `statuses` that their agent was not woken for yet. */
+    codingWakesDue(statuses: readonly string[]): CodingThread[] {
+      return rows(
+        `SELECT ${CODING_COLUMNS}, woken FROM coding_threads WHERE status IN (${statuses.map(() => '?').join(', ')})`,
+        [...statuses],
+      ).filter((r) => r[r.length - 1] !== codingWakeKey(toCodingThread(r))).map(toCodingThread)
+    },
+
+    /** Records the wake a thread's agent got, or why it could not be posted;
+     *  either way the poller does not try that wake again. */
+    markCodingWoken(server: string, threadId: string, key: string, error: string | null): void {
+      db.run('UPDATE coding_threads SET woken = ?, wake_error = ? WHERE server = ? AND thread_id = ?', [key, error, server, threadId])
+      save()
+    },
   }
 }
+
+const CODING_COLUMNS = 'server, thread_id, company_id, agent_id, conversation_id, title, status, run_id, pull_requests, created_at, updated_at'
+const toCodingThread = ([server, threadId, companyId, agentId, conversationId, title, status, runId, pullRequests, createdAt, updatedAt]: initSqlJs.SqlValue[]): CodingThread => ({
+  server: String(server), threadId: String(threadId), companyId: String(companyId), agentId: String(agentId),
+  conversationId: conversationId === null ? null : String(conversationId), title: String(title), status: String(status),
+  runId: runId === null ? null : String(runId), pullRequests: JSON.parse(String(pullRequests)), createdAt: String(createdAt), updatedAt: String(updatedAt),
+})
 
 const TRIGGER_COLUMNS = `t.id, t.company_id, t.created_by, t.conversation_id, t.assignee_id, t.title, t.prompt, t.repo, t.profile, t.status, t.since,
   (SELECT COUNT(*) FROM trigger_fires WHERE trigger_id = t.id), f.at, f.label, f.error`

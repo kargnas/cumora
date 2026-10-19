@@ -237,6 +237,15 @@ export const zhCN: Partial<Record<keyof typeof en, string>> = {
   'details.agentStyleRequired': '智能体需要一种风格。',
   'details.agentMore': '模型、计算机和头像',
 
+  'coding.head': '编码',
+  'coding.running': '进行中',
+  'coding.waiting': '等待回答',
+  'coding.completed': '已完成',
+  'coding.failed': '失败',
+  'coding.stopped': '已停止',
+  'coding.idle': '空闲',
+  'coding.serverError': 'T3 服务器 {server}：{error}',
+
   'files.none': '这个对话里还没有文件或文档。',
   'files.images': '图片',
   'files.files': '文件',
