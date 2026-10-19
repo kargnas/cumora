@@ -54,7 +54,7 @@ A Calendar firing is a system row that wakes the agent. The transcript does not 
 
 ## Haptics
 
-In the phone app, opening a room from the chat list, switching sections and toggling a reaction answer with a click when the finger lands. A long press answers with a deeper click, sending a message with one click, and someone else's message arriving in the open room with a double click (not in muted rooms, at most once every 2 seconds). A save the user waited on ends with a success or error haptic. Android plays the system's own effects, so the phone's touch-feedback setting turns them off. The web and the desktop app have none.
+In the phone app, switching sections answers with a click when the finger lands. Opening a room from the chat list and toggling a reaction answer when the tap ends instead: they sit in lists that scroll, where a finger that lands may be starting a scroll, so a scroll plays nothing. A long press answers with a deeper click, sending a message with one click, and someone else's message arriving in the open room with a double click (not in muted rooms, at most once every 2 seconds). A save the user waited on ends with a success or error haptic. Android plays the system's own effects, so the phone's touch-feedback setting turns them off. The web and the desktop app have none.
 
 ## Animated avatars
 
