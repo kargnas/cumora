@@ -28,7 +28,7 @@ import { haptic } from '../haptics'
 import { useNT, type NT } from '../i18n'
 import { href, navigate, getRoute, withRoute } from '../router'
 import { bytes, clock, dayLabel, exactTime, fullDate, pauseLength, relative, startOfDay } from '../format'
-import { useHold } from '../hooks'
+import { HOLD_MS, useHold } from '../hooks'
 import { Avatar } from '../ui/Avatar'
 import { IconButton, Menu, Spinner, useMenu, type MenuEntry } from '../ui/primitives'
 import { IArrowDown, ICopy, IDownload, IFile, IMore, IReply, ISpark, IThread, IWhisper } from '../ui/icons'
@@ -166,6 +166,145 @@ function toggleTimes(e: MouseEvent<HTMLDivElement>) {
   if ((e.target as Element).closest('.nx-stamp')) e.currentTarget.toggleAttribute('data-all-times')
 }
 
+/* ── Swipe to reply ─────────────────────────────────────────────────── */
+/** Letting go of a message swiped this far left replies to it. */
+const REPLY_AT = 64
+/** How far a finger moves before its direction counts. No more than
+ *  useSwipeBack's own 8px: the pushed chat screen would take a leftward
+ *  swipe first and wobble when it ends. */
+const SWIPE_SLOP = 8
+
+/** Whether a touch began inside something that scrolls sideways by itself,
+ *  such as a wide code block, which keeps its own swipe. Reads layout once,
+ *  when a swipe would start, never in a frame. */
+function scrollsSideways(from: EventTarget | null, row: Element): boolean {
+  for (let n = from instanceof Element ? from : null; n && n !== row; n = n.parentElement) {
+    if (n.scrollWidth > n.clientWidth && /auto|scroll/.test(getComputedStyle(n).overflowX)) return true
+  }
+  return false
+}
+
+/**
+ * A finger swipes the message left, and letting go past REPLY_AT replies. The
+ * avatar column and the message follow it through `translate`, not
+ * `transform`, which the entrance keyframes own and keep filled.
+ *
+ * Native listeners, not React props: the pushed chat screen's swipe-back
+ * (useSwipeBack) listens on an ancestor, and React runs its handlers at the
+ * root, after it. A swipe this row takes stops its moves here, so the
+ * swipe-back never sees them, and neither does useHold, whose timer
+ * `cancelHold` stops instead.
+ */
+function useSwipeReply(onReply: (() => void) | null, cancelHold: () => void) {
+  // A ref object, not element state: a state update on mount would render
+  // every row twice while Virtuoso mounts rows during a scroll.
+  const ref = useRef<HTMLDivElement>(null)
+  const latest = useRef({ onReply, cancelHold })
+  latest.current = { onReply, cancelHold }
+  const enabled = onReply !== null
+  useEffect(() => {
+    const row = ref.current
+    if (!row || !enabled) return
+    let start: { id: number; x: number; y: number; at: number } | null = null
+    // Set once the row takes the finger at `start`. Its moves stay here until
+    // it lifts, even after a second finger ends the swipe, so the swipe-back
+    // never picks them up halfway and bounces the screen.
+    let taken = false
+    let parts: HTMLElement[] = []
+    let arrow: HTMLElement | null = null
+    let ready = false
+    // Without data-swipe the CSS transitions glide everything back. The arrow
+    // keeps data-ready while it fades, so its colour does not flip on the way out.
+    const release = (reply: boolean) => {
+      row.removeAttribute('data-swipe')
+      for (const p of parts) p.style.translate = ''
+      arrow?.style.removeProperty('opacity')
+      arrow?.style.removeProperty('transform')
+      parts = []
+      if (reply && ready) latest.current.onReply?.()
+    }
+    const onStart = (e: TouchEvent) => {
+      // A second finger on this row ends the swipe without replying.
+      if (e.touches.length > 1) {
+        if (taken) release(false)
+        else start = null
+        return
+      }
+      // The only finger on the screen begins a new touch, whatever came before.
+      if (parts.length > 0) release(false)
+      taken = false
+      const t = e.touches[0]
+      start = t ? { id: t.identifier, x: t.clientX, y: t.clientY, at: e.timeStamp } : null
+    }
+    const onMove = (e: TouchEvent) => {
+      const t = e.touches[0]
+      if (!start || !t) return
+      const dx = t.clientX - start.x
+      if (!taken) {
+        const dy = t.clientY - start.y
+        if (Math.abs(dx) < SWIPE_SLOP && Math.abs(dy) < SWIPE_SLOP) return
+        // Two fingers are no swipe, right is the swipe back and up or down a
+        // scroll. A move the browser can no longer cancel belongs to a scroll
+        // that already began, and a finger that rested until the menu opened
+        // is holding, not swiping. A touch event keeps the target its touch
+        // began on.
+        if (e.touches.length > 1 || -dx <= Math.abs(dy) || !e.cancelable || e.timeStamp - start.at >= HOLD_MS || scrollsSideways(e.target, row)) {
+          start = null
+          return
+        }
+        taken = true
+        parts = [...row.children].filter((c): c is HTMLElement => c.matches('.nx-msg__gutter, .nx-msg__col'))
+        arrow = row.querySelector<HTMLElement>(':scope > .nx-msg__swipe')
+        ready = false
+        arrow?.removeAttribute('data-ready')
+        row.setAttribute('data-swipe', '')
+        latest.current.cancelHold()
+      }
+      e.stopPropagation()
+      if (e.cancelable) e.preventDefault()
+      // So does a second finger anywhere else: its touchstart goes to where it
+      // landed, but every move of this finger lists it.
+      if (e.touches.length > 1) release(false)
+      if (parts.length === 0) return
+      const d = Math.max(0, -dx)
+      // Past REPLY_AT the message follows at a third of the finger's pace.
+      const x = d <= REPLY_AT ? d : REPLY_AT + (d - REPLY_AT) / 3
+      for (const p of parts) p.style.translate = `${-x}px 0`
+      const k = Math.min(1, d / REPLY_AT)
+      if (arrow) {
+        arrow.style.opacity = String(k)
+        arrow.style.transform = `scale(${0.6 + 0.4 * k})`
+      }
+      if (d >= REPLY_AT !== ready) {
+        ready = !ready
+        arrow?.toggleAttribute('data-ready', ready)
+        if (ready) haptic('threshold')
+      }
+    }
+    const onEnd = (e: TouchEvent) => {
+      const s = start
+      // Only the finger that began here ends the touch.
+      if (!s || ![...e.changedTouches].some((c) => c.identifier === s.id)) return
+      start = null
+      taken = false
+      // A finger that landed elsewhere after this one last moved is still down.
+      if (parts.length > 0) release(e.type === 'touchend' && e.touches.length === 0)
+    }
+    row.addEventListener('touchstart', onStart, { passive: true })
+    row.addEventListener('touchmove', onMove, { passive: false })
+    row.addEventListener('touchend', onEnd, { passive: true })
+    row.addEventListener('touchcancel', onEnd, { passive: true })
+    return () => {
+      row.removeEventListener('touchstart', onStart)
+      row.removeEventListener('touchmove', onMove)
+      row.removeEventListener('touchend', onEnd)
+      row.removeEventListener('touchcancel', onEnd)
+      if (parts.length > 0) release(false)
+    }
+  }, [enabled])
+  return ref
+}
+
 /* ── Bubble ─────────────────────────────────────────────────────────── */
 interface BubbleProps {
   /** In-room search: 'match' for every hit, 'current' for the focused one. */
@@ -178,9 +317,12 @@ interface BubbleProps {
   stamp: Stamp
   fresh: boolean
   at: Date
+  /** Swipe left to reply. Only the room's transcript sets it: its composer
+   *  shows the reply, which a thread's composer does not. */
+  swipe?: boolean
 }
 
-export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fresh, at, hl }: BubbleProps) {
+export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fresh, at, hl, swipe }: BubbleProps) {
   const nt = useNT()
   const locale = useLocale()
   const menu = useMenu()
@@ -199,6 +341,7 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
 
   const react = (emoji: string) => { void toggleReaction(msg.id, emoji) }
   const reply = () => useApp.getState().setReplyingTo(msg.conversationId, msg.id)
+  const swipeRef = useSwipeReply(swipe ? reply : null, hold.onTouchCancel)
   const thread = () => navigate(withRoute(getRoute(), { threadId: msg.id, peek: null }))
   const entries: MenuEntry[] = [
     { key: 'reply', label: nt('msg.reply'), icon: <IReply />, onSelect: reply },
@@ -208,6 +351,7 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
 
   return (
     <div
+      ref={swipeRef}
       id={`m-${msg.id}`}
       className="nx-msg"
       data-mine={mine || undefined}
@@ -216,6 +360,8 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
       data-pending={msg.pending || undefined}
       data-hl={hl}
     >
+      {/* Before the halves that slide, so they paint over it while they move. */}
+      {swipe && <span className="nx-msg__swipe" aria-hidden><IReply /></span>}
       <div className="nx-msg__gutter">
         {!mine && turn && author && <Avatar p={author} size={28} />}
       </div>
@@ -628,6 +774,7 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
           fresh={fresh}
           at={it.at}
           hl={it.key === currentHit ? 'current' : hitSet.has(it.key) ? 'match' : undefined}
+          swipe
         />
       </>
     )

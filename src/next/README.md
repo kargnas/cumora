@@ -24,6 +24,10 @@ Each turn (one sender's unbroken run of messages) opens with the avatar and a na
 
 Times carry no date. A chip marks where each day starts, and while the rows under the room header belong to a day whose chip is scrolled away, a pill under the header shows that day's date, so a room opened partway into an older day still says which day its times belong to. The pill takes the chip's place as the chip passes under the header and steps aside when the next day's chip comes up to it.
 
+## Replying
+
+On a touch screen, swipe a message left to reply to it: the message follows the finger, a reply arrow grows in beside it, and letting go once the arrow fills puts the message in the composer's reply chip. A swipe that starts on a code block wider than its bubble does not reply, and on a phone a swipe right still goes back to the chat list. With a mouse, Reply is on the message's hover toolbar and in its ⋯ menu; the long-press sheet has it too.
+
 ## Handbook
 
 The room panel's first tab, and the Handbook view of an agent's profile, show one agent's standing files as one document: its `CLAUDE.md` or `AGENTS.md`, its memory (`memory/**/*.md`, `MEMORY.md` first), its own skills (`.claude/skills/*/SKILL.md`) and the skills every agent on the computer shares. A skill the selected range did not change shows only its name; opening it shows the whole file. In a room with several agents, the chips at the top pick one (`?agent=`).
@@ -54,7 +58,7 @@ A Calendar firing is a system row that wakes the agent. The transcript does not 
 
 ## Haptics
 
-In the phone app, opening a room from the chat list, switching sections and toggling a reaction answer with a click when the finger lands. A long press answers with a deeper click, sending a message with one click, and someone else's message arriving in the open room with a double click (not in muted rooms, at most once every 2 seconds). A save the user waited on ends with a success or error haptic. Android plays the system's own effects, so the phone's touch-feedback setting turns them off. The web and the desktop app have none.
+In the phone app, switching sections answers with a click when the finger lands. Opening a room from the chat list and toggling a reaction answer when the tap ends instead: they sit in lists that scroll, where a finger that lands may be starting a scroll, so a scroll plays nothing. A long press answers with a deeper click, a message swiped far enough to reply with a tick, sending a message with one click, and someone else's message arriving in the open room with a double click (not in muted rooms, at most once every 2 seconds). A save the user waited on ends with a success or error haptic. Android plays the system's own effects, so the phone's touch-feedback setting turns them off. The web and the desktop app have none.
 
 ## Animated avatars
 
