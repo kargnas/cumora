@@ -118,8 +118,8 @@
 .nx-msg[data-pos="first"] { padding-top: 8px; }
 .nx-msg[data-mine] { flex-direction: row-reverse; }
 /* Avatar column: a turn's avatar sits at its top beside the name row, and the
-   turn's later messages keep their time here, so it fits "12:59 PM". */
-.nx-msg__gutter { position: relative; flex: none; align-self: stretch; width: 56px; display: flex; align-items: flex-start; }
+   turn's later messages show their time in it, so it fits "12:59 PM". */
+.nx-msg__gutter { flex: none; align-self: flex-start; width: 56px; display: flex; }
 .nx-msg[data-mine] .nx-msg__gutter { display: none; }
 /* A 1:1 room has a single other speaker, already shown in the header, so its
    rows drop the avatar column and line up at the edge. Group and email rooms
@@ -171,9 +171,13 @@
    the bubble starts just below, so there the target stops 6px under the time. */
 .nx-stamp::before { content: ""; position: absolute; inset: -16px -4px; }
 .nx-msg__name > .nx-stamp::before { inset: -16px -4px -6px; }
-/* Lined up with the first line of the bubble: 8px padding + half of its 21px line. */
-.nx-msg__gutter > .nx-stamp { position: absolute; top: 13px; left: 0; }
-.nx-msg__row > .nx-stamp { position: absolute; top: 13px; right: calc(100% + 6px); }
+/* Lined up with the first line of the bubble: 8px padding + half of its 21px line.
+   Someone else's time sits in the avatar column and mine left of my bubble. A
+   1:1 room has no avatar column, so there the other person's time sits right
+   of the bubble instead. */
+.nx-msg__row > .nx-stamp { position: absolute; top: 13px; right: calc(100% + 8px); }
+.nx-msg[data-mine] .nx-msg__row > .nx-stamp { right: calc(100% + 6px); }
+.nx-chat[data-direct] .nx-msg:not([data-mine]) .nx-msg__row > .nx-stamp { right: auto; left: calc(100% + 6px); }
 .nx-msg__row {
   position: relative;
   display: flex;

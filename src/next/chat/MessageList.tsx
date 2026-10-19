@@ -186,8 +186,10 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
   const menu = useMenu()
   const hold = useHold((x, y) => menu.openAt({ x, y }))
   const hasText = msg.body.trim().length > 0 && msg.kind !== 'poll'
-  // A turn opens with the avatar and a name row carrying the time; later
-  // messages keep their time in the avatar column (mine: left of the bubble).
+  // A turn opens with the avatar and a name row carrying the time. Later
+  // messages, and all of mine, keep their time beside the bubble, where CSS
+  // places it: the avatar column, left of my bubble, or right of the bubble
+  // in a 1:1 room, which has no avatar column.
   const turn = stamp === 'turn'
   const time = <TimeStamp at={at} shown={stamp !== 'hidden'} locale={locale} />
   const quote = msg.quoted
@@ -215,7 +217,7 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
       data-hl={hl}
     >
       <div className="nx-msg__gutter">
-        {!mine && (turn ? author && <Avatar p={author} size={28} /> : time)}
+        {!mine && turn && author && <Avatar p={author} size={28} />}
       </div>
       <div className="nx-msg__col">
         {!mine && turn && (
@@ -225,7 +227,7 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
           </div>
         )}
         <div className="nx-msg__row" {...hold}>
-          {mine && time}
+          {(mine || !turn) && time}
           <div className="nx-bubble" data-kind={msg.kind}>
             {quote && (
               <button type="button" className="nx-quote" onClick={() => useApp.getState().jumpToMessage(quote.id)}>
