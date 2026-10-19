@@ -451,18 +451,3 @@ export function LongList<T>({ items, itemKey, children }: {
     />
   )
 }
-
-/* ── Time ───────────────────────────────────────────────────────────── */
-const UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
-  ['week', 604_800_000],
-  ['day', 86_400_000],
-  ['hour', 3_600_000],
-]
-
-/** "in 6 days", "2 hours ago", in the viewer's language. */
-export function relative(iso: string, locale: Locale): string {
-  const ms = new Date(iso).getTime() - Date.now()
-  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' })
-  for (const [unit, size] of UNITS) if (Math.abs(ms) >= size) return rtf.format(Math.round(ms / size), unit)
-  return rtf.format(Math.round(ms / 60_000), 'minute')
-}

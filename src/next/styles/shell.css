@@ -612,6 +612,19 @@ html.nx .nx-palette__field input:focus-visible { outline: none; }
 }
 
 /* Reaction row inside a message's long-press sheet / menu. */
+/* A message menu's first lines: full date, then the time to the second. */
+.nx-menu__when {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 8px 8px;
+  font-size: var(--text-caption);
+  color: var(--muted-foreground);
+}
+.nx-menu__when b { font-size: var(--text-body); font-weight: 500; color: var(--foreground); }
+/* In a bottom sheet, line up with its 12px-inset, 14px rows. */
+.nx-sheet .nx-menu__when { padding: 4px 12px 8px; }
+.nx-sheet .nx-menu__when b { font-size: var(--text-title); }
 .nx-menu__reacts {
   display: flex;
   justify-content: space-between;

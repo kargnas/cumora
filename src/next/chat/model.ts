@@ -6,13 +6,23 @@ const WORK_KINDS = new Set<Message['kind']>(['tool', 'thought'])
 const LINE_KINDS = new Set<Message['kind']>(['system', 'whisper-link'])
 /** Consecutive messages closer than this join one bubble group. */
 const GROUP_GAP_MS = 5 * 60_000
+/** Inside a turn, a message shows its time once the clock reads this many minutes past the last
+ *  time shown. Counted in clock minutes, the way a reader compares two times on screen. */
+const STAMP_GAP_MIN = 5
+/** A silence at least this long gets a line saying how long it lasted, and ends the turn. */
+const PAUSE_MS = 15 * 60_000
 
 export type Pos = 'single' | 'first' | 'middle' | 'last'
+/** Where a message's time shows by default: on the name row that starts a
+ *  turn, in the message's own slot, or only on hover or when every time is asked for. */
+export type Stamp = 'turn' | 'slot' | 'hidden'
 
+/** `day` marks the first item of a calendar day; `pause` is the silence (ms)
+ *  before an item that starts a pause line. An item never has both. */
 export type Item =
-  | { type: 'msg'; key: string; msg: Message; mine: boolean; pos: Pos; day: Date | null; at: Date }
-  | { type: 'work'; key: string; authorId: string; msgs: Message[]; day: Date | null; at: Date }
-  | { type: 'line'; key: string; msg: Message; day: Date | null; at: Date }
+  | { type: 'msg'; key: string; msg: Message; mine: boolean; pos: Pos; stamp: Stamp; day: Date | null; pause: number | null; at: Date }
+  | { type: 'work'; key: string; authorId: string; msgs: Message[]; day: Date | null; pause: number | null; at: Date }
+  | { type: 'line'; key: string; msg: Message; day: Date | null; pause: number | null; at: Date }
 
 export function createdAt(m: Message): Date {
   const iso = (m as Message & { createdAt?: string }).createdAt
@@ -31,41 +41,55 @@ function sameDay(a: Date, b: Date): boolean {
 /**
  * Flatten a transcript into render items: tool/thought runs collapse into a
  * single work item per author, the first item of each calendar day carries
- * the day separator, and bubbles from one author in quick succession get
- * first/middle/last positions so corners and avatars group like a messenger.
+ * the day separator, a silence of PAUSE_MS or more inside a day carries a
+ * pause line, and bubbles from one author in quick succession get
+ * first/middle/last positions so corners group like a messenger.
+ *
+ * Times: a turn is one sender's unbroken run of messages (a day chip, a pause
+ * line or anything that is not a message ends it). Its first message shows its
+ * time on the name row; later ones show theirs only once the clock is
+ * STAMP_GAP_MIN past the last time shown, so a burst gets one time, not one per line.
  * Calendar firings are left out: the room panel's Routines tab tracks runs.
  */
 export function buildItems(messages: Message[], meId: string | null): Item[] {
   const out: Item[] = []
-  let prevDay: Date | null = null
+  let prevAt: Date | null = null
+  let shownMin = 0
   for (const m of messages) {
     if (isCalendarNotice(m)) continue
     const at = createdAt(m)
-    const day = prevDay && sameDay(prevDay, at) ? null : at
-    prevDay = at
+    const day = prevAt && sameDay(prevAt, at) ? null : at
+    const pause = prevAt && !day && at.getTime() - prevAt.getTime() >= PAUSE_MS ? at.getTime() - prevAt.getTime() : null
+    prevAt = at
+    const breaks = day !== null || pause !== null
     const last = out[out.length - 1]
 
     if (WORK_KINDS.has(m.kind)) {
-      if (last?.type === 'work' && last.authorId === m.authorId && !day) {
+      if (last?.type === 'work' && last.authorId === m.authorId && !breaks) {
         last.msgs.push(m)
         last.at = at
       } else {
-        out.push({ type: 'work', key: `w-${keyOf(m)}`, authorId: m.authorId, msgs: [m], day, at })
+        out.push({ type: 'work', key: `w-${keyOf(m)}`, authorId: m.authorId, msgs: [m], day, pause, at })
       }
       continue
     }
     if (LINE_KINDS.has(m.kind)) {
-      out.push({ type: 'line', key: keyOf(m), msg: m, day, at })
+      out.push({ type: 'line', key: keyOf(m), msg: m, day, pause, at })
       continue
     }
 
-    const joins = last?.type === 'msg'
-      && last.msg.authorId === m.authorId
-      && !day
+    const sameSender = last?.type === 'msg' && last.msg.authorId === m.authorId && !breaks
+    const joins = sameSender
       && m.kind !== 'poll' && last.msg.kind !== 'poll'
       && at.getTime() - last.at.getTime() < GROUP_GAP_MS
     if (joins && last.type === 'msg') last.pos = last.pos === 'single' ? 'first' : 'middle'
-    out.push({ type: 'msg', key: keyOf(m), msg: m, mine: m.authorId === meId, pos: joins ? 'last' : 'single', day, at })
+    const min = Math.floor(at.getTime() / 60_000)
+    let stamp: Stamp = 'hidden'
+    if (!sameSender || min - shownMin >= STAMP_GAP_MIN) {
+      stamp = sameSender ? 'slot' : 'turn'
+      shownMin = min
+    }
+    out.push({ type: 'msg', key: keyOf(m), msg: m, mine: m.authorId === meId, pos: joins ? 'last' : 'single', stamp, day, pause, at })
   }
   return out
 }

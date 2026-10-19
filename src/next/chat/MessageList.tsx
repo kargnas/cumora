@@ -8,14 +8,14 @@
  *  - Entrance motion is CSS on transform/opacity/clip-path and plays once per
  *    message per session, so scrolling back never replays it.
  */
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '@/stores/app'
 import { useMe } from '@/stores/auth'
 import { useMessages, toggleReaction, retryFailedMessage, discardFailedMessage, VIRTUOSO_FIRST_INDEX_BASE } from '@/stores/messages'
 import { useParticipants } from '@/stores/participants'
-import { useLocale } from '@/lib/i18n'
+import { useLocale, type Locale } from '@/lib/i18n'
 import { copyText } from '@/lib/clipboard'
 import {
   RichBody, SystemRow, artifactKey, artifactRefsForMessage,
@@ -25,14 +25,14 @@ import { PollBubble } from '@/components/PollBubble'
 import { ImageViewer } from '@/components/ImageViewer'
 import type { Message, Participant } from '@/types'
 import { haptic } from '../haptics'
-import { useNT } from '../i18n'
+import { useNT, type NT } from '../i18n'
 import { href, navigate, getRoute, withRoute } from '../router'
-import { bytes, clock, dayLabel } from '../format'
+import { bytes, clock, dayLabel, exactTime, fullDate, pauseLength, relative } from '../format'
 import { useHold } from '../hooks'
 import { Avatar } from '../ui/Avatar'
 import { IconButton, Menu, Spinner, useMenu, type MenuEntry } from '../ui/primitives'
 import { IArrowDown, ICopy, IDownload, IFile, IMore, IReply, ISpark, IThread, IWhisper } from '../ui/icons'
-import { buildItems, createdAt, type Item, type Pos } from './model'
+import { buildItems, createdAt, type Item, type Pos, type Stamp } from './model'
 
 const EMPTY: Message[] = []
 const QUICK = ['👍', '❤️', '😂', '👀', '✅', '🔥']
@@ -127,6 +127,45 @@ function Artifacts({ msg }: { msg: Message }) {
   )
 }
 
+/* ── Times ──────────────────────────────────────────────────────────── */
+/** One message's time. Every message renders one so that revealing more never
+ *  moves a row: `data-shown` ones are visible, the rest appear on hover (mouse)
+ *  or while the transcript has `data-all-times`, which a click on any time
+ *  toggles (see toggleTimes). */
+function TimeStamp({ at, shown, locale }: { at: Date; shown: boolean; locale: Locale }) {
+  const full = `${fullDate(at, locale)} ${exactTime(at, locale)}`
+  return (
+    <button type="button" className="nx-stamp nx-mono" data-shown={shown || undefined} title={full} aria-label={full}>
+      <time dateTime={at.toISOString()}>{clock(at, locale)}</time>
+    </button>
+  )
+}
+
+/** First lines of the long-press / ⋯ menu. The menu mounts it only while
+ *  open, so "how long ago" is computed when the person asks, never per row. */
+function WhenHeader({ at }: { at: Date }) {
+  const locale = useLocale()
+  return (
+    <div className="nx-menu__when">
+      <b>{fullDate(at, locale)}</b>
+      <span><span className="nx-mono">{exactTime(at, locale)}</span> · {relative(at.toISOString(), locale)}</span>
+    </div>
+  )
+}
+
+function pauseText(nt: NT, ms: number): string {
+  const { h, m } = pauseLength(ms)
+  if (h === 0) return nt('msg.pauseMin', { m })
+  return m === 0 ? nt('msg.pauseHour', { h }) : nt('msg.pauseHourMin', { h, m })
+}
+
+/** One listener for every time in the room. An attribute flip instead of
+ *  state, so showing all times re-renders no row; it resets with the list,
+ *  which ChatView remounts per room. */
+function toggleTimes(e: MouseEvent<HTMLDivElement>) {
+  if ((e.target as Element).closest('.nx-stamp')) e.currentTarget.toggleAttribute('data-all-times')
+}
+
 /* ── Bubble ─────────────────────────────────────────────────────────── */
 interface BubbleProps {
   /** In-room search: 'match' for every hit, 'current' for the focused one. */
@@ -135,18 +174,22 @@ interface BubbleProps {
   author: Participant | undefined
   mine: boolean
   pos: Pos
-  showName: boolean
+  /** Where this message's time shows by default (see buildItems). */
+  stamp: Stamp
   fresh: boolean
   at: Date
 }
 
-export const Bubble = memo(function Bubble({ msg, author, mine, pos, showName, fresh, at, hl }: BubbleProps) {
+export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fresh, at, hl }: BubbleProps) {
   const nt = useNT()
   const locale = useLocale()
   const menu = useMenu()
   const hold = useHold((x, y) => menu.openAt({ x, y }))
   const hasText = msg.body.trim().length > 0 && msg.kind !== 'poll'
-  const tail = pos === 'single' || pos === 'last'
+  // A turn opens with the avatar and a name row carrying the time; later
+  // messages keep their time in the avatar column (mine: left of the bubble).
+  const turn = stamp === 'turn'
+  const time = <TimeStamp at={at} shown={stamp !== 'hidden'} locale={locale} />
   const quote = msg.quoted
   const quoteAuthor = useParticipants((s) => (quote ? s.byId[quote.authorId]?.name : undefined))
   // Selects a string, so status churn on participants does not re-render the bubble.
@@ -171,17 +214,18 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, showName, f
       data-pending={msg.pending || undefined}
       data-hl={hl}
     >
-      <div className="nx-msg__gutter" aria-hidden>
-        {!mine && tail && author && <Avatar p={author} size={28} />}
+      <div className="nx-msg__gutter">
+        {!mine && (turn ? author && <Avatar p={author} size={28} /> : time)}
       </div>
       <div className="nx-msg__col">
-        {showName && author && (
+        {!mine && turn && (
           <div className="nx-msg__name">
-            <span>{author.name}</span>
-            <time className="nx-mono" dateTime={at.toISOString()}>{clock(at, locale)}</time>
+            <span>{author?.name ?? nt('msg.someone')}</span>
+            {time}
           </div>
         )}
         <div className="nx-msg__row" {...hold}>
+          {mine && time}
           <div className="nx-bubble" data-kind={msg.kind}>
             {quote && (
               <button type="button" className="nx-quote" onClick={() => useApp.getState().jumpToMessage(quote.id)}>
@@ -225,11 +269,14 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, showName, f
         onClose={menu.close}
         entries={entries}
         header={
-          <div className="nx-menu__reacts">
-            {QUICK.map((e) => (
-              <button key={e} type="button" onClick={() => { react(e); menu.close() }} aria-label={nt('msg.reactWith', { emoji: e })}>{e}</button>
-            ))}
-          </div>
+          <>
+            <WhenHeader at={at} />
+            <div className="nx-menu__reacts">
+              {QUICK.map((e) => (
+                <button key={e} type="button" onClick={() => { react(e); menu.close() }} aria-label={nt('msg.reactWith', { emoji: e })}>{e}</button>
+              ))}
+            </div>
+          </>
         }
       />
     </div>
@@ -336,7 +383,7 @@ export interface Find {
   onCount: (n: number) => void
 }
 
-export function MessageList({ convoId, group, bottomInset, find }: { convoId: string; group: boolean; bottomInset: number; find?: Find }) {
+export function MessageList({ convoId, bottomInset, find }: { convoId: string; bottomInset: number; find?: Find }) {
   const nt = useNT()
   const locale = useLocale()
   const me = useMe()
@@ -443,7 +490,11 @@ export function MessageList({ convoId, group, bottomInset, find }: { convoId: st
   }, [currentHit])
 
   const renderItem = useCallback((_: number, it: Item): ReactNode => {
-    const sep = it.day ? <div className="nx-day"><span>{dayLabel(it.day, locale, nt('msg.today'), nt('msg.yesterday'))}</span></div> : null
+    const sep = it.day
+      ? <div className="nx-day"><span>{dayLabel(it.day, locale, nt('msg.today'), nt('msg.yesterday'))}</span></div>
+      : it.pause !== null
+        ? <div className="nx-pause"><span>{pauseText(nt, it.pause)}</span></div>
+        : null
     const fresh = isFresh(seen, it.key) && !(it.type !== 'work' && streamed.has(it.msg.id))
     if (it.type === 'work') return <>{sep}<WorkChip item={it} author={byId[it.authorId]} /></>
     if (it.type === 'line') {
@@ -454,7 +505,6 @@ export function MessageList({ convoId, group, bottomInset, find }: { convoId: st
         </>
       )
     }
-    const showName = !it.mine && (it.pos === 'single' || it.pos === 'first') && (group || it.day !== null)
     return (
       <>
         {sep}
@@ -463,14 +513,14 @@ export function MessageList({ convoId, group, bottomInset, find }: { convoId: st
           author={byId[it.msg.authorId]}
           mine={it.mine}
           pos={it.pos}
-          showName={showName}
+          stamp={it.stamp}
           fresh={fresh}
           at={it.at}
           hl={it.key === currentHit ? 'current' : hitSet.has(it.key) ? 'match' : undefined}
         />
       </>
     )
-  }, [byId, group, locale, nt, seen, currentHit, hitSet])
+  }, [byId, locale, nt, seen, currentHit, hitSet])
 
   if (items.length === 0) {
     if (error) return <div className="nx-center"><div className="nx-empty"><b>{nt('msg.loadFailed')}</b><button type="button" className="nx-btn nx-btn--outline" onClick={() => void useMessages.getState().retryLoad(convoId)}>{nt('msg.retry')}</button></div></div>
@@ -478,7 +528,7 @@ export function MessageList({ convoId, group, bottomInset, find }: { convoId: st
   }
 
   return (
-    <div className="nx-transcript">
+    <div className="nx-transcript" onClick={toggleTimes}>
       <Virtuoso
         ref={ref}
         scrollerRef={(el) => { scroller.current = el instanceof HTMLElement ? el : null }}

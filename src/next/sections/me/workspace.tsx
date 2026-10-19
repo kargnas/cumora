@@ -9,6 +9,7 @@ import { copyText } from '@/lib/clipboard'
 import { useLocale } from '@/lib/i18n'
 import { useAuth, type AuthCompany } from '@/stores/auth'
 import { useParticipants } from '@/stores/participants'
+import { relative } from '../../format'
 import { haptic } from '../../haptics'
 import { useNT } from '../../i18n'
 import type { Route } from '../../router'
@@ -16,7 +17,7 @@ import { Avatar } from '../../ui/Avatar'
 import { Dialog, IconButton, Segmented, Spinner } from '../../ui/primitives'
 import { ICheck, IChevronDown, IPlus, ITrash } from '../../ui/icons'
 import {
-  Block, Choices, closeSheet, CopyCode, count, dropSheet, ErrorLine, errorText, LongList, openSheet, personOf, relative,
+  Block, Choices, closeSheet, CopyCode, count, dropSheet, ErrorLine, errorText, LongList, openSheet, personOf,
   roleKey, Row, setParams, SkeletonRows, SwitchRow,
 } from './parts'
 

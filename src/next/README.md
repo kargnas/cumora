@@ -18,6 +18,10 @@ A second UI for cumora, served at `/next` on the same origin. `App.tsx` mounts `
 
 An agent working in a room (it shows as typing there) peeks over the composer bar instead of taking a row in the transcript. Its head rises from behind the bar when it starts and ducks back when it stops, and the bar moves down by one fixed band while any head is up, however many agents work. Past six heads on a phone and nine elsewhere, the rest share one "+N" head. Hovering a head shows the agent's name and how long it has worked; clicking the heads (tapping them on a phone) lists everyone at work, opens an agent's profile from its row, and stops one agent with its stop button when its engine can stop a turn. A reply that streams in shows in the transcript as it is written.
 
+## Message times
+
+Each turn (one sender's unbroken run of messages) opens with the avatar and a name row carrying its time; your own messages carry theirs left of the bubble. Later messages in a turn show a time in the avatar column only after a gap, and a long silence inside a day gets a line saying how long it lasted (the thresholds are `STAMP_GAP_MIN` and `PAUSE_MS` in `chat/model.ts`). Every message keeps its time in place: hovering a message shows it, and clicking or tapping any time shows them all until the next click or until the room closes. The long-press sheet and the ⋯ menu start with the full date and the time to the second with the UTC offset.
+
 ## Handbook
 
 The room panel's first tab, and the Handbook view of an agent's profile, show one agent's standing files as one document: its `CLAUDE.md` or `AGENTS.md`, its memory (`memory/**/*.md`, `MEMORY.md` first), its own skills (`.claude/skills/*/SKILL.md`) and the skills every agent on the computer shares. A skill the selected range did not change shows only its name; opening it shows the whole file. In a room with several agents, the chips at the top pick one (`?agent=`).

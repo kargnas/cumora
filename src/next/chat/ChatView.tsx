@@ -193,7 +193,7 @@ export function ChatView({ convoId, layout, panelOpen }: { convoId: string; layo
           <SearchBar q={q} setQ={setQ} index={index} setIndex={setIndex} count={count} onClose={() => { setSearching(false); setQ('') }} />
         )}
       </AnimatePresence>
-      <MessageList key={convoId} convoId={convoId} group={c.kind === 'group'} bottomInset={composerH + 8} find={find} />
+      <MessageList key={convoId} convoId={convoId} bottomInset={composerH + 8} find={find} />
       <div ref={composerBox} className="nx-chat__composer">
         <Composer convoId={convoId} />
       </div>

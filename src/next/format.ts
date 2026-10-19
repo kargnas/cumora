@@ -42,6 +42,42 @@ export function clock(d: Date, locale: Locale): string {
   return fmt(locale, { hour: '2-digit', minute: '2-digit' }).format(d)
 }
 
+/** "Monday, October 19, 2026" */
+export function fullDate(d: Date, locale: Locale): string {
+  return fmt(locale, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).format(d)
+}
+
+/** "06:31:40 PM GMT+9": to the second, with the viewer's UTC offset. */
+export function exactTime(d: Date, locale: Locale): string {
+  return fmt(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZoneName: 'shortOffset' }).format(d)
+}
+
+const UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+  ['week', 604_800_000],
+  ['day', 86_400_000],
+  ['hour', 3_600_000],
+]
+
+/** "in 6 days", "2 hours ago", in the viewer's language. */
+export function relative(iso: string, locale: Locale): string {
+  const ms = new Date(iso).getTime() - Date.now()
+  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' })
+  for (const [unit, size] of UNITS) if (Math.abs(ms) >= size) return rtf.format(Math.round(ms / size), unit)
+  return rtf.format(Math.round(ms / 60_000), 'minute')
+}
+
+/** How long a pause line says a silence lasted: exact minutes under an hour,
+ *  5-minute steps under three hours, whole hours beyond. */
+export function pauseLength(ms: number): { h: number; m: number } {
+  const min = Math.floor(ms / 60_000)
+  if (min < 60) return { h: 0, m: min }
+  if (min < 180) {
+    const r = Math.round(min / 5) * 5
+    return { h: Math.floor(r / 60), m: r % 60 }
+  }
+  return { h: Math.round(min / 60), m: 0 }
+}
+
 /** The time today, with the date before that, and the year before this one. */
 export function dateTime(iso: string, locale: Locale): string {
   const d = new Date(iso)

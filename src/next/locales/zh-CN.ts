@@ -112,6 +112,9 @@ export const zhCN: Partial<Record<keyof typeof en, string>> = {
 
   'msg.today': '今天',
   'msg.yesterday': '昨天',
+  'msg.pauseMin': '{m} 分钟后',
+  'msg.pauseHour': '{h} 小时后',
+  'msg.pauseHourMin': '{h} 小时 {m} 分钟后',
   'msg.beginning': '这是对话的开头',
   'msg.loadFailed': '消息加载失败',
   'msg.retry': '重试',

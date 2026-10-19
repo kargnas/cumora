@@ -102,6 +102,9 @@ const core = {
 
   'msg.today': 'Today',
   'msg.yesterday': 'Yesterday',
+  'msg.pauseMin': '{m} min later',
+  'msg.pauseHour': '{h} h later',
+  'msg.pauseHourMin': '{h} h {m} min later',
   'msg.beginning': 'This is the beginning of the conversation',
   'msg.loadFailed': 'Messages did not load',
   'msg.retry': 'Try again',

@@ -74,7 +74,7 @@ export function ThreadView({ convoId, rootId }: { convoId: string; rootId: strin
       <div className="nx-thread__list nx-scroll">
         {root && (
           <div className="nx-thread__root">
-            <Bubble msg={{ ...root, replyCount: 0 }} author={byId[root.authorId]} mine={root.authorId === me} pos="single" showName fresh={false} at={createdAt(root)} />
+            <Bubble msg={{ ...root, replyCount: 0 }} author={byId[root.authorId]} mine={root.authorId === me} pos="single" stamp="turn" fresh={false} at={createdAt(root)} />
           </div>
         )}
         <div className="nx-group-label">{nt(replies.length === 1 ? 'msg.oneReply' : 'msg.replies', { n: replies.length })}</div>
@@ -82,7 +82,7 @@ export function ThreadView({ convoId, rootId }: { convoId: string; rootId: strin
         {error && <div className="nx-empty" role="alert">{nt('msg.loadFailed')}</div>}
         {replies.map((m) => (
           // Quotes are implied by the thread itself, so the card is dropped.
-          <Bubble key={m.clientId ?? m.id} msg={{ ...m, quoted: undefined }} author={byId[m.authorId]} mine={m.authorId === me} pos="single" showName fresh={false} at={createdAt(m)} />
+          <Bubble key={m.clientId ?? m.id} msg={{ ...m, quoted: undefined }} author={byId[m.authorId]} mine={m.authorId === me} pos="single" stamp="turn" fresh={false} at={createdAt(m)} />
         ))}
       </div>
       <div className="nx-thread__composer">
