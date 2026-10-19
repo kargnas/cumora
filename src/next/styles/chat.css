@@ -528,9 +528,6 @@ body.keyboard-open .nx-chat__composer { padding-bottom: calc(8px + var(--nx-kb))
   pointer-events: auto;
 }
 .nx-composer__bar {
-  /* Paints over the working agents' heads, which sit behind it. */
-  position: relative;
-  z-index: 1;
   display: flex;
   align-items: flex-end;
   gap: 8px;
@@ -588,8 +585,7 @@ html.nx .nx-composer__input:focus-visible { outline: none; }
   .nx-send svg { width: 20px; height: 20px; }
 }
 
-/* Above the working agents' heads, whose hit area reaches up toward the chips. */
-.nx-composer__chips { position: relative; z-index: 2; display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.nx-composer__chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
 .nx-composer__chip {
   display: inline-flex;
   align-items: center;
@@ -608,12 +604,13 @@ html.nx .nx-composer__input:focus-visible { outline: none; }
 .nx-composer__chip--error { color: var(--destructive); padding-right: 12px; }
 .nx-composer__thumb { width: 24px; height: 24px; border-radius: 4px; object-fit: cover; }
 
-/* Agents at work peek over the bar (chat/WorkingHeads.tsx). Each head hides
-   its lower 8px behind the bar, and the dock steps the bar down by one fixed
-   band while any head is up, the same for one agent or twenty. The band also
-   holds the hit area above the heads: 28px for a mouse, 44px for a finger. */
-.nx-composer__dock { position: relative; }
-.nx-composer__dock:has(> .nx-heads) { margin-top: 16px; }
+/* Agents at work sit on the top edge of the composer (chat/WorkingHeads.tsx):
+   the bar, or the reply and file chips while they show. Each head overlaps that
+   edge by 8px in front of it, so the whole face shows. The heads stay out of the
+   flow, because the transcript pads by the composer's height and would jump
+   whenever a head came or went. The hit area reaches above the heads: 28px for
+   a mouse, 44px for a finger. Each head carries the avatar-stack ring (and a
+   bloub, which has no disc, gets one), since it floats over the newest message. */
 .nx-heads {
   position: absolute;
   left: 24px;
@@ -624,6 +621,8 @@ html.nx .nx-composer__input:focus-visible { outline: none; }
 }
 .nx-heads::before { content: ""; position: absolute; inset: -8px 0 0; }
 .nx-heads__head { position: absolute; top: 0; left: 0; }
+.nx-heads .nx-avatar { box-shadow: 0 0 0 2px var(--card); }
+.nx-heads .nx-avatar--bloub { background: var(--card); }
 .nx-heads__bob { display: block; animation: nx-heads-bob 1.8s ease-in-out infinite; }
 @keyframes nx-heads-bob {
   0%, 100% { transform: none; }
@@ -646,7 +645,6 @@ html.nx .nx-composer__input:focus-visible { outline: none; }
 .nx-heads__list .nx-person__text .nx-mono { font-size: var(--text-micro); }
 .nx-heads__list .nx-person__text .nx-heads__failed { color: var(--destructive); }
 @media (pointer: coarse) {
-  .nx-composer__dock:has(> .nx-heads) { margin-top: 28px; }
   .nx-heads::before { top: -20px; }
 }
 

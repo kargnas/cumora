@@ -16,7 +16,7 @@ A second UI for cumora, served at `/next` on the same origin. `App.tsx` mounts `
 
 ## Agents at work
 
-An agent working in a room (it shows as typing there) peeks over the composer bar instead of taking a row in the transcript. Its head rises from behind the bar when it starts and ducks back when it stops, and the bar moves down by one fixed band while any head is up, however many agents work. Past six heads on a phone and nine elsewhere, the rest share one "+N" head. Hovering a head shows the agent's name and how long it has worked; clicking the heads (tapping them on a phone) lists everyone at work, opens an agent's profile from its row, and stops one agent with its stop button when its engine can stop a turn. A reply that streams in shows in the transcript as it is written.
+An agent working in a room (it shows as typing there) sits on the composer bar instead of taking a row in the transcript. Its whole head pops up on the bar's top edge when it starts and shrinks away when it stops, and the messages never move, however many agents work. Past six heads on a phone and nine elsewhere, the rest share one "+N" head. Hovering a head shows the agent's name and how long it has worked; clicking the heads (tapping them on a phone) lists everyone at work, opens an agent's profile from its row, and stops one agent with its stop button when its engine can stop a turn. A reply that streams in shows in the transcript as it is written.
 
 ## Message times
 

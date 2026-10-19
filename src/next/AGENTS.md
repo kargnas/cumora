@@ -68,7 +68,7 @@ The chat list's layout is the first user of it: `chat/roomLayout.ts` keeps custo
 - Spacing steps 4/8/12/16; no padding above 16px. Same padding on all sides for boxes; asymmetric only on buttons and chips.
 - One elevation: `var(--shadow-card)` (none in dark), floating layers `var(--shadow-float)`.
 - Numbers, ids and times use `.nx-mono`.
-- What agents are doing takes the same space for one agent or twenty: agents at work peek over the composer (`chat/WorkingHeads.tsx`) and never add rows to the transcript.
+- What agents are doing takes the same space for one agent or twenty: agents at work sit on the composer bar (`chat/WorkingHeads.tsx`), out of the flow, so they never add rows to the transcript or change the composer's height (the transcript pads by it, so a taller composer moves every message).
 - Never: left accent borders, KPI/stat tiles, eyebrow labels, hero + 3-column feature grids, decorative gradients.
 - Touch (`@media (pointer: coarse)`): 44px targets, menus become bottom sheets, and anything a mouse does by hover or drag must also be reachable by long-press (rooms move between categories from the long-press menu).
 - Hover styles go inside `@media (hover: hover)`, or they stick after a tap.
