@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api, type ApiMessage } from '@/api/client'
 import { useMe } from '@/stores/auth'
+import { useConversations } from '@/stores/conversations'
 import { useMessages } from '@/stores/messages'
 import { useParticipants } from '@/stores/participants'
 import type { Message } from '@/types'
@@ -43,6 +44,7 @@ export function ThreadView({ convoId, rootId }: { convoId: string; rootId: strin
   const root = useMessages((s) => (s.byConvo[convoId] ?? EMPTY).find((m) => m.id === rootId))
   const live = useMessages((s) => s.byConvo[convoId] ?? EMPTY)
   const byId = useParticipants((s) => s.byId)
+  const direct = useConversations((s) => s.list.find((x) => x.id === convoId)?.kind === 'direct')
   const [fetched, setFetched] = useState<Message[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -71,7 +73,7 @@ export function ThreadView({ convoId, rootId }: { convoId: string; rootId: strin
 
   return (
     <div className="nx-thread">
-      <div className="nx-thread__list nx-scroll">
+      <div className="nx-thread__list nx-scroll" data-direct={direct || undefined}>
         {root && (
           <div className="nx-thread__root">
             <Bubble msg={{ ...root, replyCount: 0 }} author={byId[root.authorId]} mine={root.authorId === me} pos="single" stamp="turn" fresh={false} at={createdAt(root)} />

@@ -121,6 +121,11 @@
    turn's later messages keep their time here, so it fits "12:59 PM". */
 .nx-msg__gutter { position: relative; flex: none; align-self: stretch; width: 56px; display: flex; align-items: flex-start; }
 .nx-msg[data-mine] .nx-msg__gutter { display: none; }
+/* A 1:1 room has a single other speaker, already shown in the header, so its
+   rows drop the avatar column and line up at the edge. Group and email rooms
+   keep it: there the avatar tells speakers apart. */
+.nx-chat[data-direct] .nx-msg__gutter,
+.nx-thread__list[data-direct] .nx-msg__gutter { display: none; }
 .nx-msg__col {
   min-width: 0;
   max-width: min(78%, 560px);

@@ -3,7 +3,7 @@ import {
   type ButtonHTMLAttributes, type ReactNode,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, motion, PresenceContext } from 'framer-motion'
 import { isMac } from '@/lib/runtime'
 import { useNT } from '../i18n'
 import { IX } from './icons'
@@ -150,7 +150,15 @@ export function Segmented<K extends string>({ items, value, onChange, label }: {
             className="nx-seg__tab"
             onClick={() => onChange(it.key)}
           >
-            {on && <motion.span layoutId={`seg-${id}`} className="nx-seg__pill" transition={T_FAST} />}
+            {on && (
+              // framer-motion 11 never releases a removed layoutId element from
+              // the AnimatePresence around it (fixed in 12.4.7), so a dialog or
+              // sheet holding a switched control would leave its invisible layer
+              // over the page. The pill has no exit, so it stays out of presence.
+              <PresenceContext.Provider value={null}>
+                <motion.span layoutId={`seg-${id}`} className="nx-seg__pill" transition={T_FAST} />
+              </PresenceContext.Provider>
+            )}
             {it.label}
             {it.badge}
           </button>
