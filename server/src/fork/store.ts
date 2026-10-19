@@ -32,6 +32,27 @@ export interface RoomLayout {
   pinOrder: string[]
 }
 
+/** A routine that fires when something happens instead of at a time: a pull
+ *  request merging in `repo`, read as the gh profile `profile` (./triggers.ts). */
+export interface Trigger {
+  id: string
+  companyId: string
+  createdBy: string
+  conversationId: string
+  assigneeId: string
+  title: string
+  prompt: string
+  repo: string
+  profile: string
+  status: 'active' | 'paused'
+  /** ISO time the trigger was made; only pull requests merged after it fire. */
+  since: string
+  fires: number
+  lastFire: { at: string; label: string; error: string | null } | null
+}
+
+export type NewTrigger = Pick<Trigger, 'companyId' | 'createdBy' | 'conversationId' | 'assigneeId' | 'title' | 'prompt' | 'repo' | 'profile'>
+
 // Same convention as UPLOAD_DIR in storage.ts: relative to the server's cwd
 // (/app in the image), where compose mounts a volume so the file survives
 // rebuilds.
@@ -41,6 +62,7 @@ export const FORK_DB_FILE = resolve(process.cwd(), 'server/data/fork.sqlite')
 // one user must not be able to grow it without bound.
 export const MAX_CATEGORIES = 100
 export const MAX_ROOM_ASSIGNMENTS = 5000
+export const MAX_TRIGGERS = 100
 export const MAX_PIN_ORDER = 500
 // ponytail: each file keeps its newest 200 versions, pruned as versions
 // arrive, and the oldest one left becomes its baseline. A file rewritten on
@@ -133,6 +155,41 @@ const MIGRATIONS = [
   // The expression stopped being picked by people: it is now the face of the
   // agent's latest message, so the faces picked before start from rest.
   `UPDATE bloub_avatars SET expression = 'neutre';`,
+
+  // Triggers (./triggers.ts): routines that fire on an event, per company like
+  // calendar events. A fire row claims the event before its message is posted,
+  // so a merge fires once however often the repository is polled.
+  // ponytail: fires are never pruned; a row is a few hundred bytes per merged
+  // pull request. Prune by age if a repository merges thousands.
+  `CREATE TABLE triggers (
+     id TEXT PRIMARY KEY,
+     company_id TEXT NOT NULL,
+     created_by TEXT NOT NULL,
+     conversation_id TEXT NOT NULL,
+     assignee_id TEXT NOT NULL,
+     title TEXT NOT NULL,
+     prompt TEXT NOT NULL,
+     -- GitHub owner/name, and the gh profile on the computer that reads it.
+     repo TEXT NOT NULL,
+     profile TEXT NOT NULL,
+     -- 'active' | 'paused'
+     status TEXT NOT NULL,
+     -- ISO time the trigger was made; only pull requests merged after it fire.
+     since TEXT NOT NULL
+   );
+   CREATE INDEX triggers_room ON triggers (company_id, conversation_id);
+   CREATE TABLE trigger_fires (
+     trigger_id TEXT NOT NULL,
+     -- 'pr:<number>', or 'manual:<ms>' for Run now.
+     event_key TEXT NOT NULL,
+     at TEXT NOT NULL,
+     -- What fired, for the Routines tab: '#<number> <pull request title>'.
+     label TEXT NOT NULL,
+     -- The system message posted, or NULL with the error when posting failed.
+     message_id TEXT,
+     error TEXT,
+     PRIMARY KEY (trigger_id, event_key)
+   );`,
 ]
 
 export interface FileVersion {
@@ -414,8 +471,88 @@ export async function openForkStore(file: string) {
       db.run('DELETE FROM bloub_avatars WHERE company_id = ? AND participant_id = ?', [companyId, participantId])
       if (db.getRowsModified() > 0) save()
     },
+
+    /** A room's triggers, newest first. */
+    triggers(companyId: string, conversationId: string): Trigger[] {
+      return rows(
+        `SELECT ${TRIGGER_COLUMNS} ${TRIGGER_FROM} WHERE t.company_id = ? AND t.conversation_id = ? ORDER BY t.since DESC`,
+        [companyId, conversationId],
+      ).map(toTrigger)
+    },
+
+    trigger(companyId: string, id: string): Trigger | null {
+      return rows(`SELECT ${TRIGGER_COLUMNS} ${TRIGGER_FROM} WHERE t.id = ? AND t.company_id = ?`, [id, companyId]).map(toTrigger)[0] ?? null
+    },
+
+    /** Every active trigger of every company: what the poller watches, grouped
+     *  by what it reads so one request serves every trigger on a repository. */
+    activeTriggers(): Trigger[] {
+      return rows(`SELECT ${TRIGGER_COLUMNS} ${TRIGGER_FROM} WHERE t.status = 'active' ORDER BY t.profile, t.repo, t.since`, null).map(toTrigger)
+    },
+
+    createTrigger(input: NewTrigger): Trigger {
+      const count = Number(rows('SELECT COUNT(*) FROM triggers WHERE company_id = ?', [input.companyId])[0][0])
+      if (count >= MAX_TRIGGERS) throw new ForkLimitError(`at most ${MAX_TRIGGERS} triggers per workspace`)
+      const trigger: Trigger = { ...input, id: randomUUID(), status: 'active', since: new Date().toISOString(), fires: 0, lastFire: null }
+      db.run(
+        `INSERT INTO triggers (id, company_id, created_by, conversation_id, assignee_id, title, prompt, repo, profile, status, since)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [trigger.id, trigger.companyId, trigger.createdBy, trigger.conversationId, trigger.assigneeId, trigger.title, trigger.prompt, trigger.repo, trigger.profile, trigger.status, trigger.since],
+      )
+      save()
+      return trigger
+    },
+
+    updateTrigger(companyId: string, id: string, patch: { status?: Trigger['status']; title?: string; prompt?: string }): boolean {
+      db.run(
+        `UPDATE triggers SET status = COALESCE(?, status), title = COALESCE(?, title), prompt = COALESCE(?, prompt)
+          WHERE id = ? AND company_id = ?`,
+        [patch.status ?? null, patch.title ?? null, patch.prompt ?? null, id, companyId],
+      )
+      if (db.getRowsModified() === 0) return false
+      save()
+      return true
+    },
+
+    deleteTrigger(companyId: string, id: string): boolean {
+      db.run('DELETE FROM triggers WHERE id = ? AND company_id = ?', [id, companyId])
+      if (db.getRowsModified() === 0) return false
+      db.run('DELETE FROM trigger_fires WHERE trigger_id = ?', [id])
+      save()
+      return true
+    },
+
+    /** Claims an event for a trigger before its message is posted. False when
+     *  the event fired before, so a poll never posts the same merge twice. */
+    claimFire(triggerId: string, eventKey: string, at: string, label: string): boolean {
+      db.run('INSERT OR IGNORE INTO trigger_fires (trigger_id, event_key, at, label) VALUES (?, ?, ?, ?)', [triggerId, eventKey, at, label])
+      if (db.getRowsModified() === 0) return false
+      save()
+      return true
+    },
+
+    /** How a claimed fire went: the message it posted, or why it could not. */
+    settleFire(triggerId: string, eventKey: string, result: { messageId: string } | { error: string }): void {
+      db.run(
+        'UPDATE trigger_fires SET message_id = ?, error = ? WHERE trigger_id = ? AND event_key = ?',
+        ['messageId' in result ? result.messageId : null, 'error' in result ? result.error : null, triggerId, eventKey],
+      )
+      save()
+    },
   }
 }
+
+const TRIGGER_COLUMNS = `t.id, t.company_id, t.created_by, t.conversation_id, t.assignee_id, t.title, t.prompt, t.repo, t.profile, t.status, t.since,
+  (SELECT COUNT(*) FROM trigger_fires WHERE trigger_id = t.id), f.at, f.label, f.error`
+// The newest fire of each trigger, by its time and then by its row.
+const TRIGGER_FROM = `FROM triggers t LEFT JOIN trigger_fires f ON f.rowid = (
+  SELECT rowid FROM trigger_fires WHERE trigger_id = t.id ORDER BY at DESC, rowid DESC LIMIT 1)`
+const toTrigger = ([id, companyId, createdBy, conversationId, assigneeId, title, prompt, repo, profile, status, since, fires, at, label, error]: initSqlJs.SqlValue[]): Trigger => ({
+  id: String(id), companyId: String(companyId), createdBy: String(createdBy), conversationId: String(conversationId), assigneeId: String(assigneeId),
+  title: String(title), prompt: String(prompt), repo: String(repo), profile: String(profile),
+  status: status === 'paused' ? 'paused' : 'active', since: String(since), fires: Number(fires),
+  lastFire: at === null ? null : { at: String(at), label: String(label), error: error === null ? null : String(error) },
+})
 
 export type ForkStore = Awaited<ReturnType<typeof openForkStore>>
 

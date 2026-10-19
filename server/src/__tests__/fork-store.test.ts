@@ -143,7 +143,7 @@ test('opening an older file runs the steps it has not had', async () => {
   // rows a version-1 client could write, when 'former' was a group key.
   const SQL = await initSqlJs()
   const raw = new SQL.Database(readFileSync(file))
-  raw.run('ALTER TABLE room_categories DROP COLUMN hidden; DROP TABLE pin_order; DROP TABLE computer_file_versions; DROP TABLE bloub_avatars;')
+  raw.run('ALTER TABLE room_categories DROP COLUMN hidden; DROP TABLE pin_order; DROP TABLE computer_file_versions; DROP TABLE bloub_avatars; DROP TABLE triggers; DROP TABLE trigger_fires;')
   raw.run("INSERT INTO collapsed_groups VALUES ('c1', 'u1', 'former'), ('c1', 'u1', 'other')")
   raw.run('PRAGMA user_version = 1')
   writeFileSync(file, raw.export())
@@ -230,7 +230,7 @@ test('faces picked before moods existed go back to rest', async () => {
   ;(await openForkStore(file)).setBloubAvatar('c1', 'agent-a', { shape: 'galet', color: 'violet' })
   const SQL = await initSqlJs()
   const raw = new SQL.Database(readFileSync(file))
-  raw.run("UPDATE bloub_avatars SET expression = 'timide'; PRAGMA user_version = 5")
+  raw.run("UPDATE bloub_avatars SET expression = 'timide'; DROP TABLE triggers; DROP TABLE trigger_fires; PRAGMA user_version = 5")
   writeFileSync(file, raw.export())
   assert.equal((await openForkStore(file)).bloubAvatars('c1')['agent-a']?.expression, 'neutre')
 })
@@ -277,4 +277,25 @@ test('hidden categories and the tile order stay per user', async () => {
   assert.deepEqual(store.layout('c1', 'u2').pinOrder, [])
   assert.throws(() => store.setPinOrder('c1', 'u1', Array.from({ length: MAX_PIN_ORDER + 1 }, (_, i) => `room-${i}`)), ForkLimitError)
   assert.deepEqual(store.layout('c1', 'u1').pinOrder, ['room-c', 'room-b'], 'a refused order changes nothing')
+})
+
+test('a trigger fires an event once, keeps its latest fire, and goes with its fires', async () => {
+  const store = await openForkStore(join(dir, 'triggers.sqlite'))
+  const input = { companyId: 'c1', createdBy: 'u1', conversationId: 'room', assigneeId: 'bot', title: 'Deploy', prompt: 'ship it', repo: 'o/r', profile: 'p' }
+  const t = store.createTrigger(input)
+  assert.deepEqual(store.triggers('c1', 'room'), [t])
+  assert.equal(store.trigger('c2', t.id), null, 'scoped by company')
+
+  assert.equal(store.claimFire(t.id, 'pr:1', '2026-10-19T01:00:00Z', '#1 one'), true)
+  assert.equal(store.claimFire(t.id, 'pr:1', '2026-10-19T01:00:01Z', '#1 again'), false)
+  store.settleFire(t.id, 'pr:1', { error: 'room gone' })
+  assert.equal(store.claimFire(t.id, 'pr:2', '2026-10-19T02:00:00Z', '#2 two'), true)
+  store.settleFire(t.id, 'pr:2', { messageId: 'm-2' })
+  assert.deepEqual(store.trigger('c1', t.id)?.lastFire, { at: '2026-10-19T02:00:00Z', label: '#2 two', error: null })
+  assert.equal(store.trigger('c1', t.id)?.fires, 2)
+
+  assert.equal(store.updateTrigger('c1', t.id, { status: 'paused' }), true)
+  assert.deepEqual(store.activeTriggers(), [])
+  assert.equal(store.deleteTrigger('c1', t.id), true)
+  assert.equal(store.claimFire(t.id, 'pr:1', '2026-10-19T03:00:00Z', '#1'), true, 'its fires went with it')
 })

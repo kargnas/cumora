@@ -497,6 +497,11 @@ button.nx-hb-note { transition: background-color var(--duration-quick); }
 .nx-job__actions { display: flex; justify-content: flex-end; gap: 8px; }
 .nx-job__prompt { margin: 0; padding: 12px; border-radius: var(--radius); background: var(--card); box-shadow: 0 0 0 1px var(--border); font-size: var(--text-caption); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 
+/* A trigger opened in place shares the job's frame; its last fire sits under the who line. */
+.nx-trigger__note { margin: 0; padding: 0 4px; overflow-wrap: anywhere; }
+.nx-trigger-form { display: flex; flex-direction: column; gap: 12px; }
+.nx-trigger-form > .nx-row__hint { margin: 0; }
+
 /* ── Thread ────────────────────────────────────────────────────────── */
 .nx-thread { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .nx-thread__list { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 4px; padding: 8px 0 12px; }

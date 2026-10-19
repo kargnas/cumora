@@ -4,7 +4,8 @@
  * agent books for "every few hours" into one). A job opens in place
  * (`?routine=`) with Run now, the "every N hours" control, its times and its
  * prompt; a time opens the event itself as a panel peek. Pausing here is the
- * same as pausing it in Calendar.
+ * same as pausing it in Calendar. Below the jobs come the room's triggers,
+ * routines that fire when a pull request merges (`triggers.tsx`).
  */
 import { useEffect, useMemo, useState } from 'react'
 import { useCalendar } from '@/stores/calendar'
@@ -22,6 +23,7 @@ import { IChevronLeft, IChevronRight, IRepeat } from '../ui/icons'
 import { describeRepeat } from '../sections/calendar/model'
 import { errText, RunNow } from '../sections/calendar/parts'
 import { everyHours, familiesOf, HOUR_STEPS, isDaily, memberAt, minuteOf, planFor, timesFor, titleFor, type Family } from './routines'
+import { NewTriggerDialog, TriggerRow, TriggerView, useTriggers } from './triggers'
 
 /** The active member that fires next, or null when every member is paused. */
 function nextRun(events: CalendarEvent[]): { id: string; at: Date } | null {
@@ -248,19 +250,31 @@ export function RoutinesTab({ c }: { c: Conversation }) {
     [events, c.id],
   )
   const families = useMemo(() => familiesOf(routines), [routines])
-  if (!loaded) return <div className="nx-center" aria-busy="true"><Spinner /></div>
+  const triggers = useTriggers(c.id)
+  const [adding, setAdding] = useState(false)
+  if (!loaded || triggers.list === null && !triggers.error) return <div className="nx-center" aria-busy="true"><Spinner /></div>
 
   const openId = route.search.get('routine')
   const open = openId ? families.find((f) => f.events.some((e) => e.id === openId)) : undefined
   if (open) return <JobView key={open.id} f={open} />
+  const openTrigger = triggers.list?.find((t) => t.id === route.search.get('trigger'))
+  if (openTrigger) return <TriggerView key={openTrigger.id} t={openTrigger} onChanged={triggers.reload} />
   // Faces only tell jobs apart when more than one agent runs them.
-  const faces = new Set(routines.map((e) => e.assigneeId)).size > 1
+  const faces = new Set([...routines.map((e) => e.assigneeId), ...(triggers.list ?? []).map((t) => t.assigneeId)]).size > 1
+  const empty = families.length === 0 && (triggers.list?.length ?? 0) === 0
   return (
     <div className="nx-routines">
-      {families.length === 0
-        ? <div className="nx-empty">{nt('routines.none')}</div>
-        : <div className="nx-rows nx-routine-list">{families.map((f) => <FamilyRow key={f.id} f={f} face={faces} />)}</div>}
+      {empty && <div className="nx-empty">{nt('routines.none')}</div>}
+      {!empty && (
+        <div className="nx-rows nx-routine-list">
+          {families.map((f) => <FamilyRow key={f.id} f={f} face={faces} />)}
+          {triggers.list?.map((t) => <TriggerRow key={t.id} t={t} face={faces} onChanged={triggers.reload} />)}
+        </div>
+      )}
+      {triggers.error && <p className="nx-field__error" role="alert">{triggers.error}</p>}
+      <button type="button" className="nx-btn nx-btn--outline nx-btn--block" onClick={() => setAdding(true)}>{nt('routines.trigger.new')}</button>
       <a className="nx-btn nx-btn--outline nx-btn--block" href={href({ section: 'calendar' })} onClick={linkClick}>{nt('routines.open')}</a>
+      <NewTriggerDialog c={c} open={adding} onClose={() => setAdding(false)} onCreated={triggers.reload} />
     </div>
   )
 }

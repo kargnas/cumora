@@ -5,6 +5,7 @@ import { agentHandbook } from './handbook.js'
 import { startRecorder } from './recorder.js'
 import { startMoods } from './mood.js'
 import { stopAgent } from './stop.js'
+import { PROFILE_RE, REPO_RE, listProfiles, pollErrorOf, runNow, startTriggerPoller } from './triggers.js'
 
 type CompanyContext = { userId: string; companyId: string }
 
@@ -50,14 +51,40 @@ async function requireAgentEditor(companyId: string, userId: string, participant
   if (rows[0]?.kind !== 'agent') throw new ForkError(404, 'agent not found')
 }
 
+function text(value: unknown, label: string, max: number): string {
+  const s = typeof value === 'string' ? value.trim() : ''
+  if (s.length < 1 || s.length > max) throw new ForkError(400, `${label} must be 1 to ${max} characters`)
+  return s
+}
+
+/** The caller is a member of the room, and so is the agent when one is named:
+ *  a room's triggers are its members' business, like its routines. 404 like a
+ *  missing room otherwise (src/next/AGENTS.md). */
+async function requireRoom(companyId: string, userId: string, conversationId: string, agentId: string | null = null): Promise<void> {
+  const { pool } = await import('../db/pool.js')
+  const { rows } = await pool.query<{ agent: boolean }>(
+    `SELECT ($4::text IS NULL OR EXISTS (
+              SELECT 1 FROM conversation_members m
+                JOIN participants p ON p.id = m.participant_id AND p.company_id = m.company_id
+               WHERE m.conversation_id = $1 AND m.company_id = $2 AND m.participant_id = $4
+                 AND p.kind = 'agent' AND p.departed_at IS NULL)) AS agent
+       FROM conversation_members
+      WHERE conversation_id = $1 AND company_id = $2 AND participant_id = $3`,
+    [conversationId, companyId, userId, agentId],
+  )
+  if (!rows[0]) throw new ForkError(404, 'room not found')
+  if (!rows[0].agent) throw new ForkError(404, 'agent not found in the room')
+}
+
 /** Fork-only endpoints under /api/fork, backed by the SQLite store in ./store.ts.
  *  Every row is scoped by the caller's own (companyId, userId) from requireCompany.
- *  Created once at boot, which is also when the Handbook's recorder and the
- *  bloub moods start. */
+ *  Created once at boot, which is also when the Handbook's recorder, the bloub
+ *  moods and the trigger poller start. */
 export function createForkRouter(deps: ForkRouterDeps): Router {
   const router = Router()
   startRecorder()
   startMoods()
+  startTriggerPoller()
 
   router.get('/room-layout', async (req, res) => {
     const { userId, companyId } = await deps.requireCompany(req)
@@ -153,6 +180,72 @@ export function createForkRouter(deps: ForkRouterDeps): Router {
     const store = await getForkStore()
     store.setBloubAvatar(companyId, participantId, look)
     res.json({ ok: true })
+  })
+
+  router.get('/triggers/profiles', async (req, res) => {
+    await deps.requireCompany(req)
+    res.json({ profiles: listProfiles() })
+  })
+
+  router.get('/triggers', async (req, res) => {
+    const { userId, companyId } = await deps.requireCompany(req)
+    const conversationId = routeKey(String(req.query.conversation ?? ''), 'conversation')
+    if (!conversationId) throw new ForkError(400, 'conversation is required')
+    await requireRoom(companyId, userId, conversationId)
+    const triggers = (await getForkStore()).triggers(companyId, conversationId)
+    res.json({ triggers: triggers.map((t) => ({ ...t, pollError: pollErrorOf(t) })) })
+  })
+
+  router.post('/triggers', async (req, res) => {
+    const { userId, companyId } = await deps.requireCompany(req)
+    const body = req.body ?? {}
+    const conversationId = routeKey(text(body.conversationId, 'conversationId', 100), 'conversationId')
+    const assigneeId = routeKey(text(body.assigneeId, 'assigneeId', 100), 'assigneeId')
+    const repo = text(body.repo, 'repo', 100)
+    if (!REPO_RE.test(repo)) throw new ForkError(400, 'repo must be owner/name')
+    const profile = text(body.profile, 'profile', 100)
+    if (!PROFILE_RE.test(profile) || !listProfiles().includes(profile)) throw new ForkError(400, 'profile is not signed in on the computer')
+    const input = { companyId, createdBy: userId, conversationId, assigneeId, repo, profile, title: text(body.title, 'title', 120), prompt: text(body.prompt, 'prompt', 4000) }
+    await requireRoom(companyId, userId, conversationId, assigneeId)
+    res.status(201).json({ trigger: { ...(await getForkStore()).createTrigger(input), pollError: null } })
+  })
+
+  router.patch('/triggers/:id', async (req, res) => {
+    const { userId, companyId } = await deps.requireCompany(req)
+    const store = await getForkStore()
+    const trigger = store.trigger(companyId, req.params.id)
+    if (!trigger) throw new ForkError(404, 'trigger not found')
+    await requireRoom(companyId, userId, trigger.conversationId)
+    const body = req.body ?? {}
+    const patch: { status?: 'active' | 'paused'; title?: string; prompt?: string } = {}
+    if (body.status !== undefined) {
+      if (body.status !== 'active' && body.status !== 'paused') throw new ForkError(400, 'status must be active or paused')
+      patch.status = body.status
+    }
+    if (body.title !== undefined) patch.title = text(body.title, 'title', 120)
+    if (body.prompt !== undefined) patch.prompt = text(body.prompt, 'prompt', 4000)
+    store.updateTrigger(companyId, trigger.id, patch)
+    res.json({ ok: true })
+  })
+
+  router.delete('/triggers/:id', async (req, res) => {
+    const { userId, companyId } = await deps.requireCompany(req)
+    const store = await getForkStore()
+    const trigger = store.trigger(companyId, req.params.id)
+    if (!trigger) throw new ForkError(404, 'trigger not found')
+    await requireRoom(companyId, userId, trigger.conversationId)
+    store.deleteTrigger(companyId, trigger.id)
+    res.json({ ok: true })
+  })
+
+  router.post('/triggers/:id/run-now', async (req, res) => {
+    const { userId, companyId } = await deps.requireCompany(req)
+    const trigger = (await getForkStore()).trigger(companyId, req.params.id)
+    if (!trigger) throw new ForkError(404, 'trigger not found')
+    await requireRoom(companyId, userId, trigger.conversationId)
+    const pr = await runNow(trigger)
+    if (!pr) throw new ForkError(404, 'the repository has no merged pull request')
+    res.json({ ok: true, pr })
   })
 
   router.delete('/bloub-avatars/:participantId', async (req, res) => {
