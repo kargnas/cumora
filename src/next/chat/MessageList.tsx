@@ -205,7 +205,11 @@ function useSwipeReply(onReply: (() => void) | null, cancelHold: () => void) {
   useEffect(() => {
     const row = ref.current
     if (!row || !enabled) return
-    let start: { x: number; y: number; at: number } | null = null
+    let start: { id: number; x: number; y: number; at: number } | null = null
+    // Set once the row takes the finger at `start`. Its moves stay here until
+    // it lifts, even after a second finger ends the swipe, so the swipe-back
+    // never picks them up halfway and bounces the screen.
+    let taken = false
     let parts: HTMLElement[] = []
     let arrow: HTMLElement | null = null
     let ready = false
@@ -220,26 +224,35 @@ function useSwipeReply(onReply: (() => void) | null, cancelHold: () => void) {
       if (reply && ready) latest.current.onReply?.()
     }
     const onStart = (e: TouchEvent) => {
-      // A second finger ends the swipe without replying.
+      // A second finger on this row ends the swipe without replying.
+      if (e.touches.length > 1) {
+        if (taken) release(false)
+        else start = null
+        return
+      }
+      // The only finger on the screen begins a new touch, whatever came before.
       if (parts.length > 0) release(false)
+      taken = false
       const t = e.touches[0]
-      start = e.touches.length === 1 && t ? { x: t.clientX, y: t.clientY, at: e.timeStamp } : null
+      start = t ? { id: t.identifier, x: t.clientX, y: t.clientY, at: e.timeStamp } : null
     }
     const onMove = (e: TouchEvent) => {
       const t = e.touches[0]
       if (!start || !t) return
       const dx = t.clientX - start.x
-      if (parts.length === 0) {
+      if (!taken) {
         const dy = t.clientY - start.y
         if (Math.abs(dx) < SWIPE_SLOP && Math.abs(dy) < SWIPE_SLOP) return
-        // Right is the swipe back and up or down a scroll. A move the browser
-        // can no longer cancel belongs to a scroll that already began, and a
-        // finger that rested until the menu opened is holding, not swiping.
-        // A touch event keeps the target its touch began on.
-        if (-dx <= Math.abs(dy) || !e.cancelable || e.timeStamp - start.at >= HOLD_MS || scrollsSideways(e.target, row)) {
+        // Two fingers are no swipe, right is the swipe back and up or down a
+        // scroll. A move the browser can no longer cancel belongs to a scroll
+        // that already began, and a finger that rested until the menu opened
+        // is holding, not swiping. A touch event keeps the target its touch
+        // began on.
+        if (e.touches.length > 1 || -dx <= Math.abs(dy) || !e.cancelable || e.timeStamp - start.at >= HOLD_MS || scrollsSideways(e.target, row)) {
           start = null
           return
         }
+        taken = true
         parts = [...row.children].filter((c): c is HTMLElement => c.matches('.nx-msg__gutter, .nx-msg__col'))
         arrow = row.querySelector<HTMLElement>(':scope > .nx-msg__swipe')
         ready = false
@@ -249,6 +262,10 @@ function useSwipeReply(onReply: (() => void) | null, cancelHold: () => void) {
       }
       e.stopPropagation()
       if (e.cancelable) e.preventDefault()
+      // So does a second finger anywhere else: its touchstart goes to where it
+      // landed, but every move of this finger lists it.
+      if (e.touches.length > 1) release(false)
+      if (parts.length === 0) return
       const d = Math.max(0, -dx)
       // Past REPLY_AT the message follows at a third of the finger's pace.
       const x = d <= REPLY_AT ? d : REPLY_AT + (d - REPLY_AT) / 3
@@ -265,8 +282,13 @@ function useSwipeReply(onReply: (() => void) | null, cancelHold: () => void) {
       }
     }
     const onEnd = (e: TouchEvent) => {
+      const s = start
+      // Only the finger that began here ends the touch.
+      if (!s || ![...e.changedTouches].some((c) => c.identifier === s.id)) return
       start = null
-      if (parts.length > 0) release(e.type === 'touchend')
+      taken = false
+      // A finger that landed elsewhere after this one last moved is still down.
+      if (parts.length > 0) release(e.type === 'touchend' && e.touches.length === 0)
     }
     row.addEventListener('touchstart', onStart, { passive: true })
     row.addEventListener('touchmove', onMove, { passive: false })
