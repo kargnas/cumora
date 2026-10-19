@@ -165,7 +165,6 @@ export function DetailsTab({ c }: { c: Conversation }) {
   const canRename = c.kind === 'group'
   return (
     <div className="nx-details">
-      {admin && agents.length > 0 && <CodingGroup agents={agents} />}
       <section className="nx-details__group" aria-label={nt('details.thisRoom')}>
         <h3 className="nx-details__head"><IHash aria-hidden />{nt('details.thisRoom')}</h3>
         {canRename && <EditableField label={nt('details.title')} value={c.title} onSave={(v) => api.setTitle(c.id, v)} />}
@@ -190,6 +189,7 @@ export function DetailsTab({ c }: { c: Conversation }) {
         </div>
       </section>
       {admin && agents.length > 0 && <AgentGroup agents={agents} />}
+      {admin && agents.length > 0 && <CodingGroup agents={agents} />}
       {admin && <AgentEditDialog />}
       <div className="nx-details__actions">
         {c.kind !== 'email' && (

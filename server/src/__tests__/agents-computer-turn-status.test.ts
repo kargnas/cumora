@@ -57,6 +57,23 @@ test('statuses asked for behind a post in flight collapse to the newest, and not
   assert.deepEqual(sent, ['thinking', 'avail'])
 })
 
+test('a hop is recorded in the room of its turn, not of a wake that landed during it', (t) => {
+  // The fork finds the room an agent launched a T3 thread from by these rows
+  // (server/src/fork/coding.ts).
+  const { runner } = fixture(t)
+  const rooms: Array<string | null> = []
+  Object.assign(runner, {
+    hopReporter: { push: (h: { conversationId: string | null }) => rooms.push(h.conversationId) },
+    turnConvo: 'room-a',
+    lastWakeConvo: 'room-b',
+  })
+  runner.onEngineHop(hop(), 'agent-turn')
+  // Outside a chat turn (an agenda turn) the wake's room stays what it was.
+  Object.assign(runner, { turnConvo: null })
+  runner.onEngineHop(hop(), 'agent-turn')
+  assert.deepEqual(rooms, ['room-a', 'room-b'])
+})
+
 test('a tool hop turns the agent to working for the rest of the turn, and each new kind of tool is posted once', async (t) => {
   const { runner, sent } = fixture(t)
   const step = async (report: EngineHopReport) => {

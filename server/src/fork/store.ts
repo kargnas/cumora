@@ -65,10 +65,14 @@ export interface CodingThread {
   conversationId: string | null
   /** Without the agent's `[@<id>] ` mark. */
   title: string
-  /** T3's thread status: running, waiting, completed, failed... */
+  /** T3's thread status (running, completed, failed...), or 'question' while
+   *  the thread waits for the answer to `requestId`. */
   status: string
   runId: string | null
-  pullRequests: Array<{ number: number; url: string; state: string }>
+  /** The question the thread waits for (T3's t3_pending_request_list), or null. */
+  requestId: string | null
+  /** `state` is null until T3 has read the pull request's host. */
+  pullRequests: Array<{ number: number; url: string; state: string | null }>
   createdAt: string
   /** T3's time of the last change to the status, title, run or pull requests. */
   updatedAt: string
@@ -78,8 +82,10 @@ export interface CodingThread {
  *  thread first seen long after it came to rest arrives already woken. */
 export type NewCodingThread = CodingThread & { woken: string | null }
 
-/** What the agent of a thread was woken for: once per run and resting status. */
-export const codingWakeKey = (t: Pick<CodingThread, 'runId' | 'status'>): string => `${t.runId ?? ''}:${t.status}`
+/** What the agent of a thread was woken for: once per run and resting status,
+ *  and once per question, so a second question in the same run wakes it again. */
+export const codingWakeKey = (t: Pick<CodingThread, 'runId' | 'status' | 'requestId'>): string =>
+  `${t.runId ?? ''}:${t.status}:${t.requestId ?? ''}`
 
 // Same convention as UPLOAD_DIR in storage.ts: relative to the server's cwd
 // (/app in the image), where compose mounts a volume so the file survives
@@ -235,8 +241,9 @@ const MIGRATIONS = [
    );`,
 
   // Coding (./coding.ts): the T3 Code threads agents launched, copied from T3
-  // once a minute. `woken` holds the codingWakeKey the agent was last woken
-  // for, and `wake_error` why that wake could not be posted.
+  // once a minute. `status` is T3's, or 'question' while the thread waits for
+  // the answer to `request_id`. `woken` holds the codingWakeKey the agent was
+  // last woken for, and `wake_error` why that wake could not be posted.
   // ponytail: rows are never pruned, one per launched thread. Prune by age if
   // agents launch thousands.
   `CREATE TABLE coding_threads (
@@ -248,6 +255,7 @@ const MIGRATIONS = [
      title TEXT NOT NULL,
      status TEXT NOT NULL,
      run_id TEXT,
+     request_id TEXT,
      -- JSON: [{ number, url, state }]
      pull_requests TEXT NOT NULL,
      created_at TEXT NOT NULL,
@@ -540,11 +548,12 @@ export async function openForkStore(file: string) {
     },
 
     /** Drops what the fork kept of an agent deleted for good: its look, its
-     *  triggers, the Handbook's versions of its home, and every user's layout
-     *  rows of its deleted 1:1 rooms. With a computer, queues the removal of
-     *  its files there. */
+     *  triggers, its T3 threads, the Handbook's versions of its home, and every
+     *  user's layout rows of its deleted 1:1 rooms. With a computer, queues the
+     *  removal of its files there. */
     purgeAgent(companyId: string, agentId: string, deletedRooms: string[], computerId: string | null): void {
       db.run('DELETE FROM bloub_avatars WHERE company_id = ? AND participant_id = ?', [companyId, agentId])
+      db.run('DELETE FROM coding_threads WHERE company_id = ? AND agent_id = ?', [companyId, agentId])
       db.run(
         'DELETE FROM trigger_fires WHERE trigger_id IN (SELECT id FROM triggers WHERE company_id = ? AND assignee_id = ?)',
         [companyId, agentId],
@@ -661,22 +670,22 @@ export async function openForkStore(file: string) {
     },
 
     /** Copies one poll of T3 in one write. The poller hands over every thread on
-     *  every poll, so nothing is written when no status, title, run or pull
-     *  request changed. A row keeps its agent and its room from the first copy. */
+     *  every poll, so nothing is written when no status, title, run, question or
+     *  pull request changed. A row keeps its agent and its room from the first copy. */
     saveCodingThreads(threads: NewCodingThread[]): void {
       let changed = 0
       db.run('BEGIN')
       try {
         for (const t of threads) {
           db.run(
-            `INSERT INTO coding_threads (server, thread_id, company_id, agent_id, conversation_id, title, status, run_id, pull_requests, created_at, updated_at, woken)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `INSERT INTO coding_threads (server, thread_id, company_id, agent_id, conversation_id, title, status, run_id, request_id, pull_requests, created_at, updated_at, woken)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT (server, thread_id) DO UPDATE SET
-               title = excluded.title, status = excluded.status, run_id = excluded.run_id,
+               title = excluded.title, status = excluded.status, run_id = excluded.run_id, request_id = excluded.request_id,
                pull_requests = excluded.pull_requests, updated_at = excluded.updated_at
-             WHERE title IS NOT excluded.title OR status IS NOT excluded.status
-                OR run_id IS NOT excluded.run_id OR pull_requests IS NOT excluded.pull_requests`,
-            [t.server, t.threadId, t.companyId, t.agentId, t.conversationId, t.title, t.status, t.runId,
+             WHERE title IS NOT excluded.title OR status IS NOT excluded.status OR run_id IS NOT excluded.run_id
+                OR request_id IS NOT excluded.request_id OR pull_requests IS NOT excluded.pull_requests`,
+            [t.server, t.threadId, t.companyId, t.agentId, t.conversationId, t.title, t.status, t.runId, t.requestId,
               JSON.stringify(t.pullRequests), t.createdAt, t.updatedAt, t.woken],
           )
           changed += db.getRowsModified()
@@ -706,11 +715,12 @@ export async function openForkStore(file: string) {
   }
 }
 
-const CODING_COLUMNS = 'server, thread_id, company_id, agent_id, conversation_id, title, status, run_id, pull_requests, created_at, updated_at'
-const toCodingThread = ([server, threadId, companyId, agentId, conversationId, title, status, runId, pullRequests, createdAt, updatedAt]: initSqlJs.SqlValue[]): CodingThread => ({
+const CODING_COLUMNS = 'server, thread_id, company_id, agent_id, conversation_id, title, status, run_id, request_id, pull_requests, created_at, updated_at'
+const toCodingThread = ([server, threadId, companyId, agentId, conversationId, title, status, runId, requestId, pullRequests, createdAt, updatedAt]: initSqlJs.SqlValue[]): CodingThread => ({
   server: String(server), threadId: String(threadId), companyId: String(companyId), agentId: String(agentId),
   conversationId: conversationId === null ? null : String(conversationId), title: String(title), status: String(status),
-  runId: runId === null ? null : String(runId), pullRequests: JSON.parse(String(pullRequests)), createdAt: String(createdAt), updatedAt: String(updatedAt),
+  runId: runId === null ? null : String(runId), requestId: requestId === null ? null : String(requestId),
+  pullRequests: JSON.parse(String(pullRequests)), createdAt: String(createdAt), updatedAt: String(updatedAt),
 })
 
 const TRIGGER_COLUMNS = `t.id, t.company_id, t.created_by, t.conversation_id, t.assignee_id, t.title, t.prompt, t.repo, t.profile, t.status, t.since,

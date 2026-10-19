@@ -459,6 +459,7 @@ button.nx-hb-note { transition: background-color var(--duration-quick); }
 .nx-coding[data-tone="bad"] > :first-child { color: var(--destructive); }
 .nx-coding[data-tone="muted"] > :first-child { color: var(--muted-foreground); }
 .nx-coding__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-coding-group { animation: nx-rise var(--duration-fast) var(--ease-smooth-out) both; }
 
 /* ── Files ─────────────────────────────────────────────────────────── */
 .nx-files { display: flex; flex-direction: column; gap: 8px; }
