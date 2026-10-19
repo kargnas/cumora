@@ -93,3 +93,32 @@ export function buildItems(messages: Message[], meId: string | null): Item[] {
   }
   return out
 }
+
+/** A mounted day chip's pill, as the floating day under the header sees it. Days
+ *  are local midnights in ms; `prev` is the day of the row before the chip (null
+ *  for the first row). `passed`: the pill's top is above the floating pill's
+ *  line; `near`: it is close enough below it to need the spot. Null until measured. */
+export interface DayPill { day: number; prev: number | null; passed: boolean | null; near: boolean | null }
+
+/**
+ * The date the floating pill under the room header shows, for the rows at its
+ * line, and whether it shows. The last pill above the line names the day there;
+ * with none, the row before the first pill below it does; with no pill mounted,
+ * `rangeDay`, the day of the rendered rows (null when they cross a day, whose
+ * pill has not reported yet). It steps aside while a pill below the line says
+ * the same date or comes up to take the spot. Null means "keep what is on
+ * screen": a pill has not been measured yet.
+ */
+export function floatingDay(pills: Iterable<DayPill>, rangeDay: number | null): { day: number; show: boolean } | null {
+  const list = [...pills]
+  let above: DayPill | null = null
+  let below: DayPill | null = null
+  for (const p of list) {
+    if (p.passed === null || p.near === null) return null
+    if (p.passed) { if (!above || p.day > above.day) above = p }
+    else if (!below || p.day < below.day) below = p
+  }
+  const day = above ? above.day : below ? (below.prev ?? below.day) : rangeDay
+  if (day === null) return null
+  return { day, show: !list.some((p) => !p.passed && (p.near || p.day === day)) }
+}

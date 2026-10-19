@@ -82,13 +82,37 @@
   justify-content: center;
   padding: 16px 0 8px;
 }
-.nx-day span {
+.nx-day span,
+.nx-day-float span {
   padding: 2px 8px;
   border-radius: 999px;
   font-size: var(--text-caption);
   color: var(--muted-foreground);
   background: var(--muted);
 }
+/* The date of the rows under the header while their own chip is scrolled away
+   (the floating day in chat/MessageList.tsx). A sticky zero-height anchor at the
+   observers' line, 8px under the 56px header; the pill hangs from it. */
+.nx-day-float {
+  position: sticky;
+  top: 64px;
+  z-index: 4;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  height: 0;
+  pointer-events: none;
+}
+.nx-day-float span {
+  /* --muted is translucent and rows scroll under this pill, so it sits on the card. */
+  background: linear-gradient(var(--muted), var(--muted)) var(--card);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--duration-quick), visibility var(--duration-quick);
+}
+/* It appears at once in the spot its in-flow pill just left, and fades when it steps aside. */
+.nx-day-float span[data-show] { opacity: 1; visibility: visible; transition: none; }
+.nx-day span[data-passed] { visibility: hidden; }
 /* "2 h 30 min later": a silence of 15 minutes or more inside a day. */
 .nx-pause {
   display: flex;

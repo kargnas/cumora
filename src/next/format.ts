@@ -14,7 +14,7 @@ function fmt(locale: Locale, opts: Intl.DateTimeFormatOptions): Intl.DateTimeFor
   return f
 }
 
-function startOfDay(d: Date): number {
+export function startOfDay(d: Date): number {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
 }
 

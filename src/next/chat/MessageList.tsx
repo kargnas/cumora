@@ -8,8 +8,8 @@
  *  - Entrance motion is CSS on transform/opacity/clip-path and plays once per
  *    message per session, so scrolling back never replays it.
  */
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
-import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
+import { forwardRef, memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { Virtuoso, type ListRange, type ScrollerProps, type VirtuosoHandle } from 'react-virtuoso'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '@/stores/app'
 import { useMe } from '@/stores/auth'
@@ -27,12 +27,12 @@ import type { Message, Participant } from '@/types'
 import { haptic } from '../haptics'
 import { useNT, type NT } from '../i18n'
 import { href, navigate, getRoute, withRoute } from '../router'
-import { bytes, clock, dayLabel, exactTime, fullDate, pauseLength, relative } from '../format'
+import { bytes, clock, dayLabel, exactTime, fullDate, pauseLength, relative, startOfDay } from '../format'
 import { useHold } from '../hooks'
 import { Avatar } from '../ui/Avatar'
 import { IconButton, Menu, Spinner, useMenu, type MenuEntry } from '../ui/primitives'
 import { IArrowDown, ICopy, IDownload, IFile, IMore, IReply, ISpark, IThread, IWhisper } from '../ui/icons'
-import { buildItems, createdAt, type Item, type Pos, type Stamp } from './model'
+import { buildItems, createdAt, floatingDay, type DayPill, type Item, type Pos, type Stamp } from './model'
 
 const EMPTY: Message[] = []
 const QUICK = ['👍', '❤️', '😂', '👀', '✅', '🔥']
@@ -353,6 +353,82 @@ function LiveFooter({ convoId, onChange }: { convoId: string; onChange: (grew: b
   return <>{live.map((l) => <LiveBubble key={l.authorId} authorId={l.authorId} body={l.body} />)}</>
 }
 
+/* ── Floating day ───────────────────────────────────────────────────── */
+/** Top of the floating day pill in the scroller: under the 56px room header, plus 8. */
+const FLOAT_LINE = 64
+/** The pill's height plus 8: an in-flow pill this close below the line gets the spot back. */
+const FLOAT_NEAR = 30
+
+/**
+ * Keeps the date of the rows under the header in a pill there while their own
+ * day chip is scrolled away, so a room opened partway into an older day still
+ * says which day its times belong to (floatingDay in model.ts decides). Two
+ * IntersectionObservers tell each in-flow pill when it passes the pill's line
+ * (the floating pill takes its place) and when it comes near it (the floating
+ * pill steps aside), so nothing reads layout while scrolling and no row
+ * re-renders: the result is written straight into the DOM, like data-all-times.
+ */
+function createDayFloat() {
+  const pills = new Map<Element, DayPill>()
+  let observers: IntersectionObserver[] = []
+  let root: HTMLElement | null = null
+  let float: HTMLSpanElement | null = null
+  let rangeDay: number | null = null
+  let text = ''
+  const watcher = (el: HTMLElement, inset: number, flag: 'passed' | 'near') => new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      const p = pills.get(e.target)
+      // The root starts `inset` px below the scroller's top: above its top edge is past that line.
+      if (p && e.rootBounds) p[flag] = e.boundingClientRect.top < e.rootBounds.top
+    }
+    self.update()
+  }, { root: el, rootMargin: `-${inset}px 0px 0px 0px`, threshold: [0, 1] })
+  const self = {
+    label: (_day: number) => '',
+    update() {
+      const next = floatingDay(pills.values(), rangeDay)
+      if (!float || !next) return
+      if (next.show) {
+        const t = self.label(next.day)
+        if (t !== text) { float.textContent = t; text = t }
+      }
+      float.toggleAttribute('data-show', next.show)
+      // A pill past the line is under the header, where the floating pill says its date.
+      for (const [el, p] of pills) el.toggleAttribute('data-passed', p.passed === true)
+    },
+    root(el: HTMLElement | null) {
+      if (el === root) return
+      for (const o of observers) o.disconnect()
+      root = el
+      observers = el ? [watcher(el, FLOAT_LINE, 'passed'), watcher(el, FLOAT_LINE + FLOAT_NEAR, 'near')] : []
+      for (const pill of pills.keys()) for (const o of observers) o.observe(pill)
+    },
+    watch: (el: Element, day: number, prev: number | null) => {
+      pills.set(el, { day, prev, passed: null, near: null })
+      for (const o of observers) o.observe(el)
+      return () => {
+        pills.delete(el)
+        for (const o of observers) o.unobserve(el)
+        self.update()
+      }
+    },
+    range(day: number | null) { rangeDay = day; self.update() },
+    bind: (el: HTMLSpanElement | null) => { float = el; text = ''; self.update() },
+  }
+  return self
+}
+type DayFloat = ReturnType<typeof createDayFloat>
+
+/** A day separator. Its pill reports to the floating day, which takes its place under the header. */
+function DayChip({ day, prev, label, watch }: { day: number; prev: number | null; label: string; watch: DayFloat['watch'] }) {
+  const pill = useRef<HTMLSpanElement>(null)
+  useEffect(() => {
+    const el = pill.current
+    return el ? watch(el, day, prev) : undefined
+  }, [watch, day, prev])
+  return <div className="nx-day"><span ref={pill}>{label}</span></div>
+}
+
 /* ── List ───────────────────────────────────────────────────────────── */
 interface ListContext {
   convoId: string
@@ -362,11 +438,22 @@ interface ListContext {
   hasMore: boolean
   empty: boolean
   beginning: string
+  floatRef: (el: HTMLSpanElement | null) => void
 }
 
 // Module-level so Virtuoso never sees new component types: a fresh Footer
 // function per render would remount the streaming bubbles.
 const LIST_COMPONENTS = {
+  // The floating day hangs from a sticky zero-height anchor inside the scroller,
+  // so it centers on the same width as the in-flow chips even beside a classic scrollbar.
+  Scroller: forwardRef<HTMLDivElement, ScrollerProps & { context?: ListContext }>(function Scroller({ children, context, ...props }, ref) {
+    return (
+      <div {...props} ref={ref}>
+        <div className="nx-day-float" aria-hidden="true"><span ref={context?.floatRef} /></div>
+        {children}
+      </div>
+    )
+  }),
   Header: ({ context }: { context?: ListContext }) => (
     <div className="nx-transcript__head">
       {context?.loadingOlder ? <Spinner /> : context && !context.hasMore && !context.empty ? <span>{context.beginning}</span> : null}
@@ -420,6 +507,22 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
   }
   const firstItemIndex = VIRTUOSO_FIRST_INDEX_BASE - anchorIndex
 
+  const [float] = useState(createDayFloat)
+  float.label = (day) => dayLabel(new Date(day), locale, nt('msg.today'), nt('msg.yesterday'))
+  // Virtuoso's indexes count from firstItemIndex; the callbacks below read the current rows.
+  const itemsRef = useRef(items)
+  itemsRef.current = items
+  const firstRef = useRef(firstItemIndex)
+  firstRef.current = firstItemIndex
+  const onRange = useCallback(({ startIndex, endIndex }: ListRange) => {
+    const list = itemsRef.current
+    const from = startIndex - firstRef.current
+    // Rows that cross a day mount that day's chip, which reports itself.
+    let day: number | null = list[from] ? startOfDay(list[from].at) : null
+    for (let i = from; day !== null && i <= endIndex - firstRef.current; i++) if (list[i]?.day) day = null
+    float.range(day)
+  }, [float])
+
   const onStartReached = useCallback(() => {
     if (hasMore && !loadingOlder) void useMessages.getState().loadOlder(convoId)
   }, [convoId, hasMore, loadingOlder])
@@ -431,6 +534,11 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
   const atBottomRef = useRef(true)
   atBottomRef.current = atBottom
   const scroller = useRef<HTMLElement | null>(null)
+  // Stable: Virtuoso re-runs its scroller effect, and with it this callback, whenever it changes.
+  const onScroller = useCallback((el: HTMLElement | Window | null) => {
+    scroller.current = el instanceof HTMLElement ? el : null
+    float.root(scroller.current)
+  }, [float])
   const onLiveChange = useCallback((grew: boolean) => {
     if (!atBottomRef.current) return
     requestAnimationFrame(() => {
@@ -491,9 +599,10 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
     // Keyed on the hit alone: new messages arriving must not yank the view back.
   }, [currentHit])
 
-  const renderItem = useCallback((_: number, it: Item): ReactNode => {
+  const renderItem = useCallback((index: number, it: Item): ReactNode => {
+    const before = it.day ? itemsRef.current[index - firstRef.current - 1] : undefined
     const sep = it.day
-      ? <div className="nx-day"><span>{dayLabel(it.day, locale, nt('msg.today'), nt('msg.yesterday'))}</span></div>
+      ? <DayChip day={startOfDay(it.day)} prev={before ? startOfDay(before.at) : null} label={dayLabel(it.day, locale, nt('msg.today'), nt('msg.yesterday'))} watch={float.watch} />
       : it.pause !== null
         ? <div className="nx-pause"><span>{pauseText(nt, it.pause)}</span></div>
         : null
@@ -522,7 +631,7 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
         />
       </>
     )
-  }, [byId, locale, nt, seen, currentHit, hitSet])
+  }, [byId, locale, nt, seen, currentHit, hitSet, float])
 
   if (items.length === 0) {
     if (error) return <div className="nx-center"><div className="nx-empty"><b>{nt('msg.loadFailed')}</b><button type="button" className="nx-btn nx-btn--outline" onClick={() => void useMessages.getState().retryLoad(convoId)}>{nt('msg.retry')}</button></div></div>
@@ -533,7 +642,7 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
     <div className="nx-transcript" onClick={toggleTimes}>
       <Virtuoso
         ref={ref}
-        scrollerRef={(el) => { scroller.current = el instanceof HTMLElement ? el : null }}
+        scrollerRef={onScroller}
         className="nx-transcript__scroller"
         data={items}
         firstItemIndex={firstItemIndex}
@@ -548,11 +657,12 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
         atBottomThreshold={96}
         atBottomStateChange={setAtBottom}
         startReached={onStartReached}
+        rangeChanged={onRange}
         increaseViewportBy={{ top: 800, bottom: 400 }}
         defaultItemHeight={64}
         computeItemKey={(_, it) => it.key}
         itemContent={renderItem}
-        context={{ convoId, bottomInset, onLiveChange, loadingOlder, hasMore, empty: items.length === 0, beginning: nt('msg.beginning') }}
+        context={{ convoId, bottomInset, onLiveChange, loadingOlder, hasMore, empty: items.length === 0, beginning: nt('msg.beginning'), floatRef: float.bind }}
         components={LIST_COMPONENTS}
       />
       <button

@@ -22,6 +22,8 @@ An agent working in a room (it shows as typing there) peeks over the composer ba
 
 Each turn (one sender's unbroken run of messages) opens with the avatar and a name row carrying its time; your own messages carry theirs left of the bubble. Later messages in a turn show a time in the avatar column (right of the bubble in a 1:1 room, which has none) only after a gap, and a long silence inside a day gets a line saying how long it lasted (the thresholds are `STAMP_GAP_MIN` and `PAUSE_MS` in `chat/model.ts`). Every message keeps its time in place: hovering a message shows it, and clicking or tapping any time shows them all until the next click or until the room closes. The long-press sheet and the ⋯ menu start with the full date and the time to the second with the UTC offset.
 
+Times carry no date. A chip marks where each day starts, and while the rows under the room header belong to a day whose chip is scrolled away, a pill under the header shows that day's date, so a room opened partway into an older day still says which day its times belong to. The pill takes the chip's place as the chip passes under the header and steps aside when the next day's chip comes up to it.
+
 ## Handbook
 
 The room panel's first tab, and the Handbook view of an agent's profile, show one agent's standing files as one document: its `CLAUDE.md` or `AGENTS.md`, its memory (`memory/**/*.md`, `MEMORY.md` first), its own skills (`.claude/skills/*/SKILL.md`) and the skills every agent on the computer shares. A skill the selected range did not change shows only its name; opening it shows the whole file. In a room with several agents, the chips at the top pick one (`?agent=`).
