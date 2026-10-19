@@ -186,7 +186,7 @@ export function ChatView({ convoId, layout, panelOpen }: { convoId: string; layo
   const find = useMemo<Find | undefined>(() => (searching ? { q, index, onCount: setCount } : undefined), [searching, q, index])
   if (!c) return <section className="nx-chat" />
   return (
-    <section className="nx-chat" aria-label={c.title}>
+    <section className="nx-chat" aria-label={c.title} data-direct={c.kind === 'direct' || undefined}>
       <ChatHeader c={c} layout={layout} panelOpen={panelOpen} searching={searching} onSearch={() => setSearching((v) => !v)} />
       <AnimatePresence>
         {searching && (
