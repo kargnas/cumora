@@ -219,6 +219,21 @@ const MIGRATIONS = [
      PRIMARY KEY (trigger_id, event_key)
    );`,
 
+  // Agents deleted for good (./purge.ts). purged_agents is kept forever: an
+  // agent id is never given out again (agents/create.ts), so nothing that
+  // still names the old id can reach a new agent. computer_purges holds those
+  // whose files are still on their computer, until its daemon removes the
+  // agent's home and engine sessions (./computer-purge.ts).
+  `CREATE TABLE purged_agents (
+     agent_id TEXT PRIMARY KEY,
+     at TEXT NOT NULL
+   );
+   CREATE TABLE computer_purges (
+     agent_id TEXT PRIMARY KEY,
+     computer_id TEXT NOT NULL,
+     at TEXT NOT NULL
+   );`,
+
   // Coding (./coding.ts): the T3 Code threads agents launched, copied from T3
   // once a minute. `woken` holds the codingWakeKey the agent was last woken
   // for, and `wake_error` why that wake could not be posted.
@@ -521,6 +536,46 @@ export async function openForkStore(file: string) {
     /** Back to the agent's portrait or initial. */
     clearBloubAvatar(companyId: string, participantId: string): void {
       db.run('DELETE FROM bloub_avatars WHERE company_id = ? AND participant_id = ?', [companyId, participantId])
+      if (db.getRowsModified() > 0) save()
+    },
+
+    /** Drops what the fork kept of an agent deleted for good: its look, its
+     *  triggers, the Handbook's versions of its home, and every user's layout
+     *  rows of its deleted 1:1 rooms. With a computer, queues the removal of
+     *  its files there. */
+    purgeAgent(companyId: string, agentId: string, deletedRooms: string[], computerId: string | null): void {
+      db.run('DELETE FROM bloub_avatars WHERE company_id = ? AND participant_id = ?', [companyId, agentId])
+      db.run(
+        'DELETE FROM trigger_fires WHERE trigger_id IN (SELECT id FROM triggers WHERE company_id = ? AND assignee_id = ?)',
+        [companyId, agentId],
+      )
+      db.run('DELETE FROM triggers WHERE company_id = ? AND assignee_id = ?', [companyId, agentId])
+      db.run('DELETE FROM computer_file_versions WHERE scope = ?', [agentId])
+      for (const room of deletedRooms) {
+        db.run('DELETE FROM room_assignments WHERE company_id = ? AND conversation_id = ?', [companyId, room])
+        db.run('DELETE FROM pin_order WHERE company_id = ? AND conversation_id = ?', [companyId, room])
+      }
+      const at = new Date().toISOString()
+      db.run('INSERT OR IGNORE INTO purged_agents (agent_id, at) VALUES (?, ?)', [agentId, at])
+      if (computerId) {
+        db.run('INSERT OR REPLACE INTO computer_purges (agent_id, computer_id, at) VALUES (?, ?, ?)', [agentId, computerId, at])
+      }
+      save()
+    },
+
+    /** Deleted agents whose files are still on this computer. */
+    computerPurges(computerId: string): string[] {
+      return rows('SELECT agent_id FROM computer_purges WHERE computer_id = ? ORDER BY at', [computerId]).map(([id]) => String(id))
+    },
+
+    /** Every agent deleted for good. Their ids are never given out again. */
+    purgedAgents(): Set<string> {
+      return new Set(rows('SELECT agent_id FROM purged_agents', null).map(([id]) => String(id)))
+    },
+
+    /** The computer removed the agent's files. */
+    clearComputerPurge(computerId: string, agentId: string): void {
+      db.run('DELETE FROM computer_purges WHERE computer_id = ? AND agent_id = ?', [computerId, agentId])
       if (db.getRowsModified() > 0) save()
     },
 

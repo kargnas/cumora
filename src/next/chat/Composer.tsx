@@ -20,6 +20,7 @@ import { useAgentStop } from '@/lib/agentStop'
 import type { Participant } from '@/types'
 import { haptic } from '../haptics'
 import { useNT } from '../i18n'
+import { authorOf } from './deletedAuthor'
 import { Avatar } from '../ui/Avatar'
 import { IconButton, Kbd, Menu, Spinner, T_QUICK, useCoarse, useMenu } from '../ui/primitives'
 import { IArrowUp, IAt, IClip, IFile, IPlus, IPoll, ISmile, IStop, IX } from '../ui/icons'
@@ -73,7 +74,7 @@ export function Composer({ convoId, threadRootId = null }: {
   const setDraft = useCallback((fn: (d: ComposerDraft) => ComposerDraft) => update(scope, fn), [scope, update])
   const replyingId = useApp((s) => (isThread ? null : s.replyingTo[convoId] ?? null))
   const replying = useMessages((s) => (replyingId ? (s.byConvo[convoId] ?? []).find((m) => m.id === replyingId) : undefined))
-  const replyName = useParticipants((s) => (replying ? s.byId[replying.authorId]?.name : undefined))
+  const replyName = useParticipants((s) => (replying ? authorOf(s.byId, replying.authorId, nt)?.name : undefined))
   const convo = useConversations((s) => s.list.find((c) => c.id === convoId))
   const byId = useParticipants((s) => s.byId)
   const editor = useRef<RichInputHandle>(null)

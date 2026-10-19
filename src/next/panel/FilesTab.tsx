@@ -8,6 +8,7 @@ import {
 import { ImageViewer } from '@/components/ImageViewer'
 import type { Conversation, Message } from '@/types'
 import { useNT } from '../i18n'
+import { authorOf } from '../chat/deletedAuthor'
 import { bytes } from '../format'
 import { IDownload, IFile } from '../ui/icons'
 
@@ -59,7 +60,7 @@ export function FilesTab({ c }: { c: Conversation }) {
               <span className="nx-att-file__icon"><IFile /></span>
               <span className="nx-att-file__text">
                 <span className="nx-att-file__name">{m.attachment!.name}</span>
-                <span className="nx-att-file__meta nx-mono">{[byId[m.authorId]?.name, m.attachment!.size ? bytes(m.attachment!.size) : null].filter(Boolean).join(' · ')}</span>
+                <span className="nx-att-file__meta nx-mono">{[authorOf(byId, m.authorId, nt)?.name, m.attachment!.size ? bytes(m.attachment!.size) : null].filter(Boolean).join(' · ')}</span>
               </span>
               <IDownload className="nx-att-file__dl" />
             </a>

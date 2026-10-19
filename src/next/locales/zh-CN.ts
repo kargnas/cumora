@@ -128,6 +128,7 @@ export const zhCN: Partial<Record<keyof typeof en, string>> = {
   'msg.actions': '消息操作',
   'msg.reactWith': '用 {emoji} 回应',
   'msg.someone': '某人',
+  'msg.deletedAgent': '已删除的智能体',
   'msg.oneReply': '1 条回复',
   'msg.replies': '{n} 条回复',
   'msg.toolCount': '{n} 个步骤',

@@ -38,8 +38,8 @@ export function listHref(route: Route): string {
 }
 
 /** Query params of the dialogs this section opens. */
-export const DIALOG_PARAMS = ['new', 'edit', 'offboard'] as const
-export const NO_DIALOG = { new: null, edit: null, offboard: null }
+export const DIALOG_PARAMS = ['new', 'edit', 'offboard', 'purge'] as const
+export const NO_DIALOG = { new: null, edit: null, offboard: null, purge: null }
 
 /** The current screen with one dialog open (and no other). */
 export function dialogHref(route: Route, dialog: typeof DIALOG_PARAMS[number]): string {

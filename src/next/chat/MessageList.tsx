@@ -33,6 +33,7 @@ import { Avatar } from '../ui/Avatar'
 import { IconButton, Menu, Spinner, useMenu, type MenuEntry } from '../ui/primitives'
 import { IArrowDown, ICopy, IDownload, IFile, IMore, IReply, ISpark, IThread, IWhisper } from '../ui/icons'
 import { buildItems, createdAt, floatingDay, type DayPill, type Item, type Pos, type Stamp } from './model'
+import { authorOf } from './deletedAuthor'
 
 const EMPTY: Message[] = []
 const QUICK = ['👍', '❤️', '😂', '👀', '✅', '🔥']
@@ -335,7 +336,7 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
   const turn = stamp === 'turn'
   const time = <TimeStamp at={at} shown={stamp !== 'hidden'} locale={locale} />
   const quote = msg.quoted
-  const quoteAuthor = useParticipants((s) => (quote ? s.byId[quote.authorId]?.name : undefined))
+  const quoteAuthor = useParticipants((s) => (quote ? authorOf(s.byId, quote.authorId, nt)?.name : undefined))
   // Selects a string, so status churn on participants does not re-render the bubble.
   const quoteText = useParticipants((s) => quote?.body.replace(/@([A-Za-z][\w-]*)/g, (m, id: string) => (s.byId[id] ? `@${s.byId[id].name}` : m)))
 
@@ -753,7 +754,7 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
         ? <div className="nx-pause"><span>{pauseText(nt, it.pause)}</span></div>
         : null
     const fresh = isFresh(seen, it.key) && !(it.type !== 'work' && streamed.has(it.msg.id))
-    if (it.type === 'work') return <>{sep}<WorkChip item={it} author={byId[it.authorId]} /></>
+    if (it.type === 'work') return <>{sep}<WorkChip item={it} author={authorOf(byId, it.authorId, nt)} /></>
     if (it.type === 'line') {
       return (
         <>
@@ -767,7 +768,7 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
         {sep}
         <Bubble
           msg={it.msg}
-          author={byId[it.msg.authorId]}
+          author={authorOf(byId, it.msg.authorId, nt)}
           mine={it.mine}
           pos={it.pos}
           stamp={it.stamp}
