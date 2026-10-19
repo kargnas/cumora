@@ -8,6 +8,8 @@ import { isNativePlatform, nativePlatform } from '@/lib/native'
  *
  * - press: a tap on one of the few places marked `data-haptic`.
  * - hold: a press turned into a hold (long-press menu, drag lift).
+ * - threshold: a swipe reached the point where letting go acts (a message
+ *   swiped left far enough to reply).
  * - sent: a message left.
  * - received: someone else's message arrived in the room on screen.
  * - success / error: an action the user waited on finished or failed.
@@ -17,7 +19,7 @@ import { isNativePlatform, nativePlatform } from '@/lib/native'
  * nothing to vibrate. Fire the others where the screen changes, never from a
  * store, so they line up with the frame the user sees.
  */
-export type HapticKind = 'press' | 'hold' | 'sent' | 'received' | 'success' | 'error'
+export type HapticKind = 'press' | 'hold' | 'threshold' | 'sent' | 'received' | 'success' | 'error'
 
 // Android plays the system's own effects (android/.../NxHapticsPlugin.java);
 // @capacitor/haptics would play fixed vibration waveforms there.
@@ -26,6 +28,7 @@ const NxHaptics = registerPlugin<{ perform(o: { kind: HapticKind }): Promise<voi
 const ios: Record<HapticKind, () => Promise<void>> = {
   press: () => Haptics.impact({ style: ImpactStyle.Light }),
   hold: () => Haptics.impact({ style: ImpactStyle.Medium }),
+  threshold: () => Haptics.impact({ style: ImpactStyle.Light }),
   sent: () => Haptics.impact({ style: ImpactStyle.Light }),
   received: () => Haptics.notification({ type: NotificationType.Success }),
   success: () => Haptics.notification({ type: NotificationType.Success }),

@@ -72,6 +72,11 @@ public class NxHapticsPlugin extends Plugin {
                 return api30 ? HapticFeedbackConstants.GESTURE_START : HapticFeedbackConstants.VIRTUAL_KEY;
             case "hold":
                 return HapticFeedbackConstants.LONG_PRESS;
+            case "threshold":
+                // Made for exactly this: a gesture crossed the point where releasing commits it.
+                return Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+                    ? HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE
+                    : HapticFeedbackConstants.CONTEXT_CLICK;
             case "sent":
             case "success":
                 return api30 ? HapticFeedbackConstants.CONFIRM : HapticFeedbackConstants.VIRTUAL_KEY;

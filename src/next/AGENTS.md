@@ -28,12 +28,13 @@ An action that exists on one screen needs a way to do it on the others (a mouse 
 
 ## Haptics
 
-The phone app vibrates only where it tells the user something: a click for a tap on a room in the chat list, a section in the tab bar or rail, or a reaction; a deeper click when a press turns into a hold; one click when a message leaves; and a double click when someone else's message arrives in the room on screen. Use `haptic(kind)` from `haptics.ts`, never `@capacitor/haptics` or the classic helpers in `lib/native.ts`. On Android it plays the system's own effects through `NxHapticsPlugin` (`android/app/src/main/java/io/cumora/app/`), which follow the user's touch-feedback setting; `@capacitor/haptics` would play fixed vibration waveforms that feel like a buzz. On the web and in the desktop app it does nothing.
+The phone app vibrates only where it tells the user something: a click for a tap on a room in the chat list, a section in the tab bar or rail, or a reaction; a deeper click when a press turns into a hold; a tick when a message swiped left reaches the point where letting go replies; one click when a message leaves; and a double click when someone else's message arrives in the room on screen. Use `haptic(kind)` from `haptics.ts`, never `@capacitor/haptics` or the classic helpers in `lib/native.ts`. On Android it plays the system's own effects through `NxHapticsPlugin` (`android/app/src/main/java/io/cumora/app/`), which follow the user's touch-feedback setting; `@capacitor/haptics` would play fixed vibration waveforms that feel like a buzz. On the web and in the desktop app it does nothing.
 
 | Kind | When | Android |
 | --- | --- | --- |
 | `press` | A tap on an element marked `data-haptic`: when the finger lands, or inside a scroller when the tap's click arrives. Only the touch layer fires it. | `GESTURE_START` |
 | `hold` | A press turned into a hold: a long-press menu, a drag lift. | `LONG_PRESS` |
+| `threshold` | A swipe reached the point where letting go acts: a message swiped left far enough to reply. | `GESTURE_THRESHOLD_ACTIVATE` (API 34+) |
 | `sent` | A message leaves: the composer sends it, or a failed one is retried. | `CONFIRM` |
 | `received` | Someone else's message arrives in the room on screen. | `EFFECT_DOUBLE_CLICK` (API 33+) |
 | `success` / `error` | An action the user waited on (its button shows busy) finished or failed; `error` also for a failed copy. | `CONFIRM` / `REJECT` |
@@ -43,7 +44,7 @@ The phone app vibrates only where it tells the user something: a click for a tap
 - Nothing vibrates while a finger rests on a press: a vibration that runs on feels like a buzz, not a button, so a hold plays only its one `hold`.
 - `received` is the only haptic without a touch. `useReceivedHaptic` in `chat/ChatView.tsx` plays it on the live `message.new` event for a message someone else wrote (text, attachment, email or poll; not agent work rows or system lines) in an unmuted room on screen while the app is visible, at most once every 2 seconds. Opening a room and the catch-up after a reconnect play nothing.
 - No haptic for anything else: scrolling, typing, hover, opening or closing a sheet, store updates, timers, or a copy that worked (its button shows a check). A background failure the user did not just cause stays silent.
-- Fire `hold`, `sent`, `success` and `error` at the interaction, in the same handler as the visual change, not inside a shared action, a store or an effect. `useHold` fires `hold`.
+- Fire `hold`, `threshold`, `sent`, `success` and `error` at the interaction, in the same handler as the visual change, not inside a shared action, a store or an effect. `useHold` fires `hold`, and the message swipe (`useSwipeReply` in `chat/MessageList.tsx`) fires `threshold`.
 
 ## Isolation
 
@@ -84,6 +85,7 @@ The chat list's layout is the first user of it: `chat/roomLayout.ts` keeps custo
 
 - `router.ts`: the URL is the state. `href({ section, id, panel, peek, params })`, `withRoute`, `navigate(to, { replace })`, `goBack(fallback)`, `linkClick`, `useRoute()`. `projectRoute` mirrors the route into `useApp` for classic code; `bindLegacyWrites` turns classic `useApp` writes into navigations.
 - `layout.ts`: `stack` (< 720px, pushed screens), `split` (< 1180px), `full`.
+- A pushed screen (`useSwipeBack` from the classic `mobile/`) follows any sideways swipe that starts on it, through native touch listeners on its layer. A gesture inside one that takes sideways swipes, like the message swipe in `chat/MessageList.tsx`, listens natively on its own element, picks its direction at the same 8 px, and stops the propagation of the moves it takes. React runs its handlers at the root, too late to keep the swipe-back from moving the screen.
 - `bloub/engine/` is jeremy-prt/bloub's `src/bot/` (MIT, its LICENSE beside it), copied as is so a newer version can be copied over it. The only local change is the line marked `cumora:` in `face.ts`; carry it over on an update. Its numbers are measurements of a reference video, not settings: never round or tidy them. Everything cumora-specific (status mapping, drawing, storage) lives outside `engine/`.
 - `ui/primitives.tsx`: `IconButton`, `Segmented`, `Switch`, `Menu` + `useMenu`, `Dialog`, `Kbd`, `Spinner`, `Portal`. `ui/Avatar.tsx`, `ui/icons.tsx`, `hooks.ts` (`useNow`, `useHold`, `useOpenDirect`, `openPalette`), `format.ts` (dates in the viewer's timezone).
 - framer-motion 11 (fixed in 12.4.7) never releases a `layout`, `layoutId` or `drag` element that unmounts inside an `AnimatePresence` child, and that presence then never finishes its exit: a dialog, sheet or pushed screen closes but leaves its invisible layer over the page, taking every click. An element like that which mounts and unmounts while its screen stays (a selection pill) goes inside `<PresenceContext.Provider value={null}>`, as the pill in `Segmented` does.

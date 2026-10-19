@@ -130,6 +130,7 @@
 /* One message row. Spacing between groups is larger than inside a group, so
    proximity alone tells consecutive bubbles apart from a new speaker. */
 .nx-msg {
+  position: relative;
   display: flex;
   align-items: flex-end;
   gap: 8px;
@@ -370,6 +371,34 @@
 .nx-msg__failed { display: flex; gap: 8px; align-items: center; font-size: var(--text-caption); color: var(--destructive); }
 .nx-msg__failed button { border: 0; padding: 0; background: none; color: inherit; font-weight: 600; text-decoration: underline; }
 .nx-artifacts { max-width: 100%; display: flex; flex-direction: column; gap: 4px; }
+
+/* Swipe to reply (MessageList useSwipeReply). The avatar column and the
+   message follow the finger while the row has data-swipe and glide back once
+   it lifts. The arrow behind them grows in and fills when letting go would reply. */
+.nx-msg__gutter,
+.nx-msg__col { transition: translate var(--duration-fast) var(--ease-smooth-out); }
+.nx-msg[data-swipe] > .nx-msg__gutter,
+.nx-msg[data-swipe] > .nx-msg__col,
+.nx-msg[data-swipe] > .nx-msg__swipe { transition: none; }
+.nx-msg__swipe {
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin-top: -16px;
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity var(--duration-fast), transform var(--duration-fast) var(--ease-smooth-out);
+  pointer-events: none;
+}
+.nx-msg__swipe[data-ready] { background: var(--primary); color: var(--primary-foreground); }
+.nx-msg__swipe svg { width: 16px; height: 16px; }
 
 /* Entrances. Sent messages rise from the composer; replies reveal top-down. */
 .nx-msg[data-fresh="send"] .nx-msg__row { animation: nx-send var(--duration-medium) var(--ease-smooth-out) both; transform-origin: bottom right; }
