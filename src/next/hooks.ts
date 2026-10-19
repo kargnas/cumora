@@ -66,6 +66,9 @@ export function useOpenDirect(): (participantId: string) => Promise<void> {
   }, [])
 }
 
+/** How long a finger rests before a press becomes a hold. */
+export const HOLD_MS = 420
+
 /**
  * Press-and-hold on touch, right-click with a mouse: both open the same menu.
  * The click that a finger lift produces after a hold is swallowed so the row
@@ -90,7 +93,7 @@ export function useHold(onHold: (x: number, y: number) => void) {
         fired.current = true
         haptic('hold')
         onHold(start.current.x, start.current.y)
-      }, 420)
+      }, HOLD_MS)
     },
     onTouchMove: (e: React.TouchEvent) => {
       const t = e.touches[0]
