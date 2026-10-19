@@ -5,6 +5,7 @@ import { agentHandbook } from './handbook.js'
 import { startRecorder } from './recorder.js'
 import { startMoods } from './mood.js'
 import { stopAgent } from './stop.js'
+import { answerChoice, listCards, sendSecret } from './cards.js'
 import { computerPurges, purgeAgent } from './purge.js'
 import { PROFILE_RE, REPO_RE, listProfiles, pollErrorOf, runNow, startTriggerPoller } from './triggers.js'
 
@@ -96,6 +97,10 @@ export function createForkRouter(deps: ForkRouterDeps): Router {
 
   router.get('/agents/:agentId/handbook', (req, res) => agentHandbook(deps.requireCompany, req, res))
   router.post('/rooms/:conversationId/agents/:agentId/stop', (req, res) => stopAgent(deps.requireCompany, req, res))
+
+  router.get('/cards', (req, res) => listCards(deps.requireCompany, req, res))
+  router.post('/cards/:messageId/answer', (req, res) => answerChoice(deps.requireCompany, req, res))
+  router.post('/cards/:messageId/secret', (req, res) => sendSecret(deps.requireCompany, req, res))
 
   router.post('/categories', async (req, res) => {
     const { userId, companyId } = await deps.requireCompany(req)

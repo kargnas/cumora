@@ -28,6 +28,14 @@ Times carry no date. A chip marks where each day starts, and while the rows unde
 
 On a touch screen, swipe a message left to reply to it: the message follows the finger, a reply arrow grows in beside it, and letting go once the arrow fills puts the message in the composer's reply chip. A swipe that starts on a code block wider than its bubble does not reply, and on a phone a swipe right still goes back to the chat list. With a mouse, Reply is on the message's hover toolbar and in its ⋯ menu; the long-press sheet has it too.
 
+## Questions and secrets
+
+An agent can put a card under its message (`server/src/fork/cards.ts`). Every computer agent's standing prompt says when to use one.
+
+- **A question** (`cumora ask <room> "<question>" "<option>" "<option>"`, up to 8 options, `--body` for text above the question) lists the options under the message. The first person to pick one closes the card for everyone. The card keeps the question and shows the pick with the person's avatar. The pick is posted as that person's reply quoting the question, so it wakes the agent like any reply, and the transcript leaves that reply out because the card already shows it.
+- **A secret** (`cumora secret request <room> "<what it is for>"`) shows a masked field. The secret is never part of a message. The person's reply only says that it was sent, and the server keeps the value sealed (AES-256-GCM, with a key derived from `AGENT_RUNTIME_SECRET`) until the agent runs `cumora secret take <message_id> <path>`. That command works once: the computer's `cumora` shim writes the secret into `<path>` (a new file, mode 600) instead of printing it, and the server forgets it. A secret nobody takes is deleted after a day. The card then reads "saved" or "deleted".
+- The classic UI shows these messages as plain text. A question can be answered there with a typed reply, but a secret can be sent only from this UI.
+
 ## Handbook
 
 The room panel's first tab, and the Handbook view of an agent's profile, show one agent's standing files as one document: its `CLAUDE.md` or `AGENTS.md`, its memory (`memory/**/*.md`, `MEMORY.md` first), its own skills (`.claude/skills/*/SKILL.md`) and the skills every agent on the computer shares. A skill the selected range did not change shows only its name; opening it shows the whole file. In a room with several agents, the chips at the top pick one (`?agent=`).

@@ -211,6 +211,7 @@ test('the restricted Claude MCP bridge exposes only argv and rejects local-body 
   child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })}\n`)
   child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'cli', arguments: { argv: ['inbox'] } } })}\n`)
   child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'cli', arguments: { argv: ['reply', 'c1', '--file', '/host/secret'] } } })}\n`)
+  child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'cli', arguments: { argv: ['secret', 'take', 'm-1', '/host/.bashrc'] } } })}\n`)
   child.stdin.end()
 
   await new Promise<void>((resolve, reject) => {
@@ -228,6 +229,7 @@ test('the restricted Claude MCP bridge exposes only argv and rejects local-body 
   assert.equal(byId.get(3)?.result?.isError, false)
   assert.equal(byId.get(4)?.result?.isError, true)
   assert.match(byId.get(4)?.result?.content?.[0]?.text ?? '', /local file\/stdin flags are unavailable/)
+  assert.equal(byId.get(5)?.result?.isError, true, 'the bridge never writes a file the model names')
 })
 
 test('the privileged IPC broker refuses model-created request symlinks', {

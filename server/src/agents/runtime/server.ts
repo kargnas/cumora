@@ -184,6 +184,7 @@ runtimeRouter.post('/cli', withAgent(async (c, req, res) => {
     exitCode: result.exitCode,
     ok: result.ok,
     sideEffects: result.sideEffects ?? [],
+    file: result.file,
   })
 }))
 

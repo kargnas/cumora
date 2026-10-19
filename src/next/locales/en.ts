@@ -126,6 +126,18 @@ const core = {
   'msg.whisper': '{a} and {b} talked privately · {n} messages',
   'msg.latest': 'Jump to latest',
 
+  'ask.failed': 'Not sent. Try again.',
+  'ask.answeredBy': 'Answered by {name} · {time}',
+  'secret.label': 'Secret',
+  'secret.placeholder': 'Paste the secret',
+  'secret.show': 'Show',
+  'secret.hide': 'Hide',
+  'secret.send': 'Send',
+  'secret.hint': 'Never shown in this chat. {agent} saves it into a file, once.',
+  'secret.sent': 'Sent by {name} · waiting for {agent} to save it',
+  'secret.saved': '{agent} saved it',
+  'secret.expired': 'Deleted: {agent} did not save it within a day',
+
   'composer.placeholder': 'Message {room}',
   'composer.replyThread': 'Reply in thread',
   'composer.replyingTo': 'Replying to {name}',

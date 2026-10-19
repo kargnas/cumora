@@ -376,6 +376,87 @@
 .nx-msg__failed button { border: 0; padding: 0; background: none; color: inherit; font-weight: 600; text-decoration: underline; }
 .nx-artifacts { max-width: 100%; display: flex; flex-direction: column; gap: 4px; }
 
+/* A card under an agent's question (AskCard.tsx). A fixed width so the
+   options do not shrink to the longest one; the column caps it on a phone. */
+.nx-ask {
+  width: 360px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 18px;
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--border), var(--shadow-card);
+  font-size: var(--text-title);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.nx-ask[data-rise],
+.nx-ask__answer[data-rise] { animation: nx-rise var(--duration-fast) var(--ease-smooth-out) both; }
+.nx-ask__q { font-weight: 600; color: var(--muted-foreground); }
+.nx-ask__options { display: flex; flex-direction: column; gap: 4px; }
+.nx-ask__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--muted);
+  font: 500 var(--text-title) / 1.4 var(--font-sans);
+  color: var(--foreground);
+  text-align: left;
+  transition: background-color var(--duration-quick), transform var(--duration-quick) var(--ease-smooth-out), opacity var(--duration-quick);
+}
+@media (hover: hover) {
+  .nx-ask__option:hover:not(:disabled) { background: var(--accent); }
+}
+.nx-ask__option:active:not(:disabled) { transform: scale(0.98); }
+.nx-ask__option:disabled:not([aria-busy]) { opacity: 0.5; }
+.nx-ask__answer { display: flex; align-items: center; gap: 8px; }
+.nx-ask__answer > svg { flex: none; width: 16px; height: 16px; color: var(--muted-foreground); }
+.nx-ask__answer[data-muted] { color: var(--muted-foreground); }
+.nx-ask__secret { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.nx-ask__field { position: relative; }
+/* Mono tells 0 from O and l from 1 in a shown secret; the hint stays in the UI font. */
+.nx-ask__field .nx-input { padding-right: 36px; font-family: var(--font-mono); }
+.nx-ask__field .nx-input::placeholder { font-family: var(--font-sans); }
+.nx-ask__field .nx-input[data-masked] { -webkit-text-security: disc; }
+.nx-ask__peek {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 32px;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: none;
+  color: var(--muted-foreground);
+}
+.nx-ask__peek svg { width: 16px; height: 16px; }
+.nx-ask__hint {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  margin: 0;
+  font-size: var(--text-caption);
+  color: var(--muted-foreground);
+}
+.nx-ask__hint svg { flex: none; width: 14px; height: 14px; margin-top: 1px; }
+.nx-ask__error { grid-column: 1 / -1; font-size: var(--text-caption); color: var(--destructive); }
+@media (pointer: coarse) {
+  .nx-ask__option { min-height: 44px; }
+  .nx-ask__secret .nx-input,
+  .nx-ask__secret .nx-btn { height: 44px; }
+  .nx-ask__field .nx-input { padding-right: 44px; font-size: 16px; }
+  .nx-ask__peek { width: 44px; }
+}
+
 /* Swipe to reply (MessageList useSwipeReply). The avatar column and the
    message follow the finger while the row has data-swipe and glide back once
    it lifts. The arrow behind them grows in and fills when letting go would reply. */

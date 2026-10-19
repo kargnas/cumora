@@ -14,6 +14,9 @@ export interface CliResult {
   text: string
   exitCode: number
   sideEffects?: CliSideEffect[]
+  /** Base64 bytes the computer's shim writes into a file instead of printing
+   *  (`cumora secret take`, fork/cards.ts). */
+  file?: string
 }
 
 export interface CliSideEffectsParseResult {

@@ -6693,6 +6693,9 @@ export async function runCli(argv: string[]): Promise<CliResult> {
       case 'skills':              return await cmdSkills(parsed)
       case 'email':               return await cmdEmail(parsed)
       case 'poll':                return await cmdPoll(parsed)
+      // Fork: questions with options and secrets under a message (fork/cards.ts).
+      case 'ask':
+      case 'secret':              return await (await import('../fork/cards.js')).runCardCli(sub, parsed, resolveAs(parsed))
       // Top-level alias for `email contacts` — promotes contact lookup
       // to a discoverable verb. Same logic, same output. Use this when a
       // user names a person you don't recognize: BEFORE assuming or

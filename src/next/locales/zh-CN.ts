@@ -136,6 +136,18 @@ export const zhCN: Partial<Record<keyof typeof en, string>> = {
   'msg.whisper': '{a} 和 {b} 私下聊了 {n} 条消息',
   'msg.latest': '跳到最新',
 
+  'ask.failed': '发送失败，请重试。',
+  'ask.answeredBy': '{name} 的回答 · {time}',
+  'secret.label': '密钥',
+  'secret.placeholder': '粘贴密钥',
+  'secret.show': '显示',
+  'secret.hide': '隐藏',
+  'secret.send': '发送',
+  'secret.hint': '不会显示在聊天中。{agent} 只能把它保存到文件一次。',
+  'secret.sent': '{name} 已发送 · 等待 {agent} 保存',
+  'secret.saved': '{agent} 已保存',
+  'secret.expired': '已删除：{agent} 一天内没有保存',
+
   'composer.placeholder': '发消息到 {room}',
   'composer.replyThread': '在话题中回复',
   'composer.replyingTo': '回复 {name}',

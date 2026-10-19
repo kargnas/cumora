@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import initSqlJs from 'sql.js'
 import {
-  ForkLimitError, MAX_CATEGORIES, MAX_FILE_VERSIONS, MAX_PIN_ORDER, MAX_ROOM_ASSIGNMENTS, getForkStore, openForkStore,
+  ForkLimitError, MAX_CATEGORIES, MAX_FILE_VERSIONS, MAX_PIN_ORDER, MAX_ROOM_ASSIGNMENTS, SECRET_TTL_MS, getForkStore, openForkStore,
 } from '../fork/store.js'
 
 const dir = mkdtempSync(join(tmpdir(), 'fork-store-'))
@@ -143,7 +143,7 @@ test('opening an older file runs the steps it has not had', async () => {
   // rows a version-1 client could write, when 'former' was a group key.
   const SQL = await initSqlJs()
   const raw = new SQL.Database(readFileSync(file))
-  raw.run('ALTER TABLE room_categories DROP COLUMN hidden; DROP TABLE pin_order; DROP TABLE computer_file_versions; DROP TABLE bloub_avatars; DROP TABLE triggers; DROP TABLE trigger_fires; DROP TABLE computer_purges; DROP TABLE purged_agents;')
+  raw.run('ALTER TABLE room_categories DROP COLUMN hidden; DROP TABLE pin_order; DROP TABLE computer_file_versions; DROP TABLE bloub_avatars; DROP TABLE triggers; DROP TABLE trigger_fires; DROP TABLE computer_purges; DROP TABLE purged_agents; DROP TABLE cards;')
   raw.run("INSERT INTO collapsed_groups VALUES ('c1', 'u1', 'former'), ('c1', 'u1', 'other')")
   raw.run('PRAGMA user_version = 1')
   writeFileSync(file, raw.export())
@@ -230,7 +230,7 @@ test('faces picked before moods existed go back to rest', async () => {
   ;(await openForkStore(file)).setBloubAvatar('c1', 'agent-a', { shape: 'galet', color: 'violet' })
   const SQL = await initSqlJs()
   const raw = new SQL.Database(readFileSync(file))
-  raw.run("UPDATE bloub_avatars SET expression = 'timide'; DROP TABLE triggers; DROP TABLE trigger_fires; DROP TABLE computer_purges; DROP TABLE purged_agents; PRAGMA user_version = 5")
+  raw.run("UPDATE bloub_avatars SET expression = 'timide'; DROP TABLE triggers; DROP TABLE trigger_fires; DROP TABLE computer_purges; DROP TABLE purged_agents; DROP TABLE cards; PRAGMA user_version = 5")
   writeFileSync(file, raw.export())
   assert.equal((await openForkStore(file)).bloubAvatars('c1')['agent-a']?.expression, 'neutre')
 })
@@ -298,4 +298,54 @@ test('a trigger fires an event once, keeps its latest fire, and goes with its fi
   assert.deepEqual(store.activeTriggers(), [])
   assert.equal(store.deleteTrigger('c1', t.id), true)
   assert.equal(store.claimFire(t.id, 'pr:1', '2026-10-19T03:00:00Z', '#1'), true, 'its fires went with it')
+})
+
+test('a card takes one answer, opens again when its reply was not posted, and goes with its agent', async () => {
+  const store = await openForkStore(join(dir, 'cards', 'fork.sqlite'))
+  const ask = { companyId: 'c1', conversationId: 'room', agentId: 'bot', question: 'Deploy main?' }
+  const card = store.createCard({ ...ask, messageId: 'm-q', kind: 'choice', options: ['Deploy', 'Wait'] })
+  assert.deepEqual([card.options, card.answer, card.expiresAt], [['Deploy', 'Wait'], null, null])
+  assert.equal(store.card('c2', 'm-q'), null, 'scoped by company')
+
+  const at = '2026-10-20T01:00:00.000Z'
+  assert.equal(store.claimAnswer('c1', 'm-q', { by: 'u1', at, option: 1, clientId: 'card-1' }), true)
+  assert.equal(store.claimAnswer('c1', 'm-q', { by: 'u2', at, option: 0, clientId: 'card-2' }), false, 'the first answer closes it')
+  store.releaseAnswer('c1', 'm-q', 'card-1')
+  assert.equal(store.card('c1', 'm-q')?.answer, null, 'an answer whose reply was not posted opens it again')
+  assert.equal(store.claimAnswer('c1', 'm-q', { by: 'u2', at, option: 0, clientId: 'card-2' }), true)
+  store.settleAnswer('c1', 'm-q', 'card-2', 'm-a')
+  store.releaseAnswer('c1', 'm-q', 'card-2')
+  assert.deepEqual(store.card('c1', 'm-q')?.answer, { by: 'u2', at, option: 0, clientId: 'card-2', messageId: 'm-a' }, 'a posted answer stays')
+
+  const reopened = await openForkStore(join(dir, 'cards', 'fork.sqlite'))
+  assert.deepEqual(reopened.cards('c1', 'room').map((c) => c.messageId), ['m-q'])
+  reopened.purgeAgent('c1', 'bot', [], null)
+  assert.deepEqual(reopened.cards('c1', 'room'), [])
+})
+
+test('a sent secret goes once to the agent that asked, and the file keeps no trace of it', async () => {
+  const file = join(dir, 'secrets', 'fork.sqlite')
+  const store = await openForkStore(file)
+  const ask = { companyId: 'c1', conversationId: 'room', agentId: 'bot', kind: 'secret' as const, question: 'OpenAI key', options: [] }
+  store.createCard({ ...ask, messageId: 'm-s' })
+  assert.equal(store.takeSecret('c1', 'm-s', 'bot'), 'waiting')
+  const sent = new Date()
+  store.claimAnswer('c1', 'm-s', { by: 'u1', at: sent.toISOString(), option: null, clientId: 'card-1' }, 'SEALED-ONE')
+  assert.equal(store.card('c1', 'm-s')?.expiresAt, new Date(sent.getTime() + SECRET_TTL_MS).toISOString())
+  assert.equal(store.takeSecret('c1', 'm-s', 'other-bot'), 'missing', 'only the agent that asked')
+  assert.equal(store.takeSecret('c2', 'm-s', 'bot'), 'missing', 'scoped by company')
+  assert.deepEqual(store.takeSecret('c1', 'm-s', 'bot'), { sealed: 'SEALED-ONE' })
+  assert.equal(store.takeSecret('c1', 'm-s', 'bot'), 'taken')
+  assert.deepEqual([Boolean(store.card('c1', 'm-s')?.takenAt), store.card('c1', 'm-s')?.expiresAt], [true, null])
+
+  // Nobody takes this one within a day: a room load past that drops it.
+  store.createCard({ ...ask, messageId: 'm-late' })
+  store.claimAnswer('c1', 'm-late', { by: 'u1', at: sent.toISOString(), option: null, clientId: 'card-2' }, 'SEALED-TWO')
+  store.cards('c1', 'room', new Date(sent.getTime() + SECRET_TTL_MS - 1000))
+  assert.ok(readFileSync(file).includes('SEALED-TWO'), 'kept until its day is over')
+  store.cards('c1', 'room', new Date(sent.getTime() + SECRET_TTL_MS + 1000))
+  assert.equal(store.takeSecret('c1', 'm-late', 'bot'), 'expired')
+
+  const bytes = readFileSync(file)
+  assert.ok(!bytes.includes('SEALED-ONE') && !bytes.includes('SEALED-TWO'), 'secure_delete zeroed both')
 })

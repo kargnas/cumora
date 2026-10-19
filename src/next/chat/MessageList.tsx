@@ -34,6 +34,8 @@ import { IconButton, Menu, Spinner, useMenu, type MenuEntry } from '../ui/primit
 import { IArrowDown, ICopy, IDownload, IFile, IMore, IReply, ISpark, IThread, IWhisper } from '../ui/icons'
 import { buildItems, createdAt, floatingDay, type DayPill, type Item, type Pos, type Stamp } from './model'
 import { authorOf } from './deletedAuthor'
+import { useCards, useHiddenAnswers } from './cards'
+import { AskCard } from './AskCard'
 
 const EMPTY: Message[] = []
 const QUICK = ['👍', '❤️', '😂', '👀', '✅', '🔥']
@@ -340,6 +342,13 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
   // Selects a string, so status churn on participants does not re-render the bubble.
   const quoteText = useParticipants((s) => quote?.body.replace(/@([A-Za-z][\w-]*)/g, (m, id: string) => (s.byId[id] ? `@${s.byId[id].name}` : m)))
 
+  // A card is drawn under its question. One that arrives after the message is
+  // on screen fades in; a remount (scrolling back) shows it at once.
+  const card = useCards((s) => s.byMessage[msg.id])
+  const cardLate = useRef(card === undefined)
+  // The reply that answered the card shows inside it, so it is no thread reply.
+  const replies = Math.max(0, (msg.replyCount ?? 0) - (card?.answer ? 1 : 0))
+
   const react = (emoji: string) => { void toggleReaction(msg.id, emoji) }
   const reply = () => useApp.getState().setReplyingTo(msg.conversationId, msg.id)
   const swipeRef = useSwipeReply(swipe ? reply : null, hold.onTouchCancel)
@@ -396,12 +405,13 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
             <IconButton small label={nt('msg.more')} onClick={(e) => menu.toggleFrom(e.currentTarget, mine ? 'end' : 'start')}><IMore /></IconButton>
           </div>
         </div>
+        {card && <AskCard card={card} showQuestion={msg.body.trim() !== card.question} rise={cardLate.current} />}
         <Artifacts msg={msg} />
         <Reactions msg={msg} mine={mine} />
-        {(msg.replyCount ?? 0) > 0 && (
+        {replies > 0 && (
           <button type="button" className="nx-msg__thread" onClick={thread}>
             <IThread />
-            {nt(msg.replyCount === 1 ? 'msg.oneReply' : 'msg.replies', { n: msg.replyCount ?? 0 })}
+            {nt(replies === 1 ? 'msg.oneReply' : 'msg.replies', { n: replies })}
           </button>
         )}
         {(msg.failed || msg.unconfirmed) && (
@@ -631,7 +641,18 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
   const byId = useParticipants((s) => s.byId)
   const ref = useRef<VirtuosoHandle>(null)
   const [atBottom, setAtBottom] = useState(true)
-  const items = useMemo(() => buildItems(raw, me), [raw, me])
+  // The transcript waits for the room's cards on its first load (see the
+  // skeleton below), and leaves out the replies that answered them.
+  const cardsReady = useCards((s) => s.ready[convoId] === true)
+  useEffect(() => {
+    if (!useCards.getState().loaded[convoId]) void useCards.getState().load(convoId)
+  }, [convoId])
+  const answers = useHiddenAnswers(convoId)
+  const shown = useMemo(
+    () => (answers.size === 0 ? raw : raw.filter((m) => !answers.has(m.id) && !(m.clientId && answers.has(m.clientId)))),
+    [raw, answers],
+  )
+  const items = useMemo(() => buildItems(shown, me), [shown, me])
 
   // Messages present at open never animate; anything after does, once.
   const seen = seenMap(convoId)
@@ -785,6 +806,8 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
     if (error) return <div className="nx-center"><div className="nx-empty"><b>{nt('msg.loadFailed')}</b><button type="button" className="nx-btn nx-btn--outline" onClick={() => void useMessages.getState().retryLoad(convoId)}>{nt('msg.retry')}</button></div></div>
     if (!loaded) return <TranscriptSkeleton />
   }
+  if (!cardsReady) return <TranscriptSkeleton />
+
 
   return (
     <div className="nx-transcript" onClick={toggleTimes}>

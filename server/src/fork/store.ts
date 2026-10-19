@@ -53,6 +53,43 @@ export interface Trigger {
 
 export type NewTrigger = Pick<Trigger, 'companyId' | 'createdBy' | 'conversationId' | 'assigneeId' | 'title' | 'prompt' | 'repo' | 'profile'>
 
+/** What an agent asked a person under its message (./cards.ts): to pick one of
+ *  some options, or to send a secret. Keyed by that message. */
+export interface Card {
+  messageId: string
+  conversationId: string
+  /** The agent that asked: the message's author. */
+  agentId: string
+  kind: 'choice' | 'secret'
+  question: string
+  /** A choice's options in order; empty for a secret. */
+  options: string[]
+  createdAt: string
+  /** The first answer, which closes the card. */
+  answer: CardAnswer | null
+  /** When the agent took the secret. */
+  takenAt: string | null
+  /** When a secret that was sent but not taken is dropped. */
+  expiresAt: string | null
+}
+
+export interface CardAnswer {
+  /** The person who answered. */
+  by: string
+  at: string
+  /** The option's index; null for a secret. */
+  option: number | null
+  /** The answer's message: its client id is chosen before it is posted, so
+   *  clients can hide it from its first frame, and its id is known once it is. */
+  clientId: string
+  messageId: string | null
+}
+
+export type NewCard = Pick<Card, 'messageId' | 'conversationId' | 'agentId' | 'kind' | 'question' | 'options'> & { companyId: string }
+
+/** A secret that was sent but not taken is dropped this long after it was sent. */
+export const SECRET_TTL_MS = 24 * 60 * 60_000
+
 // Same convention as UPLOAD_DIR in storage.ts: relative to the server's cwd
 // (/app in the image), where compose mounts a volume so the file survives
 // rebuilds.
@@ -205,6 +242,32 @@ const MIGRATIONS = [
      computer_id TEXT NOT NULL,
      at TEXT NOT NULL
    );`,
+
+  // Questions agents ask people under their messages (./cards.ts).
+  // ponytail: never pruned; a card is under a KB and agents ask a few a day.
+  // Prune answered ones by age if the file grows.
+  `CREATE TABLE cards (
+     message_id TEXT PRIMARY KEY,
+     company_id TEXT NOT NULL,
+     conversation_id TEXT NOT NULL,
+     agent_id TEXT NOT NULL,
+     -- 'choice' | 'secret'
+     kind TEXT NOT NULL,
+     question TEXT NOT NULL,
+     -- JSON array of the options' text; '[]' for a secret.
+     options TEXT NOT NULL,
+     created_at TEXT NOT NULL,
+     -- The first answer. NULL while the card is open.
+     answered_by TEXT,
+     answered_at TEXT,
+     answer_option INTEGER,
+     answer_client_id TEXT,
+     answer_message_id TEXT,
+     -- A sent secret, sealed by ./cards.ts, until the agent takes it or it expires.
+     secret TEXT,
+     taken_at TEXT
+   );
+   CREATE INDEX cards_room ON cards (company_id, conversation_id);`,
 ]
 
 export interface FileVersion {
@@ -265,6 +328,20 @@ export async function openForkStore(file: string) {
   const VERSION_AT = `SELECT w.id FROM computer_file_versions w
                        WHERE w.scope = v.scope AND w.path = v.path AND w.at <= ?
                        ORDER BY w.at DESC, w.id DESC LIMIT 1`
+
+  // A secret leaves the store when the agent takes it or SECRET_TTL_MS after it
+  // was sent. secure_delete zeroes the freed bytes in the file as well; the
+  // pragma is set before each such write because export() resets it.
+  const forgetSecrets = (where: string, params: initSqlJs.SqlValue[]): boolean => {
+    db.run('PRAGMA secure_delete = ON')
+    db.run(`UPDATE cards SET secret = NULL WHERE secret IS NOT NULL AND ${where}`, params)
+    return db.getRowsModified() > 0
+  }
+  const expireSecrets = (now: Date) => {
+    if (forgetSecrets('answered_at < ?', [new Date(now.getTime() - SECRET_TTL_MS).toISOString()])) save()
+  }
+  const readCard = (companyId: string, messageId: string): Card | null =>
+    rows(`SELECT ${CARD_COLUMNS} FROM cards WHERE company_id = ? AND message_id = ?`, [companyId, messageId]).map(toCard)[0] ?? null
 
   const version = Number(rows('PRAGMA user_version', null)[0]?.[0] ?? 0)
   for (let v = version; v < MIGRATIONS.length; v++) {
@@ -488,9 +565,9 @@ export async function openForkStore(file: string) {
     },
 
     /** Drops what the fork kept of an agent deleted for good: its look, its
-     *  triggers, the Handbook's versions of its home, and every user's layout
-     *  rows of its deleted 1:1 rooms. With a computer, queues the removal of
-     *  its files there. */
+     *  triggers, its cards, the Handbook's versions of its home, and the layout
+     *  rows and cards of its deleted 1:1 rooms. With a computer, queues the
+     *  removal of its files there. */
     purgeAgent(companyId: string, agentId: string, deletedRooms: string[], computerId: string | null): void {
       db.run('DELETE FROM bloub_avatars WHERE company_id = ? AND participant_id = ?', [companyId, agentId])
       db.run(
@@ -499,9 +576,12 @@ export async function openForkStore(file: string) {
       )
       db.run('DELETE FROM triggers WHERE company_id = ? AND assignee_id = ?', [companyId, agentId])
       db.run('DELETE FROM computer_file_versions WHERE scope = ?', [agentId])
+      forgetSecrets('company_id = ? AND agent_id = ?', [companyId, agentId])
+      db.run('DELETE FROM cards WHERE company_id = ? AND agent_id = ?', [companyId, agentId])
       for (const room of deletedRooms) {
         db.run('DELETE FROM room_assignments WHERE company_id = ? AND conversation_id = ?', [companyId, room])
         db.run('DELETE FROM pin_order WHERE company_id = ? AND conversation_id = ?', [companyId, room])
+        db.run('DELETE FROM cards WHERE company_id = ? AND conversation_id = ?', [companyId, room])
       }
       const at = new Date().toISOString()
       db.run('INSERT OR IGNORE INTO purged_agents (agent_id, at) VALUES (?, ?)', [agentId, at])
@@ -594,8 +674,99 @@ export async function openForkStore(file: string) {
       )
       save()
     },
+
+    createCard(card: NewCard): Card {
+      db.run(
+        `INSERT INTO cards (message_id, company_id, conversation_id, agent_id, kind, question, options, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [card.messageId, card.companyId, card.conversationId, card.agentId, card.kind, card.question, JSON.stringify(card.options), new Date().toISOString()],
+      )
+      save()
+      return readCard(card.companyId, card.messageId) as Card
+    },
+
+    card(companyId: string, messageId: string): Card | null {
+      return readCard(companyId, messageId)
+    },
+
+    /** A room's cards, oldest first. Secrets past their time go first, so none
+     *  outlives SECRET_TTL_MS by more than the wait until a take or a room load. */
+    cards(companyId: string, conversationId: string, now = new Date()): Card[] {
+      expireSecrets(now)
+      return rows(
+        `SELECT ${CARD_COLUMNS} FROM cards WHERE company_id = ? AND conversation_id = ? ORDER BY created_at, message_id`,
+        [companyId, conversationId],
+      ).map(toCard)
+    },
+
+    /** Closes an open card with its first answer, and keeps a secret's sealed
+     *  value with it. False when someone answered first. */
+    claimAnswer(companyId: string, messageId: string, answer: Omit<CardAnswer, 'messageId'>, sealed: string | null = null): boolean {
+      db.run(
+        `UPDATE cards SET answered_by = ?, answered_at = ?, answer_option = ?, answer_client_id = ?, secret = ?
+          WHERE company_id = ? AND message_id = ? AND answered_at IS NULL`,
+        [answer.by, answer.at, answer.option, answer.clientId, sealed, companyId, messageId],
+      )
+      if (db.getRowsModified() === 0) return false
+      save()
+      return true
+    },
+
+    /** Opens a card again when its answer could not be posted. */
+    releaseAnswer(companyId: string, messageId: string, clientId: string): void {
+      const where = 'company_id = ? AND message_id = ? AND answer_client_id = ? AND answer_message_id IS NULL'
+      forgetSecrets(where, [companyId, messageId, clientId])
+      db.run(
+        `UPDATE cards SET answered_by = NULL, answered_at = NULL, answer_option = NULL, answer_client_id = NULL WHERE ${where}`,
+        [companyId, messageId, clientId],
+      )
+      if (db.getRowsModified() > 0) save()
+    },
+
+    /** The answer's message was posted. */
+    settleAnswer(companyId: string, messageId: string, clientId: string, answerMessageId: string): void {
+      db.run(
+        'UPDATE cards SET answer_message_id = ? WHERE company_id = ? AND message_id = ? AND answer_client_id = ?',
+        [answerMessageId, companyId, messageId, clientId],
+      )
+      if (db.getRowsModified() > 0) save()
+    },
+
+    /** Hands a sent secret to the agent that asked for it, once, and forgets
+     *  it. Otherwise why not: no such card of this agent's, nobody sent it
+     *  yet, the agent took it before, or it expired. */
+    takeSecret(companyId: string, messageId: string, agentId: string, now = new Date()): { sealed: string } | 'missing' | 'waiting' | 'taken' | 'expired' {
+      expireSecrets(now)
+      const row = rows(
+        "SELECT answered_at, secret, taken_at FROM cards WHERE company_id = ? AND message_id = ? AND agent_id = ? AND kind = 'secret'",
+        [companyId, messageId, agentId],
+      )[0]
+      if (!row) return 'missing'
+      const [answeredAt, sealed, takenAt] = row
+      if (takenAt !== null) return 'taken'
+      if (answeredAt === null) return 'waiting'
+      if (sealed === null) return 'expired'
+      forgetSecrets('company_id = ? AND message_id = ?', [companyId, messageId])
+      db.run('UPDATE cards SET taken_at = ? WHERE company_id = ? AND message_id = ?', [now.toISOString(), companyId, messageId])
+      save()
+      return { sealed: String(sealed) }
+    },
   }
 }
+
+const CARD_COLUMNS = `message_id, conversation_id, agent_id, kind, question, options, created_at,
+  answered_by, answered_at, answer_option, answer_client_id, answer_message_id, taken_at`
+const toCard = ([messageId, conversationId, agentId, kind, question, options, createdAt, by, at, option, clientId, answerMessageId, takenAt]: initSqlJs.SqlValue[]): Card => ({
+  messageId: String(messageId), conversationId: String(conversationId), agentId: String(agentId),
+  kind: kind === 'secret' ? 'secret' : 'choice', question: String(question), options: JSON.parse(String(options)) as string[],
+  createdAt: String(createdAt),
+  answer: at === null ? null : {
+    by: String(by), at: String(at), option: option === null ? null : Number(option),
+    clientId: String(clientId), messageId: answerMessageId === null ? null : String(answerMessageId),
+  },
+  takenAt: takenAt === null ? null : String(takenAt),
+  expiresAt: kind === 'secret' && at !== null && takenAt === null ? new Date(Date.parse(String(at)) + SECRET_TTL_MS).toISOString() : null,
+})
 
 const TRIGGER_COLUMNS = `t.id, t.company_id, t.created_by, t.conversation_id, t.assignee_id, t.title, t.prompt, t.repo, t.profile, t.status, t.since,
   (SELECT COUNT(*) FROM trigger_fires WHERE trigger_id = t.id), f.at, f.label, f.error`

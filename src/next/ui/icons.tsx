@@ -61,3 +61,4 @@ export const ICompose = (p: P) => <svg {...base} {...p}><path d="M12 4H6a2 2 0 0
 export const IComputer = (p: P) => <svg {...base} {...p}><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M7 20h10M9 16l-1 4M15 16l1 4" /></svg>
 export const IGrid = (p: P) => <svg {...base} {...p}><rect x="4" y="4" width="6.5" height="6.5" rx="1.5" /><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5" /><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5" /><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5" /></svg>
 export const IPoll = (p: P) => <svg {...base} {...p}><path d="M5 20V11M12 20V4M19 20v-6" /></svg>
+export const ILock = (p: P) => <svg {...base} {...p}><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>

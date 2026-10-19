@@ -59,6 +59,7 @@ import { CODEX_LOGIN_COMMAND, CODEX_MIGRATE_COMMAND, CODEX_SESSION_SCOPE, codexR
 import { migrateCodexSession, migrateCodexSessions } from './codex-session-migration.js'
 import { runWithSessionRecovery } from './session-recovery.js'
 import { toolKindOf, type ToolKind } from '../../fork/toolKind.js'
+import { CARDS_PROMPT } from '../../fork/cardsPrompt.js'
 
 export { conversationHeader }
 
@@ -1215,6 +1216,21 @@ export const CUMORA_SHIM = `#!/usr/bin/env node
     if (body === null) { try { body = fs.readFileSync(0, 'utf8') } catch (e) { body = '' } }
   }
   if (body !== null) argv.push('--', body)
+  // \`cumora secret take <message_id> <path>\` (fork/cards.ts): the secret goes
+  // from the daemon's answer straight into <path>, never to stdout, so the model
+  // running this never reads it. <path> stays on this machine and must be a new
+  // file, checked before asking: the server forgets the secret as it hands it over.
+  var takePath = null
+  if (argv[0] === 'secret' && argv[1] === 'take') {
+    if (argv.length !== 4) { console.error('usage: cumora secret take <message_id> <path>'); process.exit(64) }
+    takePath = path.resolve(argv[3])
+    var exists = true
+    try { fs.lstatSync(takePath) } catch (e) { exists = false }
+    if (exists) { console.error('cumora: ' + takePath + ' exists. A secret can be taken only once, so name a new file.'); process.exit(1) }
+    try { fs.mkdirSync(path.dirname(takePath), { recursive: true }) }
+    catch (e) { console.error('cumora: cannot create the folder for ' + takePath); process.exit(1) }
+    argv = argv.slice(0, 3)
+  }
   var id = crypto.randomUUID()
   var requests = path.join(ipc, 'requests')
   var responses = path.join(ipc, 'responses')
@@ -1237,6 +1253,16 @@ export const CUMORA_SHIM = `#!/usr/bin/env node
   try { data = JSON.parse(fs.readFileSync(response, 'utf8')) }
   finally { try { fs.unlinkSync(response) } catch (e) {} }
   if (data && typeof data.error === 'string' && data.error) console.error('cumora: ' + data.error)
+  if (takePath && typeof data.file === 'string') {
+    try {
+      fs.writeFileSync(takePath, Buffer.from(data.file, 'base64'), { mode: 0o600, flag: 'wx' })
+      data.text = 'saved the secret to ' + takePath + ' (mode 600). The server no longer has it, so this file is the only copy: use it from there and never print it.'
+    } catch (e) {
+      data.text = ''
+      data.exitCode = 1
+      console.error('cumora: the secret arrived but could not be written to ' + takePath + ' (' + e.message + '), and the server no longer has it. Ask again with cumora secret request.')
+    }
+  }
   const code = typeof data.exitCode === 'number' ? data.exitCode : 0
   // Exit from the write CALLBACK, not the next statement: stdout on a PIPE is
   // ASYNC, so process.exit() kills us with the tail still buffered. The engine
@@ -1309,6 +1335,12 @@ function handle(msg) {
       send(msg.id, toolError('local file/stdin flags are unavailable; pass body text directly in argv'))
       return
     }
+    // The bridge runs outside the model's sandbox, so it must not write the
+    // file a model names (fork/cards.ts).
+    if (argv[0] === 'secret' && argv[1] === 'take') {
+      send(msg.id, toolError('secret take writes a file, which this restricted bridge does not do'))
+      return
+    }
     cp.execFile(process.execPath, [shim].concat(argv), {
       env: childEnv,
       maxBuffer: 32 * 1024 * 1024,
@@ -1338,6 +1370,8 @@ export interface RuntimeCliBrokerResult {
   text?: string
   exitCode: number
   error?: string
+  /** Base64 bytes the shim writes into a file instead of printing (fork/cards.ts). */
+  file?: string
 }
 
 /** File-rendezvous broker used by one AgentRunner.
@@ -2341,10 +2375,11 @@ export class AgentRunner {
         const body = await res.text().catch(() => '')
         return { exitCode: 70, error: `HTTP ${res.status} ${body.slice(0, 200)}`.trim() }
       }
-      const data = await res.json() as { text?: unknown; exitCode?: unknown }
+      const data = await res.json() as { text?: unknown; exitCode?: unknown; file?: unknown }
       return {
         text: typeof data.text === 'string' ? data.text : '',
         exitCode: typeof data.exitCode === 'number' ? data.exitCode : 0,
+        ...(typeof data.file === 'string' ? { file: data.file } : {}),
       }
     } catch (err) {
       return { exitCode: 70, error: err instanceof Error ? err.message : String(err) }
@@ -2800,6 +2835,7 @@ export class AgentRunner {
       `SPECIFIC message, add \`--quote <message_id>\` so your reply threads to its context. ` +
       `To address a teammate, @<their-id> (the short id in \`cumora messages\` / \`cumora participants\`), ` +
       `NOT their display name.\n\n` +
+      CARDS_PROMPT +
       // Skype emoticons — shared with the cloud agent so a BYOA agent is as
       // expressive, not stuck on native emoji only.
       `${SKYPE_EMOTICONS_GUIDE}\n\n` +
