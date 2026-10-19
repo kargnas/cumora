@@ -38,6 +38,7 @@ import {
   uniqueProjectIds,
 } from '../memory-scope.js'
 import { parseSseStream, wakeStreamWasStable } from '../runtime/sse-parse.js'
+import { purgeDeletedAgents } from '../../fork/computer-purge.js'
 import { type ProviderProfile, providerProfileEnv, providerProfileFingerprint, providerProfileMetadata, readProviderProfiles, redactProviderSecret } from './provider-profiles.js'
 import { modelIdOrNull } from './model-id.js'
 import { parseComputerControlEvent } from './control-event.js'
@@ -3737,6 +3738,14 @@ async function doRun(serverOverride?: string): Promise<void> {
   const engineInventoryStabilizer = new EngineInventoryStabilizer()
 
   const syncOnce = async (): Promise<void> => {
+    // Fork: before this sync can start an agent hired again under a deleted
+    // agent's id, the deleted one's files go (fork/computer-purge.ts).
+    await purgeDeletedAgents(cfg.serverUrl, cfg.deviceToken, async (agentId) => {
+      const runner = runners.get(agentId)
+      if (!runner) return
+      runners.delete(agentId)
+      await runner.stop({ forceEngine: true })
+    })
     let agents: AgentInfo[]
     try {
       agents = await api<AgentInfo[]>(cfg.serverUrl, '/api/computers/me/agents?providerProfiles=1', {

@@ -5,12 +5,15 @@ import { agentHandbook } from './handbook.js'
 import { startRecorder } from './recorder.js'
 import { startMoods } from './mood.js'
 import { stopAgent } from './stop.js'
+import { purgeAgent } from './purge.js'
 import { PROFILE_RE, REPO_RE, listProfiles, pollErrorOf, runNow, startTriggerPoller } from './triggers.js'
 
 type CompanyContext = { userId: string; companyId: string }
 
 export interface ForkRouterDeps {
   requireCompany(req: Request & AuthedRequest): Promise<CompanyContext>
+  /** The calling computer's daemon, by its device token. */
+  requireDevice(req: Request & AuthedRequest): Promise<{ computerId: string }>
 }
 
 class ForkError extends Error {
@@ -254,6 +257,30 @@ export function createForkRouter(deps: ForkRouterDeps): Router {
     await requireAgentEditor(companyId, userId, participantId)
     const store = await getForkStore()
     store.clearBloubAvatar(companyId, participantId)
+    res.json({ ok: true })
+  })
+
+  // Deleting an agent for good (./purge.ts). Only an off-boarded one, so the
+  // step that cannot be undone always comes after one that can.
+  router.delete('/agents/:agentId', async (req, res) => {
+    const { userId, companyId } = await deps.requireCompany(req)
+    const agentId = routeKey(req.params.agentId, 'agentId')
+    await requireAgentEditor(companyId, userId, agentId)
+    const result = await purgeAgent(companyId, agentId)
+    if (result === 'not_found') throw new ForkError(404, 'agent not found')
+    if (result === 'active') throw new ForkError(409, 'off-board the agent before deleting it')
+    res.json({ ok: true })
+  })
+
+  // The computer's daemon removes deleted agents' files (./computer-purge.ts).
+  router.get('/computers/me/purges', async (req, res) => {
+    const { computerId } = await deps.requireDevice(req)
+    res.json({ agentIds: (await getForkStore()).computerPurges(computerId) })
+  })
+
+  router.delete('/computers/me/purges/:agentId', async (req, res) => {
+    const { computerId } = await deps.requireDevice(req)
+    ;(await getForkStore()).clearComputerPurge(computerId, routeKey(req.params.agentId, 'agentId'))
     res.json({ ok: true })
   })
 

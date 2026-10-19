@@ -1,6 +1,6 @@
 /**
  * One participant's profile. Agents get status, placement (computer, engine,
- * model), tools, email, autonomy and the hire/off-board actions; people get
+ * model), tools, email, autonomy and the hire/off-board/delete actions; people get
  * the parts that apply to them (message, email). An agent's Handbook, its
  * standing files with what changed, opens in place of the profile
  * (`?view=handbook`).
@@ -19,7 +19,7 @@ import { getRoute, linkClick, navigate, withRoute, type Route } from '../../rout
 import { useOpenDirect } from '../../hooks'
 import { Avatar } from '../../ui/Avatar'
 import { Segmented, Spinner } from '../../ui/primitives'
-import { ICheck, ICompose, ICopy, IExit, IPencil, IRepeat } from '../../ui/icons'
+import { ICheck, ICompose, ICopy, IExit, IPencil, IRepeat, ITrash } from '../../ui/icons'
 import { Handbook } from '../../panel/HandbookTab'
 import {
   agentState, defaultModelOf, dialogHref, engineOf, errorText, listHref, LoadError, providerLabel, StateText, type Roster,
@@ -243,6 +243,12 @@ function Profile({ p, route, onRefresh }: { p: Participant; route: Route; onRefr
         <a className="nx-btn nx-btn--danger nx-btn--block" href={dialogHref(route, 'offboard')} onClick={linkClick}>
           <IExit />
           {nt('agents.offboard', { name: p.name })}
+        </a>
+      )}
+      {isAgent && departed && (
+        <a className="nx-btn nx-btn--danger nx-btn--block" href={dialogHref(route, 'purge')} onClick={linkClick}>
+          <ITrash />
+          {nt('agents.purge', { name: p.name })}
         </a>
       )}
     </article>

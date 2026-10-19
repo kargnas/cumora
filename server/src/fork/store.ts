@@ -190,6 +190,15 @@ const MIGRATIONS = [
      error TEXT,
      PRIMARY KEY (trigger_id, event_key)
    );`,
+
+  // Agents deleted for good (./purge.ts) whose files are still on their
+  // computer. The computer's daemon removes the agent's home and engine
+  // sessions (./computer-purge.ts), then clears the row.
+  `CREATE TABLE computer_purges (
+     agent_id TEXT PRIMARY KEY,
+     computer_id TEXT NOT NULL,
+     at TEXT NOT NULL
+   );`,
 ]
 
 export interface FileVersion {
@@ -469,6 +478,45 @@ export async function openForkStore(file: string) {
     /** Back to the agent's portrait or initial. */
     clearBloubAvatar(companyId: string, participantId: string): void {
       db.run('DELETE FROM bloub_avatars WHERE company_id = ? AND participant_id = ?', [companyId, participantId])
+      if (db.getRowsModified() > 0) save()
+    },
+
+    /** Drops what the fork kept of an agent deleted for good: its look, its
+     *  triggers, the Handbook's versions of its home, and every user's layout
+     *  rows of its deleted 1:1 rooms. With a computer, queues the removal of
+     *  its files there. */
+    purgeAgent(companyId: string, agentId: string, deletedRooms: string[], computerId: string | null): void {
+      db.run('DELETE FROM bloub_avatars WHERE company_id = ? AND participant_id = ?', [companyId, agentId])
+      db.run(
+        'DELETE FROM trigger_fires WHERE trigger_id IN (SELECT id FROM triggers WHERE company_id = ? AND assignee_id = ?)',
+        [companyId, agentId],
+      )
+      db.run('DELETE FROM triggers WHERE company_id = ? AND assignee_id = ?', [companyId, agentId])
+      db.run('DELETE FROM computer_file_versions WHERE scope = ?', [agentId])
+      for (const room of deletedRooms) {
+        db.run('DELETE FROM room_assignments WHERE company_id = ? AND conversation_id = ?', [companyId, room])
+        db.run('DELETE FROM pin_order WHERE company_id = ? AND conversation_id = ?', [companyId, room])
+      }
+      if (computerId) {
+        db.run('INSERT OR REPLACE INTO computer_purges (agent_id, computer_id, at) VALUES (?, ?, ?)', [agentId, computerId, new Date().toISOString()])
+      }
+      save()
+    },
+
+    /** Deleted agents whose files are still on this computer. */
+    computerPurges(computerId: string): string[] {
+      return rows('SELECT agent_id FROM computer_purges WHERE computer_id = ? ORDER BY at', [computerId]).map(([id]) => String(id))
+    },
+
+    /** Every deleted agent whose home may still be on a computer: the Handbook
+     *  must not record those homes as new files. */
+    purgingAgents(): Set<string> {
+      return new Set(rows('SELECT agent_id FROM computer_purges', null).map(([id]) => String(id)))
+    },
+
+    /** The computer removed the agent's files. */
+    clearComputerPurge(computerId: string, agentId: string): void {
+      db.run('DELETE FROM computer_purges WHERE computer_id = ? AND agent_id = ?', [computerId, agentId])
       if (db.getRowsModified() > 0) save()
     },
 

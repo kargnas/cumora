@@ -192,11 +192,18 @@ export function createRecorder(store: ForkStore, roots = { agents: AGENTS_DIR, s
     }
     const inMount = (f: FileRef) => (f.scope === SHARED ? mounted.skills : mounted.agents)
     const absOf = (f: FileRef) => (f.scope === SHARED ? join(real.skills, f.path) : join(real.agents, f.scope, f.path))
+    // A deleted agent's versions are gone (./purge.ts) while its home waits for
+    // its computer to remove it: recording it now would bring them back, and
+    // its removal would read as deletions. Forgotten too, so an agent hired
+    // later under the same id starts from a baseline.
+    const purging = store.purgingAgents()
+    for (const [key, k] of known) if (purging.has(k.scope)) known.delete(key)
+    for (const id of purging) scopes.delete(id)
     const candidates = new Map<string, FileRef>()
     for (const [key, k] of known) if (k.content !== null && inMount(k)) candidates.set(key, k)
     if (now() - lastScan >= SCAN_MS) {
       lastScan = now()
-      for (const f of listFiles(real)) candidates.set(keyOf(f), f)
+      for (const f of listFiles(real)) if (!purging.has(f.scope)) candidates.set(keyOf(f), f)
     }
 
     const found: Array<NewFileVersion & { size: number; mtimeMs: number }> = []

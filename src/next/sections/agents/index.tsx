@@ -2,18 +2,18 @@
  * Agents section: the roster beside one profile on wide windows, the profile
  * pushed over the roster (swipe back) on narrow ones. Everything open is in
  * the URL: `/next/agents/:id`, `?filter=`, and the dialogs `?new=1`,
- * `?edit=1`, `?offboard=1`, so Back closes whatever was opened last.
+ * `?edit=1`, `?offboard=1`, `?purge=1`, so Back closes whatever was opened last.
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion, useTransform } from 'framer-motion'
-import { api } from '@/api/client'
+import { api, http } from '@/api/client'
 import { useConversations } from '@/stores/conversations'
 import { useParticipants } from '@/stores/participants'
 import { useSwipeBackProps } from '@/mobile/useSwipeBack'
 import type { SectionProps } from '../types'
 import { haptic } from '../../haptics'
 import { useNT } from '../../i18n'
-import { getRoute, goBack, linkClick, withRoute, type Route } from '../../router'
+import { getRoute, goBack, linkClick, navigate, withRoute, type Route } from '../../router'
 import { Dialog, IconButton, SPRING_SHEET, Spinner, T_FAST } from '../../ui/primitives'
 import { IAgents, IChevronLeft, IPlus } from '../../ui/icons'
 import { DIALOG_PARAMS, dialogHref, errorText, listHref, NO_DIALOG, useRoster } from './shared'
@@ -101,6 +101,49 @@ function OffboardDialog({ route, onDone }: { route: Route; onDone: () => Promise
   )
 }
 
+/** Deleting an off-boarded agent for good (server/src/fork/purge.ts). The
+ *  profile it was opened from is gone afterwards, so it lands on the list. */
+function PurgeDialog({ route, onDone }: { route: Route; onDone: () => Promise<void> }) {
+  const nt = useNT()
+  const close = useCloseDialog(route)
+  const id = route.search.has('purge') ? route.id : null
+  const agent = useParticipants((s) => (id ? s.byId[id] : undefined))
+  const target = agent?.kind === 'agent' && agent.departedAt ? agent : null
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => setError(null), [id])
+  const submit = async () => {
+    if (!target) return
+    setBusy(true)
+    setError(null)
+    try {
+      await http(`/fork/agents/${encodeURIComponent(target.id)}`, { method: 'DELETE' })
+      haptic('success')
+      navigate(listHref(route), { replace: true })
+      await onDone()
+    } catch (e) {
+      haptic('error')
+      setError(errorText(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Dialog open={target !== null} onClose={close} title={nt('agents.purgeTitle', { name: target?.name ?? '' })}>
+      <p className="nx-agents-dialog-text">{nt('agents.purgeBody1', { name: target?.name ?? '' })}</p>
+      <p className="nx-agents-dialog-text nx-agents-dialog-text--muted">{nt('agents.purgeBody2')}</p>
+      {error && <p className="nx-agents-error" role="alert">{error}</p>}
+      <div className="nx-agents-dialog-actions">
+        <button type="button" className="nx-btn nx-btn--outline" disabled={busy} onClick={close}>{nt('agents.cancel')}</button>
+        <button type="button" className="nx-btn nx-agents-destroy" disabled={busy} onClick={() => void submit()}>
+          {busy && <Spinner />}
+          {nt('agents.purge', { name: target?.name ?? '' })}
+        </button>
+      </div>
+    </Dialog>
+  )
+}
+
 /** Android's back key: close the dialog or the pushed profile first. NextApp's
  *  own handler would jump straight to Chats from any section. Capture phase:
  *  on the target itself capture listeners run first, so this wins the event
@@ -176,7 +219,7 @@ function StackAgents({ route, list, profile }: { route: Route; list: ReactNode; 
 export default function AgentsSection({ route, layout, stack }: SectionProps) {
   const roster = useRoster()
   const [refreshing, setRefreshing] = useState(false)
-  // Hiring, editing and off-boarding change the roster and the DM list.
+  // Hiring, editing, off-boarding and deleting change the roster and the DM list.
   const refresh = useCallback(async () => {
     setRefreshing(true)
     try {
@@ -212,6 +255,7 @@ export default function AgentsSection({ route, layout, stack }: SectionProps) {
       )}
       <EditorDialog route={route} onSaved={() => void refresh()} />
       <OffboardDialog route={route} onDone={refresh} />
+      <PurgeDialog route={route} onDone={refresh} />
     </>
   )
 }

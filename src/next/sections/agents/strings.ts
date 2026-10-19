@@ -120,6 +120,10 @@ export const en = {
   'agents.offboardTitle': 'Off-board {name}?',
   'agents.offboardBody1': '{name} will leave the team. It stops replying, drops out of other agents’ rosters, and leaves active conversations.',
   'agents.offboardBody2': 'Its memory, log, workspace, tasks, and message history stay intact. Re-hire it any time and it picks up where it left off.',
+  'agents.purge': 'Delete {name} permanently',
+  'agents.purgeTitle': 'Delete {name} permanently?',
+  'agents.purgeBody1': '{name} is removed with its 1:1 chats, memory, log, workspace, tasks, routines, and its files on its computer. This cannot be undone.',
+  'agents.purgeBody2': 'Its messages in group chats stay, shown as from a deleted agent.',
   'agents.cancel': 'Cancel',
 } as const
 
@@ -244,5 +248,9 @@ export const zhCN: Partial<Record<keyof typeof en, string>> = {
   'agents.offboardTitle': '让 {name} 卸任？',
   'agents.offboardBody1': '{name} 会离开团队：停止回复、从其他智能体的协作花名册里消失，并退出当前的会话。',
   'agents.offboardBody2': '它的记忆、日志、工作区、任务和聊天记录都会留着。需要的时候重新雇佣，它就会从上次的地方继续干。',
+  'agents.purge': '永久删除 {name}',
+  'agents.purgeTitle': '永久删除 {name}？',
+  'agents.purgeBody1': '{name} 会连同它的单聊、记忆、日志、工作区、任务、例行任务以及它在电脑上的文件一起被删除，无法恢复。',
+  'agents.purgeBody2': '它在群聊里的消息会保留，显示为已删除的智能体发送的消息。',
   'agents.cancel': '取消',
 }

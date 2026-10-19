@@ -33,6 +33,7 @@ import { Avatar } from '../ui/Avatar'
 import { IconButton, Menu, Spinner, useMenu, type MenuEntry } from '../ui/primitives'
 import { IArrowDown, ICopy, IDownload, IFile, IMore, IReply, ISpark, IThread, IWhisper } from '../ui/icons'
 import { buildItems, createdAt, floatingDay, type DayPill, type Item, type Pos, type Stamp } from './model'
+import { authorOf } from './deletedAuthor'
 
 const EMPTY: Message[] = []
 const QUICK = ['👍', '❤️', '😂', '👀', '✅', '🔥']
@@ -607,7 +608,7 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
         ? <div className="nx-pause"><span>{pauseText(nt, it.pause)}</span></div>
         : null
     const fresh = isFresh(seen, it.key) && !(it.type !== 'work' && streamed.has(it.msg.id))
-    if (it.type === 'work') return <>{sep}<WorkChip item={it} author={byId[it.authorId]} /></>
+    if (it.type === 'work') return <>{sep}<WorkChip item={it} author={authorOf(byId, it.authorId, nt)} /></>
     if (it.type === 'line') {
       return (
         <>
@@ -621,7 +622,7 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
         {sep}
         <Bubble
           msg={it.msg}
-          author={byId[it.msg.authorId]}
+          author={authorOf(byId, it.msg.authorId, nt)}
           mine={it.mine}
           pos={it.pos}
           stamp={it.stamp}

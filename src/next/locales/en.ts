@@ -118,6 +118,7 @@ const core = {
   'msg.actions': 'Message actions',
   'msg.reactWith': 'React with {emoji}',
   'msg.someone': 'Someone',
+  'msg.deletedAgent': 'Deleted agent',
   'msg.oneReply': '1 reply',
   'msg.replies': '{n} replies',
   'msg.toolCount': '{n} steps',

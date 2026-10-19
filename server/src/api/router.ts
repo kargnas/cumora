@@ -7265,7 +7265,7 @@ api.post('/push/unregister', async (req, res) => {
 api.use('/shipping', createShippingRouter({ pool, requireCompany, requireCompanyRole }))
 
 // Fork-only data lives in its own SQLite file (server/src/fork), not in upstream's Postgres.
-api.use('/fork', createForkRouter({ requireCompany }))
+api.use('/fork', createForkRouter({ requireCompany, requireDevice }))
 
 // Global error handler — must come after all routes. HttpError → status code.
 api.use(errorHandler)

@@ -1902,7 +1902,7 @@ interface CascadeSpec {
    *  $2 = oldId in our UPDATE statements). */
   scopeSql: string
 }
-const AGENT_ID_CASCADE_TABLES: CascadeSpec[] = [
+export const AGENT_ID_CASCADE_TABLES: CascadeSpec[] = [
   { table: 'messages',             column: 'author_id',   scopeSql: 'company_id = $3' },
   { table: 'documents',            column: 'created_by',  scopeSql: 'company_id = $3' },
   { table: 'boards',               column: 'created_by',  scopeSql: 'company_id = $3' },
