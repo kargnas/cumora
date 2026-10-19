@@ -9,6 +9,7 @@ import { RichBody } from '@/components/Message'
 import { useLocale } from '@/lib/i18n'
 import { haptic } from '../../haptics'
 import { useNT } from '../../i18n'
+import { authorOf } from '../../chat/deletedAuthor'
 import { clock } from '../../format'
 import { href, navigate } from '../../router'
 import type { SectionProps } from '../types'
@@ -36,7 +37,7 @@ function TranscriptEntry({ entry, byId, compact = false }: { entry: ApiConveneTr
   if (entry.kind === 'decision' && entry.decision) {
     return <article className={compact ? 'nx-convene__decision nx-convene__decision--compact' : 'nx-convene__decision'}><span className="nx-chip">{nt('convene.decision')}</span><h3>{entry.decision.headline}</h3><p>{entry.decision.body}</p></article>
   }
-  const author = byId[entry.authorId]
+  const author = authorOf(byId, entry.authorId, nt)
   if (!author) return null
   return (
     <article className={compact ? 'nx-convene__entry nx-convene__entry--compact' : 'nx-convene__entry'}>

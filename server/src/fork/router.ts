@@ -5,7 +5,7 @@ import { agentHandbook } from './handbook.js'
 import { startRecorder } from './recorder.js'
 import { startMoods } from './mood.js'
 import { stopAgent } from './stop.js'
-import { purgeAgent } from './purge.js'
+import { computerPurges, purgeAgent } from './purge.js'
 import { PROFILE_RE, REPO_RE, listProfiles, pollErrorOf, runNow, startTriggerPoller } from './triggers.js'
 
 type CompanyContext = { userId: string; companyId: string }
@@ -275,7 +275,7 @@ export function createForkRouter(deps: ForkRouterDeps): Router {
   // The computer's daemon removes deleted agents' files (./computer-purge.ts).
   router.get('/computers/me/purges', async (req, res) => {
     const { computerId } = await deps.requireDevice(req)
-    res.json({ agentIds: (await getForkStore()).computerPurges(computerId) })
+    res.json({ agentIds: await computerPurges(computerId) })
   })
 
   router.delete('/computers/me/purges/:agentId', async (req, res) => {

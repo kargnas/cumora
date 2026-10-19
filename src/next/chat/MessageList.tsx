@@ -336,7 +336,7 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
   const turn = stamp === 'turn'
   const time = <TimeStamp at={at} shown={stamp !== 'hidden'} locale={locale} />
   const quote = msg.quoted
-  const quoteAuthor = useParticipants((s) => (quote ? s.byId[quote.authorId]?.name : undefined))
+  const quoteAuthor = useParticipants((s) => (quote ? authorOf(s.byId, quote.authorId, nt)?.name : undefined))
   // Selects a string, so status churn on participants does not re-render the bubble.
   const quoteText = useParticipants((s) => quote?.body.replace(/@([A-Za-z][\w-]*)/g, (m, id: string) => (s.byId[id] ? `@${s.byId[id].name}` : m)))
 

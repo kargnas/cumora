@@ -3738,9 +3738,8 @@ async function doRun(serverOverride?: string): Promise<void> {
   const engineInventoryStabilizer = new EngineInventoryStabilizer()
 
   const syncOnce = async (): Promise<void> => {
-    // Fork: before this sync can start an agent hired again under a deleted
-    // agent's id, the deleted one's files go (fork/computer-purge.ts).
-    await purgeDeletedAgents(cfg.serverUrl, cfg.deviceToken, async (agentId) => {
+    // Fork: the files of agents deleted for good go (fork/computer-purge.ts).
+    await purgeDeletedAgents(cfg.serverUrl, cfg.deviceToken, HTTP_TIMEOUT_MS, async (agentId) => {
       const runner = runners.get(agentId)
       if (!runner) return
       runners.delete(agentId)

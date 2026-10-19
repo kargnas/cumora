@@ -1,9 +1,9 @@
 /**
  * Deleting an agent for good, the parts outside Postgres: what the fork store
- * drops and queues, the Handbook recorder leaving a home that waits for its
- * computer, and which files the computer removes. The last is where a mistake
- * deletes another agent's transcripts, since Claude Code's folder names map
- * '/' and '-' alike.
+ * drops and queues, the Handbook recorder leaving a deleted agent's home, and
+ * which files the computer removes. The last is where a mistake deletes
+ * another agent's transcripts, since Claude Code's folder names map '/' and
+ * '-' alike.
  */
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -22,7 +22,7 @@ const write = (path: string, text = 'x\n') => {
   writeFileSync(path, text)
 }
 
-test('the store drops the agent and queues its files for its computer only', async () => {
+test('the store drops the agent, keeps its id from being given out again, and queues its files for its computer only', async () => {
   const store = await openForkStore(join(dir, 'store.sqlite'))
   store.setBloubAvatar('c1', 'atlas', { shape: 'goutte', color: 'rose' })
   store.setBloubAvatar('c1', 'nova', { shape: 'goutte', color: 'rose' })
@@ -45,18 +45,19 @@ test('the store drops the agent and queues its files for its computer only', asy
   assert.deepEqual(store.computerPurges('computer-1'), ['atlas'])
   assert.deepEqual(store.computerPurges('computer-2'), [])
 
-  // Another computer cannot clear it; its own computer can.
+  // Another computer cannot clear it; its own computer can. The id stays taken.
   store.clearComputerPurge('computer-2', 'atlas')
-  assert.deepEqual([...store.purgingAgents()], ['atlas'])
+  assert.deepEqual(store.computerPurges('computer-1'), ['atlas'])
   store.clearComputerPurge('computer-1', 'atlas')
   assert.deepEqual(store.computerPurges('computer-1'), [])
+  assert.deepEqual([...store.purgedAgents()], ['atlas'])
 
-  // A cloud agent has no computer to clean.
+  // An agent without a computer to clean is still never given out again.
   store.purgeAgent('c1', 'nova', [], null)
-  assert.deepEqual([...store.purgingAgents()], [])
+  assert.deepEqual([...store.purgedAgents()].sort(), ['atlas', 'nova'])
 })
 
-test('the Handbook leaves a home that waits for its computer, and a later agent under the id starts fresh', async () => {
+test('the Handbook never records a deleted agent\'s home again, even when its computer removes it between two polls', async () => {
   const roots = { agents: join(dir, 'rec', 'agents'), skills: join(dir, 'rec', 'skills') }
   const home = join(roots.agents, 'atlas')
   write(join(home, 'CLAUDE.md'), '# Atlas\n')
@@ -66,45 +67,57 @@ test('the Handbook leaves a home that waits for its computer, and a later agent 
   const poll = createRecorder(store, roots, () => clock)
   assert.equal(poll(), 2)
 
+  // Purged and cleaned by its computer before the recorder looks again: the
+  // removal must not come back as deletions.
   store.purgeAgent('c1', 'atlas', [], 'computer-1')
-  assert.deepEqual(store.fileVersions(['atlas'], null), [])
-  write(join(home, 'CLAUDE.md'), '# Atlas, edited\n')
-  clock += 60_000
-  assert.equal(poll(), 0, 'nothing recorded while the home waits')
-
-  // The computer removes the home and clears the queue: no deletions follow.
   rmSync(home, { recursive: true })
   store.clearComputerPurge('computer-1', 'atlas')
   clock += 60_000
   assert.equal(poll(), 0)
+  assert.deepEqual(store.fileVersions(['atlas'], null), [])
 
-  write(join(home, 'CLAUDE.md'), '# New Atlas\n')
+  // Nor does a home that reappears under the id (a computer that never got the
+  // purge) count as anyone's.
+  write(join(home, 'CLAUDE.md'), '# Atlas, again\n')
   clock += 60_000
-  assert.equal(poll(), 1)
-  assert.deepEqual(store.fileVersions(['atlas'], null).map((v) => [v.path, v.baseline, v.content]), [['CLAUDE.md', true, '# New Atlas\n']])
+  assert.equal(poll(), 0)
+  assert.deepEqual(store.fileVersions(['atlas'], null), [])
 })
 
-test('the computer removes the agent\'s home, sessions and transcripts, and nothing of agents sharing its prefix', async () => {
+test('the computer removes the agent\'s home, sessions and transcripts, and only transcripts that ran in its home', async () => {
   const root = join(dir, 'computer')
   const claude = join(root, '.claude')
   const agents = join(root, '.cumora', 'agents')
-  const project = (agent: string, sub = '') => join(claude, 'projects', join(agents, agent, sub).replace(/[^a-zA-Z0-9]/g, '-'))
+  const projects = join(claude, 'projects')
+  const folder = (path: string) => path.replace(/[^a-zA-Z0-9]/g, '-')
+  // A transcript as Claude Code writes it: session-start lines first, then
+  // lines that carry the working directory.
+  const transcript = (cwd: string) => `{"type":"queue-operation"}\n{"type":"user","cwd":${JSON.stringify(cwd)}}\n`
+  const project = (cwd: string) => write(join(projects, folder(cwd), 's.jsonl'), transcript(cwd))
   for (const agent of ['pr', 'pr-summary-bot', 'velvet']) {
     write(join(agents, agent, 'CLAUDE.md'))
     write(join(root, '.cumora', 'sessions', agent, 'claude.session'))
-    write(join(project(agent), 's.jsonl'))
+    project(join(agents, agent))
   }
-  write(join(project('pr', 'workspace'), 's.jsonl'))
-  write(join(project('pr-summary-bot', 'workspace'), 's.jsonl'))
+  project(join(agents, 'pr', 'workspace'))
   write(join(root, '.cumora', 'sessions', 'pr.session'))
+  // pr-summary-bot's workspace transcripts, with its home already gone: the
+  // folder name alone would pass for pr's.
+  project(join(agents, 'pr-summary-bot', 'workspace'))
+  rmSync(join(agents, 'pr-summary-bot'), { recursive: true })
+  // A folder under pr's prefix whose transcripts name no directory stays.
+  write(join(projects, `${folder(join(agents, 'pr'))}-notes`, 's.jsonl'), '{"type":"summary"}\n')
 
   await removeAgentFiles('pr', root, claude)
 
-  assert.deepEqual(readdirSync(agents).sort(), ['pr-summary-bot', 'velvet'])
+  assert.deepEqual(readdirSync(agents).sort(), ['velvet'])
   assert.deepEqual(readdirSync(join(root, '.cumora', 'sessions')).sort(), ['pr-summary-bot', 'velvet'])
-  assert.deepEqual(readdirSync(join(claude, 'projects')).sort(), [
-    project('pr-summary-bot'), project('pr-summary-bot', 'workspace'), project('velvet'),
-  ].map((p) => p.slice(join(claude, 'projects').length + 1)).sort())
+  assert.deepEqual(readdirSync(projects).sort(), [
+    folder(join(agents, 'pr')) + '-notes',
+    folder(join(agents, 'pr-summary-bot')),
+    folder(join(agents, 'pr-summary-bot', 'workspace')),
+    folder(join(agents, 'velvet')),
+  ].sort())
 
   // Removing again is a no-op, and a path is never built from a non-id.
   await removeAgentFiles('pr', root, claude)

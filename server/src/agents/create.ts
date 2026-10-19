@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { pool } from '../db/pool.js'
+import { getForkStore } from '../fork/store.js'
 import {
   cloudComputerId,
   type ComputerKind,
@@ -198,7 +199,11 @@ export async function createAgentRecord(
 
     if (input.providerProfile && !placement) throw new AgentCreationError(400, 'provider profile requires a paired computer')
     const tools = input.tools ?? ['bash']
+    // An id of an agent deleted for good is never given out again: rows that
+    // still name it (fork/purge.ts) must not reach the new agent.
+    const purged = (await getForkStore()).purgedAgents()
     for (const agentId of candidateAgentIds(input.name)) {
+      if (purged.has(agentId)) continue
       const initial = input.initial || input.name.charAt(0).toUpperCase()
       const avatarBg = input.avatarBg || defaultAvatarBg(agentId)
       const { rows } = await client.query<{ id: string }>(

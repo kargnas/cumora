@@ -9,6 +9,7 @@ import { MobileCalendar } from '@/mobile/MobileCalendar'
 import { listStamp } from '../../format'
 import { haptic } from '../../haptics'
 import { useNT } from '../../i18n'
+import { authorOf } from '../../chat/deletedAuthor'
 import { href, navigate, type Route } from '../../router'
 import type { SectionProps } from '../types'
 import { Spinner } from '../../ui/primitives'
@@ -56,8 +57,8 @@ function LibraryItems({ tab, route }: { tab: Tab; route: Route }) {
   const openBoard = (id: string) => navigate(href({ section: 'library', peek: { kind: 'board', id, cardId: null }, params: { tab } }))
   const loading = tab === 'documents' ? !docsLoaded : tab === 'boards' ? boardsLoading && boards.length === 0 : false
   const rows = useMemo(() => tab === 'documents'
-    ? documents.map((d) => ({ id: d.id, title: d.title || nt('library.untitledDocument'), sub: `${byId[d.createdBy]?.name ?? (d.createdBy === me?.id ? nt('library.you') : d.createdBy)} · ${listStamp(d.updatedAt, locale)}` }))
-    : boards.map((b) => ({ id: b.id, title: b.title || nt('library.untitledBoard'), sub: b.description || `${byId[b.createdBy]?.name ?? (b.createdBy === me?.id ? nt('library.you') : b.createdBy)} · ${listStamp(b.updatedAt, locale)}` })), [tab, documents, boards, byId, me?.id, locale, nt])
+    ? documents.map((d) => ({ id: d.id, title: d.title || nt('library.untitledDocument'), sub: `${authorOf(byId, d.createdBy, nt)?.name ?? (d.createdBy === me?.id ? nt('library.you') : d.createdBy)} · ${listStamp(d.updatedAt, locale)}` }))
+    : boards.map((b) => ({ id: b.id, title: b.title || nt('library.untitledBoard'), sub: b.description || `${authorOf(byId, b.createdBy, nt)?.name ?? (b.createdBy === me?.id ? nt('library.you') : b.createdBy)} · ${listStamp(b.updatedAt, locale)}` })), [tab, documents, boards, byId, me?.id, locale, nt])
 
   return <>
     {tab !== 'calendar' && <div className="nx-library__list nx-scroll" aria-busy={loading}>

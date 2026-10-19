@@ -191,10 +191,16 @@ const MIGRATIONS = [
      PRIMARY KEY (trigger_id, event_key)
    );`,
 
-  // Agents deleted for good (./purge.ts) whose files are still on their
-  // computer. The computer's daemon removes the agent's home and engine
-  // sessions (./computer-purge.ts), then clears the row.
-  `CREATE TABLE computer_purges (
+  // Agents deleted for good (./purge.ts). purged_agents is kept forever: an
+  // agent id is never given out again (agents/create.ts), so nothing that
+  // still names the old id can reach a new agent. computer_purges holds those
+  // whose files are still on their computer, until its daemon removes the
+  // agent's home and engine sessions (./computer-purge.ts).
+  `CREATE TABLE purged_agents (
+     agent_id TEXT PRIMARY KEY,
+     at TEXT NOT NULL
+   );
+   CREATE TABLE computer_purges (
      agent_id TEXT PRIMARY KEY,
      computer_id TEXT NOT NULL,
      at TEXT NOT NULL
@@ -497,8 +503,10 @@ export async function openForkStore(file: string) {
         db.run('DELETE FROM room_assignments WHERE company_id = ? AND conversation_id = ?', [companyId, room])
         db.run('DELETE FROM pin_order WHERE company_id = ? AND conversation_id = ?', [companyId, room])
       }
+      const at = new Date().toISOString()
+      db.run('INSERT OR IGNORE INTO purged_agents (agent_id, at) VALUES (?, ?)', [agentId, at])
       if (computerId) {
-        db.run('INSERT OR REPLACE INTO computer_purges (agent_id, computer_id, at) VALUES (?, ?, ?)', [agentId, computerId, new Date().toISOString()])
+        db.run('INSERT OR REPLACE INTO computer_purges (agent_id, computer_id, at) VALUES (?, ?, ?)', [agentId, computerId, at])
       }
       save()
     },
@@ -508,10 +516,9 @@ export async function openForkStore(file: string) {
       return rows('SELECT agent_id FROM computer_purges WHERE computer_id = ? ORDER BY at', [computerId]).map(([id]) => String(id))
     },
 
-    /** Every deleted agent whose home may still be on a computer: the Handbook
-     *  must not record those homes as new files. */
-    purgingAgents(): Set<string> {
-      return new Set(rows('SELECT agent_id FROM computer_purges', null).map(([id]) => String(id)))
+    /** Every agent deleted for good. Their ids are never given out again. */
+    purgedAgents(): Set<string> {
+      return new Set(rows('SELECT agent_id FROM purged_agents', null).map(([id]) => String(id)))
     },
 
     /** The computer removed the agent's files. */

@@ -143,7 +143,7 @@ test('opening an older file runs the steps it has not had', async () => {
   // rows a version-1 client could write, when 'former' was a group key.
   const SQL = await initSqlJs()
   const raw = new SQL.Database(readFileSync(file))
-  raw.run('ALTER TABLE room_categories DROP COLUMN hidden; DROP TABLE pin_order; DROP TABLE computer_file_versions; DROP TABLE bloub_avatars; DROP TABLE triggers; DROP TABLE trigger_fires; DROP TABLE computer_purges;')
+  raw.run('ALTER TABLE room_categories DROP COLUMN hidden; DROP TABLE pin_order; DROP TABLE computer_file_versions; DROP TABLE bloub_avatars; DROP TABLE triggers; DROP TABLE trigger_fires; DROP TABLE computer_purges; DROP TABLE purged_agents;')
   raw.run("INSERT INTO collapsed_groups VALUES ('c1', 'u1', 'former'), ('c1', 'u1', 'other')")
   raw.run('PRAGMA user_version = 1')
   writeFileSync(file, raw.export())
@@ -230,7 +230,7 @@ test('faces picked before moods existed go back to rest', async () => {
   ;(await openForkStore(file)).setBloubAvatar('c1', 'agent-a', { shape: 'galet', color: 'violet' })
   const SQL = await initSqlJs()
   const raw = new SQL.Database(readFileSync(file))
-  raw.run("UPDATE bloub_avatars SET expression = 'timide'; DROP TABLE triggers; DROP TABLE trigger_fires; DROP TABLE computer_purges; PRAGMA user_version = 5")
+  raw.run("UPDATE bloub_avatars SET expression = 'timide'; DROP TABLE triggers; DROP TABLE trigger_fires; DROP TABLE computer_purges; DROP TABLE purged_agents; PRAGMA user_version = 5")
   writeFileSync(file, raw.export())
   assert.equal((await openForkStore(file)).bloubAvatars('c1')['agent-a']?.expression, 'neutre')
 })

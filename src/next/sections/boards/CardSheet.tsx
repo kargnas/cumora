@@ -13,6 +13,7 @@ import { useLocale } from '@/lib/i18n'
 import type { BoardCard, BoardCardComment, BoardColumn, Participant } from '@/types'
 import { haptic } from '../../haptics'
 import { useNT } from '../../i18n'
+import { authorOf } from '../../chat/deletedAuthor'
 import { listStamp } from '../../format'
 import type { Layout } from '../../layout'
 import { Avatar } from '../../ui/Avatar'
@@ -385,7 +386,7 @@ const CommentRow = memo(function CommentRow({ boardId, cardId, c }: { boardId: s
   const nt = useNT()
   const locale = useLocale()
   const me = useMe()
-  const author = useParticipants((s) => s.byId[c.authorId])
+  const author = useParticipants((s) => authorOf(s.byId, c.authorId, nt))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const remove = async () => {
@@ -569,7 +570,7 @@ export function CardSheet({ boardId, cardId, layout, onClose }: {
   const card = useBoards((s) => s.snapshots[boardId]?.cards.find((c) => c.id === cardId))
   const hasSnap = useBoards((s) => Boolean(s.snapshots[boardId]))
   const column = useBoards((s) => (card ? s.snapshots[boardId]?.columns.find((c) => c.id === card.columnId) : undefined))
-  const author = useParticipants((s) => (card ? s.byId[card.createdBy]?.name : undefined))
+  const author = useParticipants((s) => (card ? authorOf(s.byId, card.createdBy, nt)?.name : undefined))
   const ref = useRef<HTMLElement>(null)
   useEscape(onClose)
   // Over the board (sheet or pushed screen) focus moves in; docked, it stays
