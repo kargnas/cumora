@@ -31,6 +31,8 @@ export interface Card {
   answer: CardAnswer | null
   takenAt: string | null
   expiresAt: string | null
+  /** Bumped by every change on the server; the higher one is the newer copy. */
+  rev: number
 }
 
 const NONE: ReadonlySet<string> = new Set()
@@ -49,15 +51,20 @@ interface State {
   sendSecret: (card: Card, value: string) => Promise<void>
 }
 
-/** Adds or replaces cards. `room` replaces every card of that room. The room's
- *  hidden set keeps its identity while it holds the same ids, so the
- *  transcript does not rebuild its rows for a card that changed nothing there. */
-function put(s: State, cards: Card[], room?: string): Partial<State> {
+/** Adds the cards the server sent, keeping the newer copy of each by its
+ *  `rev`: a load's snapshot or an answer's response can arrive after a later
+ *  change came through `fork.card`. ponytail: cards are only ever added, so
+ *  a purged agent's cards stay until the page reloads. A room's hidden set
+ *  keeps its identity while it holds the same ids, so the transcript does not
+ *  rebuild its rows for a card that changed nothing there. */
+function put(s: State, cards: Card[]): Partial<State> {
   const byMessage = { ...s.byMessage }
-  if (room) for (const id of Object.keys(byMessage)) if (byMessage[id].conversationId === room) delete byMessage[id]
-  for (const c of cards) byMessage[c.messageId] = c
-  const rooms = new Set(cards.map((c) => c.conversationId))
-  if (room) rooms.add(room)
+  const rooms = new Set<string>()
+  for (const c of cards) {
+    if ((byMessage[c.messageId]?.rev ?? -1) > c.rev) continue
+    byMessage[c.messageId] = c
+    rooms.add(c.conversationId)
+  }
   const hidden = { ...s.hidden }
   for (const r of rooms) {
     const ids = new Set<string>()
@@ -73,30 +80,14 @@ function put(s: State, cards: Card[], room?: string): Partial<State> {
 }
 
 export const useCards = create<State>((set, get) => {
-  // A room's load replaces its cards with a snapshot, which is older than any
-  // card the server sent while the load was in flight. Each card sent after a
-  // change gets the next number, so a load keeps the cards changed since it
-  // began, and of two loads of a room only the later one applies.
-  let changes = 0
-  const changedAt = new Map<string, number>()
-  const latestLoad = new Map<string, number>()
-  let loads = 0
-  const changed = (card: Card) => {
-    changedAt.set(card.messageId, ++changes)
-    set((s) => put(s, [card]))
-  }
-
   useAuth.subscribe((s, prev) => {
-    if (s.contextEpoch === prev.contextEpoch) return
-    changedAt.clear()
-    latestLoad.clear()
-    set({ byMessage: {}, loaded: {}, ready: {}, hidden: {} })
+    if (s.contextEpoch !== prev.contextEpoch) set({ byMessage: {}, loaded: {}, ready: {}, hidden: {} })
   })
   // A fork event, outside the client's event union. After a reconnect the
   // rooms already shown load again, since events sent meanwhile are lost.
   ws.on((e) => {
     const ev = e as { type: string; card?: Card }
-    if (ev.type === 'fork.card' && ev.card) changed(ev.card)
+    if (ev.type === 'fork.card' && ev.card) set((s) => put(s, [ev.card as Card]))
     else if (ev.type === 'hello') for (const room of Object.keys(get().ready)) void get().load(room)
   })
 
@@ -107,7 +98,7 @@ export const useCards = create<State>((set, get) => {
       const res = await http<{ card: Card }>(`/fork/cards/${encodeURIComponent(card.messageId)}/${action}`, {
         method: 'POST', body: JSON.stringify(body),
       })
-      changed(res.card)
+      set((s) => put(s, [res.card]))
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) void get().load(card.conversationId)
       throw e
@@ -122,25 +113,16 @@ export const useCards = create<State>((set, get) => {
 
     async load(conversationId) {
       const epoch = useAuth.getState().contextEpoch
-      const ticket = ++loads
-      const since = changes
-      latestLoad.set(conversationId, ticket)
-      const current = () => useAuth.getState().contextEpoch === epoch && latestLoad.get(conversationId) === ticket
       try {
         const { cards } = await http<{ cards: Card[] }>(`/fork/cards?conversation=${encodeURIComponent(conversationId)}`)
-        if (!current()) return
-        set((s) => {
-          const newer = Object.values(s.byMessage)
-            .filter((c) => c.conversationId === conversationId && (changedAt.get(c.messageId) ?? 0) > since)
-          const kept = new Set(newer.map((c) => c.messageId))
-          return {
-            ...put(s, [...cards.filter((c) => !kept.has(c.messageId)), ...newer], conversationId),
-            loaded: { ...s.loaded, [conversationId]: true },
-            ready: { ...s.ready, [conversationId]: true },
-          }
-        })
+        if (useAuth.getState().contextEpoch !== epoch) return
+        set((s) => ({
+          ...put(s, cards),
+          loaded: { ...s.loaded, [conversationId]: true },
+          ready: { ...s.ready, [conversationId]: true },
+        }))
       } catch (e) {
-        if (!current()) return
+        if (useAuth.getState().contextEpoch !== epoch) return
         console.warn('[next] cards load failed', e)
         set((s) => ({ ready: { ...s.ready, [conversationId]: true } }))
       }

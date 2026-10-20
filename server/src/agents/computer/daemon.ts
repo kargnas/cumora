@@ -655,6 +655,7 @@ function parseArgs(argv: string[]): {
  *  Deliberately NOT applied to the wake-stream (an intentionally long-lived SSE
  *  connection, which has its own idle/backoff handling) or the npm version check. */
 const HTTP_TIMEOUT_MS = Math.max(1_000, Number(process.env.CUMORA_HTTP_TIMEOUT_MS ?? 20_000))
+const CLI_IPC_UNREAD_MS = 60_000
 
 async function api<T>(serverUrl: string, path: string, init: RequestInit): Promise<T> {
   const res = await fetch(`${serverUrl}${path}`, {
@@ -1225,11 +1226,17 @@ export const CUMORA_SHIM = `#!/usr/bin/env node
   var take = null
   if (argv[0] === 'secret' && argv[1] === 'take') {
     if (argv.length !== 4) { console.error('usage: cumora secret take <message_id> <path>'); process.exit(64) }
-    var takePath = path.resolve(argv[3])
+    // A quoted ~ arrives unexpanded, and the prompt suggests ~/.secrets/<name>.
+    var named = argv[3] === '~' || argv[3].indexOf('~/') === 0 ? require('os').homedir() + argv[3].slice(1) : argv[3]
+    var takePath = path.resolve(named)
     // The Handbook records the .md files of agents' homes (fork/recorder.ts).
     if (/\\.md$/i.test(takePath)) { console.error('cumora: a secret never goes into a .md file, which the Handbook records. Name a file such as ~/.secrets/<name>.'); process.exit(64) }
     try { fs.mkdirSync(path.dirname(takePath), { recursive: true, mode: 0o700 }) }
     catch (e) { console.error('cumora: cannot create the folder for ' + takePath + ' (' + e.code + ')'); process.exit(1) }
+    // Stopping the command must not kill a take in flight: the server forgets
+    // the secret as it hands it over, so the take finishes (within the IPC
+    // deadline below) and saves the file first.
+    ['SIGTERM', 'SIGINT', 'SIGHUP'].forEach(function (signal) { process.on(signal, function () {}) })
     try { take = { path: takePath, fd: fs.openSync(takePath, 'wx', 0o600), done: false } }
     catch (e) {
       console.error('cumora: ' + (e.code === 'EEXIST'
@@ -1554,6 +1561,10 @@ export class RuntimeCliBroker {
       if (signal.aborted) return
       await rename(stagedResponse, response)
       stagedResponse = null
+      // A shim reads its response within milliseconds. One still here after
+      // CLI_IPC_UNREAD_MS belongs to a shim that is gone, and a `secret take`
+      // response holds a secret (fork/cards.ts), so it must not wait for a restart.
+      setTimeout(() => { void rm(response, { force: true }).catch(() => {}) }, CLI_IPC_UNREAD_MS).unref?.()
     } finally {
       if (stagedResponse) await rm(stagedResponse, { force: true }).catch(() => {})
       await rm(claimed, { force: true }).catch(() => {})

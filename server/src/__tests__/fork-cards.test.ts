@@ -5,7 +5,7 @@
  */
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -41,7 +41,7 @@ test('only the shim that saves a take into a file may take a secret', async () =
 })
 
 /** Runs the real shim for one command against a broker that answers `answer`. */
-async function shim(argv: string[], answer: { text?: string; exitCode: number; file?: string }, cwd?: string) {
+async function shim(argv: string[], answer: { text?: string; exitCode: number; file?: string }, home?: string) {
   const run = mkdtempSync(join(dir, 'run-'))
   const file = join(run, 'cumora.js')
   writeFileSync(file, CUMORA_SHIM)
@@ -50,7 +50,8 @@ async function shim(argv: string[], answer: { text?: string; exitCode: number; f
   await broker.start()
   try {
     return await new Promise<{ code: number | null; stdout: string; stderr: string; calls: string[][] }>((resolve, reject) => {
-      const child = spawn(process.execPath, [file, ...argv], { cwd: cwd ?? run, env: { ...process.env, CUMORA_AGENT_IPC_DIR: join(run, 'ipc') } })
+      const env = { ...process.env, CUMORA_AGENT_IPC_DIR: join(run, 'ipc'), ...(home ? { HOME: home } : {}) }
+      const child = spawn(process.execPath, [file, ...argv], { cwd: run, env })
       let stdout = ''
       let stderr = ''
       child.stdout.on('data', (b: Buffer) => { stdout += b.toString('utf8') })
@@ -102,5 +103,36 @@ test('secret take asks only when it can write the file, and leaves none when not
     assert.match(denied.stderr, /cannot create/)
   } finally {
     chmodSync(locked, 0o700)
+  }
+})
+
+test('a quoted ~ path lands in the home, not under the working folder', { timeout: 10_000 }, async () => {
+  const home = mkdtempSync(join(dir, 'home-'))
+  const r = await shim(['secret', 'take', 'm-5', '~/.secrets/openai'], { text: '', exitCode: 0, file: Buffer.from('sk-home').toString('base64') }, home)
+  assert.equal(r.code, 0, r.stderr)
+  assert.equal(readFileSync(join(home, '.secrets', 'openai'), 'utf8'), 'sk-home')
+  assert.equal(statSync(join(home, '.secrets')).mode & 0o777, 0o700)
+})
+
+test('a take in flight still saves its file when the command is stopped', { timeout: 10_000 }, async () => {
+  const run = mkdtempSync(join(dir, 'run-'))
+  const file = join(run, 'cumora.js')
+  writeFileSync(file, CUMORA_SHIM)
+  const target = join(run, 'stopped.key')
+  let child: ChildProcess | undefined
+  // The daemon has the request, and the server would forget the secret now.
+  const broker = new RuntimeCliBroker(join(run, 'ipc'), join(run, 'broker'), async () => {
+    child?.kill('SIGTERM')
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    return { text: '', exitCode: 0, file: Buffer.from('sk-stopped').toString('base64') }
+  })
+  await broker.start()
+  try {
+    child = spawn(process.execPath, [file, 'secret', 'take', 'm-6', target], { cwd: run, env: { ...process.env, CUMORA_AGENT_IPC_DIR: join(run, 'ipc') } })
+    const code = await new Promise<number | null>((resolve) => child?.on('close', resolve))
+    assert.equal(code, 0)
+    assert.equal(readFileSync(target, 'utf8'), 'sk-stopped')
+  } finally {
+    broker.stop()
   }
 })

@@ -193,7 +193,7 @@ async function take(parsed: ParsedArgs, me: string): Promise<CliResult> {
     return fail(`you are no longer in the room where you asked for ${messageId}, so its secret is not yours to take`)
   }
   // The person's reply wakes this agent, possibly before its answer settles.
-  if (pending(asked)) await settle(store, companyId, asked, stale(asked))
+  if (pending(asked)) await settle(store, companyId, asked, postOver(asked))
   const taken = store.takeSecret(companyId, messageId, me)
   if (typeof taken === 'string') return fail(TAKE_REFUSALS[taken](messageId))
   let value: Buffer
@@ -206,14 +206,21 @@ async function take(parsed: ParsedArgs, me: string): Promise<CliResult> {
   return { ok: true, text: '', exitCode: 0, file: value.toString('base64') }
 }
 
-/** Drops the secrets nobody took within SECRET_TTL_MS. A take and a room load
- *  drop them too, but a room may never be loaded again. */
-export function startSecretSweeper(): void {
-  const sweep = () => {
-    getForkStore().then((store) => store.dropExpiredSecrets()).catch((err: unknown) => console.error('[fork] secret sweep failed:', err))
+/** Every minute: drops the secrets nobody took within SECRET_TTL_MS (a take
+ *  or a room load does too, but neither may come), and settles or opens again
+ *  the answers whose post is over without a settle (a restart, a broken
+ *  connection), which tells the rooms' clients. */
+export function startCardSweeper(): void {
+  const sweep = async () => {
+    const store = await getForkStore()
+    store.dropExpiredSecrets()
+    for (const { companyId, card } of store.pendingAnswers()) {
+      if (postOver(card)) await settle(store, companyId, card, true)
+    }
   }
-  setTimeout(sweep, 10_000).unref()
-  setInterval(sweep, 10 * 60_000).unref()
+  const run = () => { sweep().catch((err: unknown) => console.error('[fork] card sweep failed:', err)) }
+  setTimeout(run, 10_000).unref()
+  setInterval(run, 60_000).unref()
 }
 
 /* ── People's answers (/api/fork/cards) ────────────────────────────────── */
@@ -254,17 +261,23 @@ async function announce(companyId: string, card: Card): Promise<void> {
   }
 }
 
-/** An answer claims its card before its reply is posted (see answerWith). A
- *  reply posts in well under a second; one claimed longer ago than this has a
- *  post that failed or a server that stopped in between (a deploy). */
-const CLAIM_STALE_MS = 2 * 60_000
+/** An answer claims its card before its reply is posted (see answerWith).
+ *  This maps the client id of each post this process started to the time
+ *  until which that post may still write the reply: forever while it runs,
+ *  and UNSURE_MS after a broken connection, since the API may go on writing
+ *  without us; statement_timeout and idle_in_transaction_session_timeout
+ *  (db/pool.ts, 60 s and 30 s) end such a write well within it. A pending
+ *  answer missing here was claimed before a restart, and its post died with
+ *  the old process. */
+const posting = new Map<string, number>()
+const UNSURE_MS = 5 * 60_000
 const pending = (card: Card) => card.answer !== null && card.answer.messageId === null
-const stale = (card: Card) => Date.now() - Date.parse(card.answer?.at ?? '') > CLAIM_STALE_MS
+/** Whether a pending answer's reply can no longer be written. */
+const postOver = (card: Card) => (posting.get(card.answer?.clientId ?? '') ?? 0) < Date.now()
 
 /** Settles a pending answer on its reply when the API wrote it, which it may
  *  have done even when the post looked failed (a lost response). Without the
- *  reply, `release` opens the card again: pass it only when no post can still
- *  be under way. */
+ *  reply, `release` opens the card again: pass it only when the post is over. */
 async function settle(store: ForkStore, companyId: string, card: Card, release: boolean): Promise<Card> {
   const answer = card.answer
   if (!answer || answer.messageId) return card
@@ -277,6 +290,7 @@ async function settle(store: ForkStore, companyId: string, card: Card, release: 
   if (rows[0]) store.settleAnswer(companyId, card.messageId, answer.clientId, rows[0].id)
   else if (release) store.releaseAnswer(companyId, card.messageId, answer.clientId)
   else return card
+  posting.delete(answer.clientId)
   const now = store.card(companyId, card.messageId) as Card
   await announce(companyId, now)
   return now
@@ -308,19 +322,26 @@ async function postAsCaller(req: Request, companyId: string, conversationId: str
 async function answerWith(req: Request, store: ForkStore, companyId: string, card: Card, userId: string, body: string, option: number | null, sealed: string | null): Promise<Card | null> {
   const clientId = `card-${randomUUID()}`
   if (!store.claimAnswer(companyId, card.messageId, { by: userId, at: new Date().toISOString(), option, clientId }, sealed)) return null
+  posting.set(clientId, Number.POSITIVE_INFINITY)
   const claimed = store.card(companyId, card.messageId) as Card
   await announce(companyId, claimed)
   try {
     const answerId = await postAsCaller(req, companyId, card.conversationId, { body, quotedMessageId: card.messageId, clientId })
     store.settleAnswer(companyId, card.messageId, clientId, answerId)
+    posting.delete(clientId)
   } catch (err) {
-    // The post is over, so its reply either exists now or never will.
-    const now = await settle(store, companyId, claimed, true).catch((lookup: unknown) => {
-      console.error(`[fork] card ${card.messageId}: cannot tell whether its answer was posted; a later load settles it`, lookup)
+    // An answer from the API means it is done with the post, so the reply
+    // exists now or never will. A broken connection leaves the card closed
+    // until the sweep finds the reply or UNSURE_MS is over.
+    if (err instanceof CardError) posting.delete(clientId)
+    else posting.set(clientId, Date.now() + UNSURE_MS)
+    const now = await settle(store, companyId, claimed, postOver(claimed)).catch((lookup: unknown) => {
+      console.error(`[fork] card ${card.messageId}: cannot tell whether its answer was posted; the sweep settles it`, lookup)
       return null
     })
-    if (!now?.answer?.messageId) throw err
-    return now
+    if (now?.answer?.messageId) return now
+    if (err instanceof CardError) throw err
+    throw new CardError(502, `the answer may not have been posted: ${err instanceof Error ? err.message : String(err)}`)
   }
   const settled = store.card(companyId, card.messageId) as Card
   await announce(companyId, settled)
@@ -345,7 +366,7 @@ export function listCards(requireCompany: Requirer, req: Request & AuthedRequest
     let cards = store.cards(companyId, conversationId)
     // An answer left pending by a restart settles here, so its card does not
     // stay closed without a reply.
-    const stuck = cards.filter((c) => pending(c) && stale(c))
+    const stuck = cards.filter((c) => pending(c) && postOver(c))
     if (stuck.length > 0) {
       for (const c of stuck) await settle(store, companyId, c, true)
       cards = store.cards(companyId, conversationId)
@@ -361,7 +382,7 @@ async function answerable(requireCompany: Requirer, req: Request & AuthedRequest
   let card = store.card(companyId, String(req.params.messageId))
   if (!card || card.kind !== kind) throw new CardError(404, 'not found')
   await requireMember(companyId, userId, card.conversationId)
-  if (pending(card) && stale(card)) card = await settle(store, companyId, card, true)
+  if (pending(card) && postOver(card)) card = await settle(store, companyId, card, true)
   return { userId, companyId, store, card }
 }
 

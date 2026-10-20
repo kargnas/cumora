@@ -5,13 +5,14 @@
  */
 import { memo, useRef, useState, type KeyboardEvent } from 'react'
 import { ApiError } from '@/api/client'
+import { isImeComposing } from '@/lib/keyboard'
 import { useLocale } from '@/lib/i18n'
 import { useParticipants } from '@/stores/participants'
 import { haptic } from '../haptics'
 import { useNT } from '../i18n'
 import { exactTime, fullDate } from '../format'
 import { Avatar } from '../ui/Avatar'
-import { Spinner } from '../ui/primitives'
+import { Spinner, useCoarse } from '../ui/primitives'
 import { ICheck, IEye, IEyeOff, ILock } from '../ui/icons'
 import { useCards, type Card } from './cards'
 
@@ -95,8 +96,9 @@ function Answered({ by, at, text, rise }: { by: string; at: string; text: string
 /**
  * A masked text field, not a password field: a browser offers to save what a
  * password field sends, and would keep the secret in its password manager. A
- * textarea, so a pasted key or certificate keeps its lines; Enter sends and
- * Shift+Enter breaks a line.
+ * textarea, so a pasted key or certificate keeps its lines. As in the composer,
+ * Enter sends and Shift+Enter breaks a line, while on a phone Return breaks a
+ * line and the button sends.
  */
 function Secret({ card }: { card: Card }) {
   const nt = useNT()
@@ -107,6 +109,7 @@ function Secret({ card }: { card: Card }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const wasOpen = useRef(card.answer === null)
+  const coarse = useCoarse()
 
   if (card.answer) {
     const expired = !card.takenAt && card.expiresAt !== null && Date.parse(card.expiresAt) <= Date.now()
@@ -140,7 +143,8 @@ function Secret({ card }: { card: Card }) {
     }
   }
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+    if (isImeComposing(e)) return
+    if (e.key === 'Enter' && !e.shiftKey && (!coarse || e.metaKey || e.ctrlKey)) {
       e.preventDefault()
       void send()
     }
@@ -151,6 +155,7 @@ function Secret({ card }: { card: Card }) {
         <textarea
           className="nx-input"
           rows={1}
+          enterKeyHint={coarse ? 'enter' : 'send'}
           data-masked={!shown || undefined}
           value={value}
           onChange={(e) => setValue(e.target.value)}

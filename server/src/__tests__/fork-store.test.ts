@@ -313,9 +313,15 @@ test('a card takes one answer, opens again when its reply was not posted, and go
   store.releaseAnswer('c1', 'm-q', 'card-1')
   assert.equal(store.card('c1', 'm-q')?.answer, null, 'an answer whose reply was not posted opens it again')
   assert.equal(store.claimAnswer('c1', 'm-q', { by: 'u2', at, option: 0, clientId: 'card-2' }), true)
+  assert.deepEqual(store.pendingAnswers().map((p) => [p.companyId, p.card.messageId]), [['c1', 'm-q']])
+  store.settleAnswer('c1', 'm-q', 'card-2', 'm-a')
+  const rev = store.card('c1', 'm-q')?.rev ?? 0
   store.settleAnswer('c1', 'm-q', 'card-2', 'm-a')
   store.releaseAnswer('c1', 'm-q', 'card-2')
   assert.deepEqual(store.card('c1', 'm-q')?.answer, { by: 'u2', at, option: 0, clientId: 'card-2', messageId: 'm-a' }, 'a posted answer stays')
+  assert.equal(store.card('c1', 'm-q')?.rev, rev, 'settling again and a late release change nothing')
+  assert.ok(rev >= 4, 'every change bumped it: claim, release, claim, settle')
+  assert.deepEqual(store.pendingAnswers(), [])
 
   const reopened = await openForkStore(join(dir, 'cards', 'fork.sqlite'))
   assert.deepEqual(reopened.cards('c1', 'room').map((c) => c.messageId), ['m-q'])

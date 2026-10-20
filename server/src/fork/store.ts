@@ -71,6 +71,8 @@ export interface Card {
   takenAt: string | null
   /** When a secret that was sent but not taken is dropped. */
   expiresAt: string | null
+  /** Bumped by every change, so a client keeps the newest copy it was sent. */
+  rev: number
 }
 
 export interface CardAnswer {
@@ -86,6 +88,9 @@ export interface CardAnswer {
 }
 
 export type NewCard = Pick<Card, 'messageId' | 'conversationId' | 'agentId' | 'kind' | 'question' | 'options'> & { companyId: string }
+
+/** An answer whose reply is not posted yet, with its card's company. */
+export interface PendingAnswer { companyId: string; card: Card }
 
 /** A secret that was sent but not taken is dropped this long after it was sent. */
 export const SECRET_TTL_MS = 24 * 60 * 60_000
@@ -265,7 +270,9 @@ const MIGRATIONS = [
      answer_message_id TEXT,
      -- A sent secret, sealed by ./cards.ts, until the agent takes it or it expires.
      secret TEXT,
-     taken_at TEXT
+     taken_at TEXT,
+     -- Bumped by every change of the card (Card.rev).
+     rev INTEGER NOT NULL DEFAULT 0
    );
    CREATE INDEX cards_room ON cards (company_id, conversation_id);`,
 ]
@@ -690,7 +697,7 @@ export async function openForkStore(file: string) {
     },
 
     /** Drops the sent secrets nobody took within SECRET_TTL_MS (./cards.ts
-     *  runs this on a timer). */
+     *  runs this every minute). */
     dropExpiredSecrets(now = new Date()): void {
       expireSecrets(now)
     },
@@ -708,7 +715,7 @@ export async function openForkStore(file: string) {
      *  value with it. False when someone answered first. */
     claimAnswer(companyId: string, messageId: string, answer: Omit<CardAnswer, 'messageId'>, sealed: string | null = null): boolean {
       db.run(
-        `UPDATE cards SET answered_by = ?, answered_at = ?, answer_option = ?, answer_client_id = ?, secret = ?
+        `UPDATE cards SET answered_by = ?, answered_at = ?, answer_option = ?, answer_client_id = ?, secret = ?, rev = rev + 1
           WHERE company_id = ? AND message_id = ? AND answered_at IS NULL`,
         [answer.by, answer.at, answer.option, answer.clientId, sealed, companyId, messageId],
       )
@@ -722,19 +729,26 @@ export async function openForkStore(file: string) {
       const where = 'company_id = ? AND message_id = ? AND answer_client_id = ? AND answer_message_id IS NULL'
       forgetSecrets(where, [companyId, messageId, clientId])
       db.run(
-        `UPDATE cards SET answered_by = NULL, answered_at = NULL, answer_option = NULL, answer_client_id = NULL WHERE ${where}`,
+        `UPDATE cards SET answered_by = NULL, answered_at = NULL, answer_option = NULL, answer_client_id = NULL, rev = rev + 1 WHERE ${where}`,
         [companyId, messageId, clientId],
       )
       if (db.getRowsModified() > 0) save()
     },
 
-    /** The answer's message was posted. */
+    /** The answer's message was posted. Settling it again changes nothing. */
     settleAnswer(companyId: string, messageId: string, clientId: string, answerMessageId: string): void {
       db.run(
-        'UPDATE cards SET answer_message_id = ? WHERE company_id = ? AND message_id = ? AND answer_client_id = ?',
+        `UPDATE cards SET answer_message_id = ?, rev = rev + 1
+          WHERE company_id = ? AND message_id = ? AND answer_client_id = ? AND answer_message_id IS NULL`,
         [answerMessageId, companyId, messageId, clientId],
       )
       if (db.getRowsModified() > 0) save()
+    },
+
+    /** Every answer whose reply is not posted yet, in every room. */
+    pendingAnswers(): PendingAnswer[] {
+      return rows(`SELECT company_id, ${CARD_COLUMNS} FROM cards WHERE answered_at IS NOT NULL AND answer_message_id IS NULL`, null)
+        .map(([companyId, ...card]) => ({ companyId: String(companyId), card: toCard(card) }))
     },
 
     /** Hands a sent secret to the agent that asked for it, once, and forgets
@@ -753,7 +767,7 @@ export async function openForkStore(file: string) {
       if (answerMessageId === null) return 'waiting'
       if (sealed === null) return 'expired'
       forgetSecrets('company_id = ? AND message_id = ?', [companyId, messageId])
-      db.run('UPDATE cards SET taken_at = ? WHERE company_id = ? AND message_id = ?', [now.toISOString(), companyId, messageId])
+      db.run('UPDATE cards SET taken_at = ?, rev = rev + 1 WHERE company_id = ? AND message_id = ?', [now.toISOString(), companyId, messageId])
       save()
       return { sealed: String(sealed) }
     },
@@ -761,8 +775,8 @@ export async function openForkStore(file: string) {
 }
 
 const CARD_COLUMNS = `message_id, conversation_id, agent_id, kind, question, options, created_at,
-  answered_by, answered_at, answer_option, answer_client_id, answer_message_id, taken_at`
-const toCard = ([messageId, conversationId, agentId, kind, question, options, createdAt, by, at, option, clientId, answerMessageId, takenAt]: initSqlJs.SqlValue[]): Card => ({
+  answered_by, answered_at, answer_option, answer_client_id, answer_message_id, taken_at, rev`
+const toCard = ([messageId, conversationId, agentId, kind, question, options, createdAt, by, at, option, clientId, answerMessageId, takenAt, rev]: initSqlJs.SqlValue[]): Card => ({
   messageId: String(messageId), conversationId: String(conversationId), agentId: String(agentId),
   kind: kind === 'secret' ? 'secret' : 'choice', question: String(question), options: JSON.parse(String(options)) as string[],
   createdAt: String(createdAt),
@@ -772,6 +786,7 @@ const toCard = ([messageId, conversationId, agentId, kind, question, options, cr
   },
   takenAt: takenAt === null ? null : String(takenAt),
   expiresAt: kind === 'secret' && at !== null && takenAt === null ? new Date(Date.parse(String(at)) + SECRET_TTL_MS).toISOString() : null,
+  rev: Number(rev),
 })
 
 const TRIGGER_COLUMNS = `t.id, t.company_id, t.created_by, t.conversation_id, t.assignee_id, t.title, t.prompt, t.repo, t.profile, t.status, t.since,
