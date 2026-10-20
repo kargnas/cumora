@@ -13,6 +13,7 @@ import { ICheck, IChevronRight, IConvene, IExit, IHash } from '../ui/icons'
 import { useRoomAgents } from '../chat/ChatView'
 import { AgentChips, usePickedAgent } from './AgentChips'
 import { AGENT_EDIT_PARAM, AgentEditDialog } from './AgentEditDialog'
+import { CodingGroup } from './CodingGroup'
 
 /** A field that saves on blur/Enter and shows its own pending state, so an
  *  edit never blocks the rest of the panel. */
@@ -188,6 +189,7 @@ export function DetailsTab({ c }: { c: Conversation }) {
         </div>
       </section>
       {admin && agents.length > 0 && <AgentGroup agents={agents} />}
+      {admin && agents.length > 0 && <CodingGroup agents={agents} />}
       {admin && <AgentEditDialog />}
       <div className="nx-details__actions">
         {c.kind !== 'email' && (

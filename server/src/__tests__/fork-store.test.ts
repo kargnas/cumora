@@ -11,7 +11,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import initSqlJs from 'sql.js'
 import {
-  ForkLimitError, MAX_CATEGORIES, MAX_FILE_VERSIONS, MAX_PIN_ORDER, MAX_ROOM_ASSIGNMENTS, SECRET_TTL_MS, getForkStore, openForkStore,
+  ForkLimitError, MAX_CATEGORIES, MAX_FILE_VERSIONS, MAX_PIN_ORDER, MAX_ROOM_ASSIGNMENTS, SECRET_TTL_MS, codingWakeKey, getForkStore, openForkStore,
+  type NewCodingThread,
 } from '../fork/store.js'
 
 const dir = mkdtempSync(join(tmpdir(), 'fork-store-'))
@@ -143,7 +144,7 @@ test('opening an older file runs the steps it has not had', async () => {
   // rows a version-1 client could write, when 'former' was a group key.
   const SQL = await initSqlJs()
   const raw = new SQL.Database(readFileSync(file))
-  raw.run('ALTER TABLE room_categories DROP COLUMN hidden; DROP TABLE pin_order; DROP TABLE computer_file_versions; DROP TABLE bloub_avatars; DROP TABLE triggers; DROP TABLE trigger_fires; DROP TABLE computer_purges; DROP TABLE purged_agents; DROP TABLE cards;')
+  raw.run('ALTER TABLE room_categories DROP COLUMN hidden; DROP TABLE pin_order; DROP TABLE computer_file_versions; DROP TABLE bloub_avatars; DROP TABLE triggers; DROP TABLE trigger_fires; DROP TABLE computer_purges; DROP TABLE purged_agents; DROP TABLE coding_threads; DROP TABLE cards;')
   raw.run("INSERT INTO collapsed_groups VALUES ('c1', 'u1', 'former'), ('c1', 'u1', 'other')")
   raw.run('PRAGMA user_version = 1')
   writeFileSync(file, raw.export())
@@ -230,7 +231,7 @@ test('faces picked before moods existed go back to rest', async () => {
   ;(await openForkStore(file)).setBloubAvatar('c1', 'agent-a', { shape: 'galet', color: 'violet' })
   const SQL = await initSqlJs()
   const raw = new SQL.Database(readFileSync(file))
-  raw.run("UPDATE bloub_avatars SET expression = 'timide'; DROP TABLE triggers; DROP TABLE trigger_fires; DROP TABLE computer_purges; DROP TABLE purged_agents; DROP TABLE cards; PRAGMA user_version = 5")
+  raw.run("UPDATE bloub_avatars SET expression = 'timide'; DROP TABLE triggers; DROP TABLE trigger_fires; DROP TABLE computer_purges; DROP TABLE purged_agents; DROP TABLE coding_threads; DROP TABLE cards; PRAGMA user_version = 5")
   writeFileSync(file, raw.export())
   assert.equal((await openForkStore(file)).bloubAvatars('c1')['agent-a']?.expression, 'neutre')
 })
@@ -298,6 +299,51 @@ test('a trigger fires an event once, keeps its latest fire, and goes with its fi
   assert.deepEqual(store.activeTriggers(), [])
   assert.equal(store.deleteTrigger('c1', t.id), true)
   assert.equal(store.claimFire(t.id, 'pr:1', '2026-10-19T03:00:00Z', '#1'), true, 'its fires went with it')
+})
+
+test('a coding thread keeps its first agent and room, and wakes its agent once per run and rest, and per question', async () => {
+  const file = join(dir, 'coding.sqlite')
+  const store = await openForkStore(file)
+  const REST = ['completed', 'failed', 'question']
+  const thread = (status: string, more: Partial<NewCodingThread> = {}): NewCodingThread => ({
+    server: 't3code', threadId: 'th-1', companyId: 'c1', agentId: 'bot', conversationId: 'room', title: 'Fix the header',
+    status, runId: 'run-1', requestId: null, pullRequests: [], createdAt: '2026-10-20T01:00:00Z', updatedAt: '2026-10-20T01:05:00Z',
+    woken: null, ...more,
+  })
+  const due = () => store.codingWakesDue(REST).map((t) => `${t.threadId}:${t.runId}:${t.status}:${t.requestId ?? ''}`)
+  const wakeAll = () => { for (const t of store.codingWakesDue(REST)) store.markCodingWoken(t.server, t.threadId, codingWakeKey(t), null) }
+
+  store.saveCodingThreads([thread('running')])
+  assert.deepEqual(store.codingThreads('c2', 'bot', 10), [], 'scoped by company')
+  assert.deepEqual(due(), [], 'a running thread wakes nobody')
+
+  // Two questions in one run wake the agent twice; the answer in between wakes nobody.
+  store.saveCodingThreads([thread('question', { requestId: 'q-1' })])
+  assert.deepEqual(due(), ['th-1:run-1:question:q-1'])
+  wakeAll()
+  store.saveCodingThreads([thread('running')])
+  assert.deepEqual(due(), [])
+  store.saveCodingThreads([thread('question', { requestId: 'q-2' })])
+  assert.deepEqual(due(), ['th-1:run-1:question:q-2'])
+  wakeAll()
+
+  // Later polls pass no room and may carry another mark; the first copy's stay.
+  store.saveCodingThreads([thread('completed', { conversationId: null, agentId: 'other', pullRequests: [{ number: 7, url: 'https://x/7', state: null }] })])
+  const [done] = store.codingThreads('c1', 'bot', 10)
+  assert.equal(done.conversationId, 'room')
+  assert.deepEqual(done.pullRequests, [{ number: 7, url: 'https://x/7', state: null }])
+  assert.deepEqual(due(), ['th-1:run-1:completed:'])
+
+  store.markCodingWoken('t3code', 'th-1', codingWakeKey(done), null)
+  const reopened = await openForkStore(file)
+  assert.deepEqual(reopened.codingWakesDue(REST), [], 'woken once, across a restart')
+  reopened.saveCodingThreads([thread('completed', { runId: 'run-2' })])
+  assert.deepEqual(reopened.codingWakesDue(REST).map((t) => t.runId), ['run-2'], 'a new run wakes again')
+
+  // A thread first copied long after it came to rest arrives woken.
+  reopened.saveCodingThreads([thread('failed', { threadId: 'th-old', runId: 'r', woken: codingWakeKey({ runId: 'r', status: 'failed', requestId: null }) })])
+  assert.ok(!reopened.codingWakesDue(REST).some((t) => t.threadId === 'th-old'))
+  assert.deepEqual([...reopened.codingThreadKeys()].sort(), ['t3code th-1', 't3code th-old'])
 })
 
 test('a card takes one answer, opens again when its reply was not posted, and goes with its agent', async () => {

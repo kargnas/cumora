@@ -53,6 +53,40 @@ export interface Trigger {
 
 export type NewTrigger = Pick<Trigger, 'companyId' | 'createdBy' | 'conversationId' | 'assigneeId' | 'title' | 'prompt' | 'repo' | 'profile'>
 
+/** A T3 Code thread an agent launched, as the poller last read it from T3
+ *  (./coding.ts). T3 holds the record; these rows are a copy. */
+export interface CodingThread {
+  /** The MCP server name of the T3 instance it runs on (compose's t3code config). */
+  server: string
+  threadId: string
+  companyId: string
+  agentId: string
+  /** The room the agent launched it from, or null when that could not be told. */
+  conversationId: string | null
+  /** Without the agent's `[@<id>] ` mark. */
+  title: string
+  /** T3's thread status (running, completed, failed...), or 'question' while
+   *  the thread waits for the answer to `requestId`. */
+  status: string
+  runId: string | null
+  /** The question the thread waits for (T3's t3_pending_request_list), or null. */
+  requestId: string | null
+  /** `state` is null until T3 has read the pull request's host. */
+  pullRequests: Array<{ number: number; url: string; state: string | null }>
+  createdAt: string
+  /** T3's time of the last change to the status, title, run or pull requests. */
+  updatedAt: string
+}
+
+/** A thread as the poller hands it over. `woken` applies to a new row only: a
+ *  thread first seen long after it came to rest arrives already woken. */
+export type NewCodingThread = CodingThread & { woken: string | null }
+
+/** What the agent of a thread was woken for: once per run and resting status,
+ *  and once per question, so a second question in the same run wakes it again. */
+export const codingWakeKey = (t: Pick<CodingThread, 'runId' | 'status' | 'requestId'>): string =>
+  `${t.runId ?? ''}:${t.status}:${t.requestId ?? ''}`
+
 /** What an agent asked a person under its message (./cards.ts): to pick one of
  *  some options, or to send a secret. Keyed by that message. */
 export interface Card {
@@ -247,6 +281,32 @@ const MIGRATIONS = [
      computer_id TEXT NOT NULL,
      at TEXT NOT NULL
    );`,
+
+  // Coding (./coding.ts): the T3 Code threads agents launched, copied from T3
+  // once a minute. `status` is T3's, or 'question' while the thread waits for
+  // the answer to `request_id`. `woken` holds the codingWakeKey the agent was
+  // last woken for, and `wake_error` why that wake could not be posted.
+  // ponytail: rows are never pruned, one per launched thread. Prune by age if
+  // agents launch thousands.
+  `CREATE TABLE coding_threads (
+     server TEXT NOT NULL,
+     thread_id TEXT NOT NULL,
+     company_id TEXT NOT NULL,
+     agent_id TEXT NOT NULL,
+     conversation_id TEXT,
+     title TEXT NOT NULL,
+     status TEXT NOT NULL,
+     run_id TEXT,
+     request_id TEXT,
+     -- JSON: [{ number, url, state }]
+     pull_requests TEXT NOT NULL,
+     created_at TEXT NOT NULL,
+     updated_at TEXT NOT NULL,
+     woken TEXT,
+     wake_error TEXT,
+     PRIMARY KEY (server, thread_id)
+   );
+   CREATE INDEX coding_threads_agent ON coding_threads (company_id, agent_id, updated_at);`,
 
   // Questions agents ask people under their messages (./cards.ts).
   // ponytail: never pruned; a card is under a KB and agents ask a few a day.
@@ -572,11 +632,12 @@ export async function openForkStore(file: string) {
     },
 
     /** Drops what the fork kept of an agent deleted for good: its look, its
-     *  triggers, its cards, the Handbook's versions of its home, and the layout
-     *  rows and cards of its deleted 1:1 rooms. With a computer, queues the
-     *  removal of its files there. */
+     *  triggers, its T3 threads, its cards, the Handbook's versions of its home,
+     *  and every user's layout rows and the cards of its deleted 1:1 rooms. With
+     *  a computer, queues the removal of its files there. */
     purgeAgent(companyId: string, agentId: string, deletedRooms: string[], computerId: string | null): void {
       db.run('DELETE FROM bloub_avatars WHERE company_id = ? AND participant_id = ?', [companyId, agentId])
+      db.run('DELETE FROM coding_threads WHERE company_id = ? AND agent_id = ?', [companyId, agentId])
       db.run(
         'DELETE FROM trigger_fires WHERE trigger_id IN (SELECT id FROM triggers WHERE company_id = ? AND assignee_id = ?)',
         [companyId, agentId],
@@ -682,6 +743,63 @@ export async function openForkStore(file: string) {
       save()
     },
 
+    /** An agent's threads, the most recently changed first. */
+    codingThreads(companyId: string, agentId: string, limit: number): CodingThread[] {
+      return rows(
+        `SELECT ${CODING_COLUMNS} FROM coding_threads WHERE company_id = ? AND agent_id = ? ORDER BY updated_at DESC LIMIT ?`,
+        [companyId, agentId, limit],
+      ).map(toCodingThread)
+    },
+
+    /** '<server> <thread id>' of every thread copied so far. */
+    codingThreadKeys(): Set<string> {
+      return new Set(rows("SELECT server || ' ' || thread_id FROM coding_threads", null).map(([key]) => String(key)))
+    },
+
+    /** Copies one poll of T3 in one write. The poller hands over every thread on
+     *  every poll, so nothing is written when no status, title, run, question or
+     *  pull request changed. A row keeps its agent and its room from the first copy. */
+    saveCodingThreads(threads: NewCodingThread[]): void {
+      let changed = 0
+      db.run('BEGIN')
+      try {
+        for (const t of threads) {
+          db.run(
+            `INSERT INTO coding_threads (server, thread_id, company_id, agent_id, conversation_id, title, status, run_id, request_id, pull_requests, created_at, updated_at, woken)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT (server, thread_id) DO UPDATE SET
+               title = excluded.title, status = excluded.status, run_id = excluded.run_id, request_id = excluded.request_id,
+               pull_requests = excluded.pull_requests, updated_at = excluded.updated_at
+             WHERE title IS NOT excluded.title OR status IS NOT excluded.status OR run_id IS NOT excluded.run_id
+                OR request_id IS NOT excluded.request_id OR pull_requests IS NOT excluded.pull_requests`,
+            [t.server, t.threadId, t.companyId, t.agentId, t.conversationId, t.title, t.status, t.runId, t.requestId,
+              JSON.stringify(t.pullRequests), t.createdAt, t.updatedAt, t.woken],
+          )
+          changed += db.getRowsModified()
+        }
+        db.run('COMMIT')
+      } catch (err) {
+        db.run('ROLLBACK')
+        throw err
+      }
+      if (changed > 0) save()
+    },
+
+    /** Threads resting in one of `statuses` that their agent was not woken for yet. */
+    codingWakesDue(statuses: readonly string[]): CodingThread[] {
+      return rows(
+        `SELECT ${CODING_COLUMNS}, woken FROM coding_threads WHERE status IN (${statuses.map(() => '?').join(', ')})`,
+        [...statuses],
+      ).filter((r) => r[r.length - 1] !== codingWakeKey(toCodingThread(r))).map(toCodingThread)
+    },
+
+    /** Records the wake a thread's agent got, or why it could not be posted;
+     *  either way the poller does not try that wake again. */
+    markCodingWoken(server: string, threadId: string, key: string, error: string | null): void {
+      db.run('UPDATE coding_threads SET woken = ?, wake_error = ? WHERE server = ? AND thread_id = ?', [key, error, server, threadId])
+      save()
+    },
+
     createCard(card: NewCard): Card {
       db.run(
         `INSERT INTO cards (message_id, company_id, conversation_id, agent_id, kind, question, options, created_at)
@@ -773,6 +891,14 @@ export async function openForkStore(file: string) {
     },
   }
 }
+
+const CODING_COLUMNS = 'server, thread_id, company_id, agent_id, conversation_id, title, status, run_id, request_id, pull_requests, created_at, updated_at'
+const toCodingThread = ([server, threadId, companyId, agentId, conversationId, title, status, runId, requestId, pullRequests, createdAt, updatedAt]: initSqlJs.SqlValue[]): CodingThread => ({
+  server: String(server), threadId: String(threadId), companyId: String(companyId), agentId: String(agentId),
+  conversationId: conversationId === null ? null : String(conversationId), title: String(title), status: String(status),
+  runId: runId === null ? null : String(runId), requestId: requestId === null ? null : String(requestId),
+  pullRequests: JSON.parse(String(pullRequests)), createdAt: String(createdAt), updatedAt: String(updatedAt),
+})
 
 const CARD_COLUMNS = `message_id, conversation_id, agent_id, kind, question, options, created_at,
   answered_by, answered_at, answer_option, answer_client_id, answer_message_id, taken_at, rev`

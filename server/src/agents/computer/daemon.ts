@@ -1884,6 +1884,12 @@ export class AgentRunner {
   private engineBackoffWhy = 'rate limit'
   private stopped = false
   private lastWakeConvo: string | null = null
+  /** The room of the chat turn running now (typingConversation), put on its
+   *  model calls in the llm_calls ledger. lastWakeConvo is cleared when a turn
+   *  starts, so without this a turn's calls carried no room, or the room of a
+   *  wake that landed mid-turn. The fork finds the room an agent launched a T3
+   *  Code thread from by its calls (server/src/fork/coding.ts). */
+  private turnConvo: string | null = null
   /** Synthetic work delivered with a wake has no durable chat row. Preserve it
    *  across debounce/coalescing so a brief-only Kanban assignment can drive the
    *  next turn instead of falling into the empty-inbox cost gate. */
@@ -2039,7 +2045,7 @@ export class AgentRunner {
         source: byoaSourceOf(this.adapter.id),
         purpose,
         runId: this.currentRunId,
-        conversationId: this.lastWakeConvo,
+        conversationId: this.turnConvo ?? this.lastWakeConvo,
         model: report.model,
         usage: this.hopUsageOf(report.usage),
         latencyMs: report.latencyMs ?? 0,
@@ -3451,8 +3457,9 @@ export class AgentRunner {
           },
         })) as { runId?: string } | null
         // Pin runId so per-hop ledger rows link back to this turn (see
-        // maybeAgendaTurn for the same hook).
+        // maybeAgendaTurn for the same hook), and the turn's room with it.
         this.currentRunId = run?.runId ?? null
+        this.turnConvo = convo
         const stopRunBeat = this.beatRun(token, run?.runId)
         const stopStatusBeat = this.beatStatus(token)
         let exitCode = 0
@@ -3518,6 +3525,7 @@ export class AgentRunner {
           if (typingTimer) clearInterval(typingTimer)
           // Per-turn ledger drain (mirrors the agenda finally above).
           this.currentRunId = null
+          this.turnConvo = null
           void this.reporter.flush()
           if (convo) {
             await runtimeBest(this.cfg.serverUrl, '/typing', token, { conversationId: convo, done: true })
