@@ -5,7 +5,7 @@ import { agentHandbook } from './handbook.js'
 import { startRecorder } from './recorder.js'
 import { startMoods } from './mood.js'
 import { stopAgent } from './stop.js'
-import { answerChoice, listCards, sendSecret } from './cards.js'
+import { answerChoice, listCards, sendSecret, startSecretSweeper } from './cards.js'
 import { computerPurges, purgeAgent } from './purge.js'
 import { PROFILE_RE, REPO_RE, listProfiles, pollErrorOf, runNow, startTriggerPoller } from './triggers.js'
 
@@ -89,6 +89,7 @@ export function createForkRouter(deps: ForkRouterDeps): Router {
   startRecorder()
   startMoods()
   startTriggerPoller()
+  startSecretSweeper()
 
   router.get('/room-layout', async (req, res) => {
     const { userId, companyId } = await deps.requireCompany(req)

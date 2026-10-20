@@ -332,6 +332,8 @@ test('a sent secret goes once to the agent that asked, and the file keeps no tra
   const sent = new Date()
   store.claimAnswer('c1', 'm-s', { by: 'u1', at: sent.toISOString(), option: null, clientId: 'card-1' }, 'SEALED-ONE')
   assert.equal(store.card('c1', 'm-s')?.expiresAt, new Date(sent.getTime() + SECRET_TTL_MS).toISOString())
+  assert.equal(store.takeSecret('c1', 'm-s', 'bot'), 'waiting', 'not before its reply is posted: the card may still open again')
+  store.settleAnswer('c1', 'm-s', 'card-1', 'm-a1')
   assert.equal(store.takeSecret('c1', 'm-s', 'other-bot'), 'missing', 'only the agent that asked')
   assert.equal(store.takeSecret('c2', 'm-s', 'bot'), 'missing', 'scoped by company')
   assert.deepEqual(store.takeSecret('c1', 'm-s', 'bot'), { sealed: 'SEALED-ONE' })
@@ -341,9 +343,10 @@ test('a sent secret goes once to the agent that asked, and the file keeps no tra
   // Nobody takes this one within a day: a room load past that drops it.
   store.createCard({ ...ask, messageId: 'm-late' })
   store.claimAnswer('c1', 'm-late', { by: 'u1', at: sent.toISOString(), option: null, clientId: 'card-2' }, 'SEALED-TWO')
-  store.cards('c1', 'room', new Date(sent.getTime() + SECRET_TTL_MS - 1000))
+  store.settleAnswer('c1', 'm-late', 'card-2', 'm-a2')
+  store.dropExpiredSecrets(new Date(sent.getTime() + SECRET_TTL_MS - 1000))
   assert.ok(readFileSync(file).includes('SEALED-TWO'), 'kept until its day is over')
-  store.cards('c1', 'room', new Date(sent.getTime() + SECRET_TTL_MS + 1000))
+  store.dropExpiredSecrets(new Date(sent.getTime() + SECRET_TTL_MS + 1000))
   assert.equal(store.takeSecret('c1', 'm-late', 'bot'), 'expired')
 
   const bytes = readFileSync(file)

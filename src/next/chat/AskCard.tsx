@@ -94,7 +94,9 @@ function Answered({ by, at, text, rise }: { by: string; at: string; text: string
 
 /**
  * A masked text field, not a password field: a browser offers to save what a
- * password field sends, and would keep the secret in its password manager.
+ * password field sends, and would keep the secret in its password manager. A
+ * textarea, so a pasted key or certificate keeps its lines; Enter sends and
+ * Shift+Enter breaks a line.
  */
 function Secret({ card }: { card: Card }) {
   const nt = useNT()
@@ -103,7 +105,7 @@ function Secret({ card }: { card: Card }) {
   const [value, setValue] = useState('')
   const [shown, setShown] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [failed, setFailed] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const wasOpen = useRef(card.answer === null)
 
   if (card.answer) {
@@ -122,22 +124,23 @@ function Secret({ card }: { card: Card }) {
   const send = async () => {
     if (!value.trim() || busy) return
     setBusy(true)
-    setFailed(false)
+    setError(null)
     try {
       await useCards.getState().sendSecret(card, value)
       setValue('')
       haptic('success')
     } catch (e) {
       if (!lostRace(e)) {
-        setFailed(true)
+        // 410: the agent that asked left the room, so nobody could take it.
+        setError(e instanceof ApiError && e.status === 410 ? nt('secret.left', { agent }) : nt('ask.failed'))
         haptic('error')
       }
     } finally {
       setBusy(false)
     }
   }
-  const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+  const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
       void send()
     }
@@ -145,9 +148,9 @@ function Secret({ card }: { card: Card }) {
   return (
     <div className="nx-ask__secret">
       <div className="nx-ask__field">
-        <input
+        <textarea
           className="nx-input"
-          type="text"
+          rows={1}
           data-masked={!shown || undefined}
           value={value}
           onChange={(e) => setValue(e.target.value)}
@@ -176,7 +179,7 @@ function Secret({ card }: { card: Card }) {
         {busy ? <Spinner /> : nt('secret.send')}
       </button>
       <p className="nx-ask__hint"><ILock />{nt('secret.hint', { agent })}</p>
-      {failed && <div className="nx-ask__error" role="alert">{nt('ask.failed')}</div>}
+      {error && <div className="nx-ask__error" role="alert">{error}</div>}
     </div>
   )
 }

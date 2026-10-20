@@ -1,16 +1,17 @@
 /**
  * A sealed secret (fork/cards.ts) opens only with its key and for its own card,
- * and the computer's shim writes a taken secret into a new file without ever
- * printing it.
+ * only the computer's shim may take one, and the shim writes it into a file it
+ * created before asking, without ever printing it.
  */
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
-import { openSecret, sealSecret } from '../fork/cards.js'
+import { openSecret, runCardCli, sealSecret } from '../fork/cards.js'
+import { parseArgs } from '../agents/cli-parse.js'
 import { CUMORA_SHIM, RuntimeCliBroker } from '../agents/computer/daemon.js'
 
 const dir = mkdtempSync(join(tmpdir(), 'fork-cards-'))
@@ -28,8 +29,19 @@ test('a sealed secret opens only with its key, for its own card, untouched', () 
   assert.throws(() => openSecret(key, 'm-1', raw.toString('base64')), 'a changed byte is caught')
 })
 
+test('only the shim that saves a take into a file may take a secret', async () => {
+  // A path means a shim that would print the empty text, and so does a take
+  // without the shim's flag (the pod's curl shim, cumora run by hand).
+  for (const argv of [['take', 'm-1'], ['take', 'm-1', '/tmp/key'], ['take', 'm-1', '--shim-file=yes']]) {
+    const r = await runCardCli('secret', parseArgs(argv), 'bot')
+    assert.equal(r.ok, false, argv.join(' '))
+    assert.match(r.text, /only the computer's cumora shim/)
+    assert.equal(r.file, undefined)
+  }
+})
+
 /** Runs the real shim for one command against a broker that answers `answer`. */
-async function shim(argv: string[], answer: { text?: string; exitCode: number; file?: string }) {
+async function shim(argv: string[], answer: { text?: string; exitCode: number; file?: string }, cwd?: string) {
   const run = mkdtempSync(join(dir, 'run-'))
   const file = join(run, 'cumora.js')
   writeFileSync(file, CUMORA_SHIM)
@@ -38,7 +50,7 @@ async function shim(argv: string[], answer: { text?: string; exitCode: number; f
   await broker.start()
   try {
     return await new Promise<{ code: number | null; stdout: string; stderr: string; calls: string[][] }>((resolve, reject) => {
-      const child = spawn(process.execPath, [file, ...argv], { cwd: run, env: { ...process.env, CUMORA_AGENT_IPC_DIR: join(run, 'ipc') } })
+      const child = spawn(process.execPath, [file, ...argv], { cwd: cwd ?? run, env: { ...process.env, CUMORA_AGENT_IPC_DIR: join(run, 'ipc') } })
       let stdout = ''
       let stderr = ''
       child.stdout.on('data', (b: Buffer) => { stdout += b.toString('utf8') })
@@ -56,7 +68,7 @@ test('secret take writes the secret into a new file and prints only where it wen
   const target = join(dir, 'keys', 'openai.key')
   const r = await shim(['secret', 'take', 'm-1', target], { text: '', exitCode: 0, file: Buffer.from(secret).toString('base64') })
   assert.equal(r.code, 0, r.stderr)
-  assert.deepEqual(r.calls, [['secret', 'take', 'm-1']], 'the path stays on the computer')
+  assert.deepEqual(r.calls, [['secret', 'take', 'm-1', '--shim-file']], 'the path stays on the computer')
   assert.equal(readFileSync(target, 'utf8'), secret)
   assert.equal(statSync(target).mode & 0o777, 0o600)
   assert.match(r.stdout, /saved the secret to .*openai\.key/)
@@ -67,4 +79,28 @@ test('secret take writes the secret into a new file and prints only where it wen
   assert.equal(again.code, 1)
   assert.deepEqual(again.calls, [])
   assert.match(again.stderr, /exists/)
+})
+
+test('secret take asks only when it can write the file, and leaves none when nothing came', { timeout: 10_000 }, async () => {
+  const waiting = join(dir, 'keys', 'waiting.key')
+  const r = await shim(['secret', 'take', 'm-2', waiting], { text: 'nobody has sent the secret for m-2 yet', exitCode: 1 })
+  assert.equal(r.code, 1)
+  assert.equal(r.calls.length, 1)
+  assert.ok(!existsSync(waiting), 'the file made for it is gone again')
+
+  // The Handbook records .md files, and an unwritable folder would fail after
+  // the server forgot the secret: both are refused before asking.
+  const md = await shim(['secret', 'take', 'm-3', 'memory/token.md'], { text: '', exitCode: 0, file: 'eA==' })
+  assert.equal(md.code, 64)
+  assert.deepEqual(md.calls, [])
+  const locked = join(dir, 'locked')
+  mkdirSync(locked, { mode: 0o500 })
+  try {
+    const denied = await shim(['secret', 'take', 'm-4', join(locked, 'x.key')], { text: '', exitCode: 0, file: 'eA==' })
+    assert.equal(denied.code, 1)
+    assert.deepEqual(denied.calls, [])
+    assert.match(denied.stderr, /cannot create/)
+  } finally {
+    chmodSync(locked, 0o700)
+  }
 })

@@ -34,7 +34,7 @@ import { IconButton, Menu, Spinner, useMenu, type MenuEntry } from '../ui/primit
 import { IArrowDown, ICopy, IDownload, IFile, IMore, IReply, ISpark, IThread, IWhisper } from '../ui/icons'
 import { buildItems, createdAt, floatingDay, type DayPill, type Item, type Pos, type Stamp } from './model'
 import { authorOf } from './deletedAuthor'
-import { useCards, useHiddenAnswers } from './cards'
+import { answersCard, useCards, useHiddenAnswers } from './cards'
 import { AskCard } from './AskCard'
 
 const EMPTY: Message[] = []
@@ -405,7 +405,7 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
             <IconButton small label={nt('msg.more')} onClick={(e) => menu.toggleFrom(e.currentTarget, mine ? 'end' : 'start')}><IMore /></IconButton>
           </div>
         </div>
-        {card && <AskCard card={card} showQuestion={msg.body.trim() !== card.question} rise={cardLate.current} />}
+        {card && <AskCard card={card} showQuestion={!msg.body.trim().endsWith(card.question)} rise={cardLate.current} />}
         <Artifacts msg={msg} />
         <Reactions msg={msg} mine={mine} />
         {replies > 0 && (
@@ -649,7 +649,7 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
   }, [convoId])
   const answers = useHiddenAnswers(convoId)
   const shown = useMemo(
-    () => (answers.size === 0 ? raw : raw.filter((m) => !answers.has(m.id) && !(m.clientId && answers.has(m.clientId)))),
+    () => (answers.size === 0 ? raw : raw.filter((m) => !answersCard(answers, m))),
     [raw, answers],
   )
   const items = useMemo(() => buildItems(shown, me), [shown, me])

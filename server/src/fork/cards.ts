@@ -73,7 +73,10 @@ Never ask for a secret (an API key, a token, a password) in chat. \`secret
 request\` posts what it is for with a field for it under your message. When a
 person sends it, their reply quotes your request; then \`secret take\` saves it
 into <path> on this computer (a new file, mode 600) and the server forgets it,
-so you can take it once. Use it from the file: never print it or cat it.`
+so you can take it once. Pick a path outside git work trees and outside
+memory/, such as ~/.secrets/<name>, and never commit the file; a .md path is
+refused because the Handbook records .md files. Use it from the file: never
+print it or cat it.`
 
 function fail(text: string, exitCode = 1): CliResult {
   return { ok: false, text, exitCode }
@@ -143,12 +146,13 @@ async function ask(parsed: ParsedArgs, me: string, kind: Card['kind']): Promise<
   } catch (err) {
     return fail(`your message ${messageId} was posted, but its card was not: ${err instanceof Error ? err.message : String(err)}. Ask again with a new message.`)
   }
-  await publishCard(companyId, card)
+  await announce(companyId, card)
   const text = kind === 'choice'
     ? `asked · ${messageId}\n${options.map((o, i) => `  ${i + 1}. ${o}`).join('\n')}\n` +
       `The pick comes back as a person's reply quoting ${messageId}; nothing else to do until then.`
     : `asked for a secret · ${messageId}\n` +
       `When a person sends it, their reply quotes ${messageId}. Then run once: cumora secret take ${messageId} <path>\n` +
+      'Pick a path outside git work trees and memory/, such as ~/.secrets/<name>. ' +
       'The secret goes into that file and nowhere else: use it from the file, never print it.'
   return { ok: true, text, exitCode: 0, sideEffects: posted.sideEffects }
 }
@@ -160,13 +164,18 @@ const TAKE_REFUSALS: Record<'missing' | 'waiting' | 'taken' | 'expired', (id: st
   expired: (id) => `nobody took the secret for ${id} within a day, so it was dropped. Ask again with cumora secret request`,
 }
 
+/** The flag the computer's shim adds to a take it saves into a file
+ *  (CUMORA_SHIM in agents/computer/daemon.ts). Any other caller (an older
+ *  shim, the pod's curl shim, `cumora` run by hand) would print the empty text
+ *  and lose the secret, which the server forgets as it hands it over. */
+const SHIM_FILE = 'shim-file'
+
 async function take(parsed: ParsedArgs, me: string): Promise<CliResult> {
   const [, messageId, path] = parsed.positional
   if (!messageId) return fail(SECRET_USAGE)
-  // The computer's shim keeps <path> to itself and sends only the message id.
-  // A path here means a shim that would print nothing and lose the secret.
-  if (path !== undefined) {
-    return fail("this computer's cumora shim is too old to save a secret into a file. Restart the computer's daemon, then take it again")
+  // The shim keeps <path> on the computer and sends the message id and its flag.
+  if (parsed.flags[SHIM_FILE] !== true || path !== undefined) {
+    return fail("only the computer's cumora shim can take a secret, because it saves it into a file instead of printing it. On the computer, restart its daemon so the shim updates, then take it again")
   }
   const { pool } = await import('../db/pool.js')
   const { rows } = await pool.query<{ company_id: string }>(
@@ -176,6 +185,15 @@ async function take(parsed: ParsedArgs, me: string): Promise<CliResult> {
   const companyId = rows[0]?.company_id
   if (!companyId) return fail(`unknown agent ${me}`)
   const store = await getForkStore()
+  const asked = store.card(companyId, messageId)
+  if (!asked || asked.kind !== 'secret' || asked.agentId !== me) return fail(TAKE_REFUSALS.missing(messageId))
+  // A secret belongs to the room it was asked in: an agent taken out of that
+  // room no longer gets it.
+  if (!(await inRoom(companyId, me, asked.conversationId, 'agent'))) {
+    return fail(`you are no longer in the room where you asked for ${messageId}, so its secret is not yours to take`)
+  }
+  // The person's reply wakes this agent, possibly before its answer settles.
+  if (pending(asked)) await settle(store, companyId, asked, stale(asked))
   const taken = store.takeSecret(companyId, messageId, me)
   if (typeof taken === 'string') return fail(TAKE_REFUSALS[taken](messageId))
   let value: Buffer
@@ -184,9 +202,18 @@ async function take(parsed: ParsedArgs, me: string): Promise<CliResult> {
   } catch {
     return fail(`the secret for ${messageId} could not be unsealed (the server's key changed), and it is gone now. Ask again with cumora secret request`)
   }
-  const card = store.card(companyId, messageId)
-  if (card) await publishCard(companyId, card)
+  await announce(companyId, store.card(companyId, messageId) as Card)
   return { ok: true, text: '', exitCode: 0, file: value.toString('base64') }
+}
+
+/** Drops the secrets nobody took within SECRET_TTL_MS. A take and a room load
+ *  drop them too, but a room may never be loaded again. */
+export function startSecretSweeper(): void {
+  const sweep = () => {
+    getForkStore().then((store) => store.dropExpiredSecrets()).catch((err: unknown) => console.error('[fork] secret sweep failed:', err))
+  }
+  setTimeout(sweep, 10_000).unref()
+  setInterval(sweep, 10 * 60_000).unref()
 }
 
 /* ── People's answers (/api/fork/cards) ────────────────────────────────── */
@@ -195,25 +222,64 @@ class CardError extends Error {
   constructor(public status: number, message: string) { super(message) }
 }
 
-/** A card is its room's business: only the room's people see or answer it. */
-async function requireMember(companyId: string, userId: string, conversationId: string): Promise<void> {
+/** Whether a participant of that kind is in the room now. */
+async function inRoom(companyId: string, participantId: string, conversationId: string, kind: 'human' | 'agent'): Promise<boolean> {
   const { pool } = await import('../db/pool.js')
   const { rowCount } = await pool.query(
     `SELECT 1 FROM conversation_members m
        JOIN participants p ON p.id = m.participant_id AND p.company_id = m.company_id
       WHERE m.conversation_id = $1 AND m.company_id = $2 AND m.participant_id = $3
-        AND p.kind = 'human' AND p.departed_at IS NULL`,
-    [conversationId, companyId, userId],
+        AND p.kind = $4 AND p.departed_at IS NULL`,
+    [conversationId, companyId, participantId, kind],
   )
-  if (!rowCount) throw new CardError(404, 'not found')
+  return Boolean(rowCount)
+}
+
+/** A card is its room's business: only the room's people see or answer it. */
+async function requireMember(companyId: string, userId: string, conversationId: string): Promise<void> {
+  if (!(await inRoom(companyId, userId, conversationId, 'human'))) throw new CardError(404, 'not found')
 }
 
 /** Clients learn of a card's change from `fork.card`, sent straight over Redis
  *  like `fork.agent.tool` (./agentTool.ts). With its conversation id, the
- *  WebSocket layer gives it only to the room's people (server/src/ws.ts). */
-async function publishCard(companyId: string, card: Card): Promise<void> {
-  const { redis, CH_STATUS } = await import('../redis.js')
-  await redis.publish(CH_STATUS, JSON.stringify({ type: 'fork.card', companyId, conversationId: card.conversationId, card }))
+ *  WebSocket layer gives it only to the room's people (server/src/ws.ts). A
+ *  lost event changes nothing else, so it is only logged: the answering client
+ *  gets the card in its response, and clients load cards again on reconnect. */
+async function announce(companyId: string, card: Card): Promise<void> {
+  try {
+    const { redis, CH_STATUS } = await import('../redis.js')
+    await redis.publish(CH_STATUS, JSON.stringify({ type: 'fork.card', companyId, conversationId: card.conversationId, card }))
+  } catch (err) {
+    console.error(`[fork] card ${card.messageId} changed, but fork.card was not published:`, err)
+  }
+}
+
+/** An answer claims its card before its reply is posted (see answerWith). A
+ *  reply posts in well under a second; one claimed longer ago than this has a
+ *  post that failed or a server that stopped in between (a deploy). */
+const CLAIM_STALE_MS = 2 * 60_000
+const pending = (card: Card) => card.answer !== null && card.answer.messageId === null
+const stale = (card: Card) => Date.now() - Date.parse(card.answer?.at ?? '') > CLAIM_STALE_MS
+
+/** Settles a pending answer on its reply when the API wrote it, which it may
+ *  have done even when the post looked failed (a lost response). Without the
+ *  reply, `release` opens the card again: pass it only when no post can still
+ *  be under way. */
+async function settle(store: ForkStore, companyId: string, card: Card, release: boolean): Promise<Card> {
+  const answer = card.answer
+  if (!answer || answer.messageId) return card
+  const { pool } = await import('../db/pool.js')
+  // The API keeps one message per room, author and client id (api/router.ts).
+  const { rows } = await pool.query<{ id: string }>(
+    'SELECT id FROM messages WHERE conversation_id = $1 AND author_id = $2 AND client_id = $3',
+    [card.conversationId, answer.by, answer.clientId],
+  )
+  if (rows[0]) store.settleAnswer(companyId, card.messageId, answer.clientId, rows[0].id)
+  else if (release) store.releaseAnswer(companyId, card.messageId, answer.clientId)
+  else return card
+  const now = store.card(companyId, card.messageId) as Card
+  await announce(companyId, now)
+  return now
 }
 
 /** Posts the answer as the person's own message through the API's message
@@ -237,23 +303,27 @@ async function postAsCaller(req: Request, companyId: string, conversationId: str
 
 /** Closes the card under the client id its answer will carry, before the
  *  answer is posted: no second answer slips in, and clients hide the reply
- *  from its first frame because they hear of the card first. An answer that
- *  cannot be posted opens the card again. Null when someone answered first. */
+ *  from its first frame because they hear of the card first. An answer whose
+ *  reply was not written opens the card again. Null when someone answered first. */
 async function answerWith(req: Request, store: ForkStore, companyId: string, card: Card, userId: string, body: string, option: number | null, sealed: string | null): Promise<Card | null> {
   const clientId = `card-${randomUUID()}`
   if (!store.claimAnswer(companyId, card.messageId, { by: userId, at: new Date().toISOString(), option, clientId }, sealed)) return null
-  await publishCard(companyId, store.card(companyId, card.messageId) as Card)
-  let answerId: string
+  const claimed = store.card(companyId, card.messageId) as Card
+  await announce(companyId, claimed)
   try {
-    answerId = await postAsCaller(req, companyId, card.conversationId, { body, quotedMessageId: card.messageId, clientId })
+    const answerId = await postAsCaller(req, companyId, card.conversationId, { body, quotedMessageId: card.messageId, clientId })
+    store.settleAnswer(companyId, card.messageId, clientId, answerId)
   } catch (err) {
-    store.releaseAnswer(companyId, card.messageId, clientId)
-    await publishCard(companyId, store.card(companyId, card.messageId) as Card)
-    throw err
+    // The post is over, so its reply either exists now or never will.
+    const now = await settle(store, companyId, claimed, true).catch((lookup: unknown) => {
+      console.error(`[fork] card ${card.messageId}: cannot tell whether its answer was posted; a later load settles it`, lookup)
+      return null
+    })
+    if (!now?.answer?.messageId) throw err
+    return now
   }
-  store.settleAnswer(companyId, card.messageId, clientId, answerId)
   const settled = store.card(companyId, card.messageId) as Card
-  await publishCard(companyId, settled)
+  await announce(companyId, settled)
   return settled
 }
 
@@ -271,7 +341,16 @@ export function listCards(requireCompany: Requirer, req: Request & AuthedRequest
     const conversationId = String(req.query.conversation ?? '')
     if (!conversationId || conversationId.length > 100) throw new CardError(400, 'conversation is required')
     await requireMember(companyId, userId, conversationId)
-    res.json({ cards: (await getForkStore()).cards(companyId, conversationId) })
+    const store = await getForkStore()
+    let cards = store.cards(companyId, conversationId)
+    // An answer left pending by a restart settles here, so its card does not
+    // stay closed without a reply.
+    const stuck = cards.filter((c) => pending(c) && stale(c))
+    if (stuck.length > 0) {
+      for (const c of stuck) await settle(store, companyId, c, true)
+      cards = store.cards(companyId, conversationId)
+    }
+    res.json({ cards })
   })
 }
 
@@ -279,9 +358,10 @@ export function listCards(requireCompany: Requirer, req: Request & AuthedRequest
 async function answerable(requireCompany: Requirer, req: Request & AuthedRequest, kind: Card['kind']) {
   const { userId, companyId } = await requireCompany(req)
   const store = await getForkStore()
-  const card = store.card(companyId, String(req.params.messageId))
+  let card = store.card(companyId, String(req.params.messageId))
   if (!card || card.kind !== kind) throw new CardError(404, 'not found')
   await requireMember(companyId, userId, card.conversationId)
+  if (pending(card) && stale(card)) card = await settle(store, companyId, card, true)
   return { userId, companyId, store, card }
 }
 
@@ -304,9 +384,17 @@ export function answerChoice(requireCompany: Requirer, req: Request & AuthedRequ
 export function sendSecret(requireCompany: Requirer, req: Request & AuthedRequest, res: Response): Promise<void> {
   return handle(res, async () => {
     const { userId, companyId, store, card } = await answerable(requireCompany, req, 'secret')
-    const value = typeof req.body?.value === 'string' ? req.body.value.trim() : ''
-    if (!value) throw new CardError(400, 'value is required')
+    const raw = typeof req.body?.value === 'string' ? req.body.value.trim() : ''
+    if (!raw) throw new CardError(400, 'value is required')
+    // Keys and certificates span lines, and their files end with a newline
+    // (ssh refuses a private key without one). A one-line token loses the
+    // stray spaces and newline a paste brings.
+    const value = raw.includes('\n') ? `${raw}\n` : raw
     if (Buffer.byteLength(value) > MAX_SECRET_BYTES) throw new CardError(400, `the secret must be at most ${MAX_SECRET_BYTES} bytes`)
+    // Only the agent that asked takes it, and only from the room it asked in.
+    if (!(await inRoom(companyId, card.agentId, card.conversationId, 'agent'))) {
+      throw new CardError(410, 'the agent that asked has left this room')
+    }
     const sealed = sealSecret(await secretKey(), card.messageId, value)
     const body = `🔑 Sent securely. Take it once with \`cumora secret take ${card.messageId} <path>\``
     const answered = await answerWith(req, store, companyId, card, userId, body, null, sealed)

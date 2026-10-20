@@ -73,14 +73,30 @@ function put(s: State, cards: Card[], room?: string): Partial<State> {
 }
 
 export const useCards = create<State>((set, get) => {
+  // A room's load replaces its cards with a snapshot, which is older than any
+  // card the server sent while the load was in flight. Each card sent after a
+  // change gets the next number, so a load keeps the cards changed since it
+  // began, and of two loads of a room only the later one applies.
+  let changes = 0
+  const changedAt = new Map<string, number>()
+  const latestLoad = new Map<string, number>()
+  let loads = 0
+  const changed = (card: Card) => {
+    changedAt.set(card.messageId, ++changes)
+    set((s) => put(s, [card]))
+  }
+
   useAuth.subscribe((s, prev) => {
-    if (s.contextEpoch !== prev.contextEpoch) set({ byMessage: {}, loaded: {}, ready: {}, hidden: {} })
+    if (s.contextEpoch === prev.contextEpoch) return
+    changedAt.clear()
+    latestLoad.clear()
+    set({ byMessage: {}, loaded: {}, ready: {}, hidden: {} })
   })
   // A fork event, outside the client's event union. After a reconnect the
   // rooms already shown load again, since events sent meanwhile are lost.
   ws.on((e) => {
     const ev = e as { type: string; card?: Card }
-    if (ev.type === 'fork.card' && ev.card) set((s) => put(s, [ev.card as Card]))
+    if (ev.type === 'fork.card' && ev.card) changed(ev.card)
     else if (ev.type === 'hello') for (const room of Object.keys(get().ready)) void get().load(room)
   })
 
@@ -91,7 +107,7 @@ export const useCards = create<State>((set, get) => {
       const res = await http<{ card: Card }>(`/fork/cards/${encodeURIComponent(card.messageId)}/${action}`, {
         method: 'POST', body: JSON.stringify(body),
       })
-      set((s) => put(s, [res.card]))
+      changed(res.card)
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) void get().load(card.conversationId)
       throw e
@@ -106,16 +122,25 @@ export const useCards = create<State>((set, get) => {
 
     async load(conversationId) {
       const epoch = useAuth.getState().contextEpoch
+      const ticket = ++loads
+      const since = changes
+      latestLoad.set(conversationId, ticket)
+      const current = () => useAuth.getState().contextEpoch === epoch && latestLoad.get(conversationId) === ticket
       try {
         const { cards } = await http<{ cards: Card[] }>(`/fork/cards?conversation=${encodeURIComponent(conversationId)}`)
-        if (useAuth.getState().contextEpoch !== epoch) return
-        set((s) => ({
-          ...put(s, cards, conversationId),
-          loaded: { ...s.loaded, [conversationId]: true },
-          ready: { ...s.ready, [conversationId]: true },
-        }))
+        if (!current()) return
+        set((s) => {
+          const newer = Object.values(s.byMessage)
+            .filter((c) => c.conversationId === conversationId && (changedAt.get(c.messageId) ?? 0) > since)
+          const kept = new Set(newer.map((c) => c.messageId))
+          return {
+            ...put(s, [...cards.filter((c) => !kept.has(c.messageId)), ...newer], conversationId),
+            loaded: { ...s.loaded, [conversationId]: true },
+            ready: { ...s.ready, [conversationId]: true },
+          }
+        })
       } catch (e) {
-        if (useAuth.getState().contextEpoch !== epoch) return
+        if (!current()) return
         console.warn('[next] cards load failed', e)
         set((s) => ({ ready: { ...s.ready, [conversationId]: true } }))
       }
@@ -126,7 +151,12 @@ export const useCards = create<State>((set, get) => {
   }
 })
 
-/** The room's answer replies, for the transcript to leave out. */
+/** The room's answer replies, for the transcript and threads to leave out. */
 export function useHiddenAnswers(conversationId: string): ReadonlySet<string> {
   return useCards((s) => s.hidden[conversationId] ?? NONE)
+}
+
+/** Whether a message is a reply that answered a card, which the card shows. */
+export function answersCard(hidden: ReadonlySet<string>, m: { id: string; clientId?: string }): boolean {
+  return hidden.has(m.id) || (m.clientId !== undefined && hidden.has(m.clientId))
 }

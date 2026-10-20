@@ -1218,18 +1218,31 @@ export const CUMORA_SHIM = `#!/usr/bin/env node
   if (body !== null) argv.push('--', body)
   // \`cumora secret take <message_id> <path>\` (fork/cards.ts): the secret goes
   // from the daemon's answer straight into <path>, never to stdout, so the model
-  // running this never reads it. <path> stays on this machine and must be a new
-  // file, checked before asking: the server forgets the secret as it hands it over.
-  var takePath = null
+  // running this never reads it. The server forgets the secret as it hands it
+  // over, so <path> is created first (a new file, mode 600) and removed again
+  // if no secret lands in it. <path> stays on this machine; the server gets
+  // the flag that says this shim saves the take into a file.
+  var take = null
   if (argv[0] === 'secret' && argv[1] === 'take') {
     if (argv.length !== 4) { console.error('usage: cumora secret take <message_id> <path>'); process.exit(64) }
-    takePath = path.resolve(argv[3])
-    var exists = true
-    try { fs.lstatSync(takePath) } catch (e) { exists = false }
-    if (exists) { console.error('cumora: ' + takePath + ' exists. A secret can be taken only once, so name a new file.'); process.exit(1) }
-    try { fs.mkdirSync(path.dirname(takePath), { recursive: true }) }
-    catch (e) { console.error('cumora: cannot create the folder for ' + takePath); process.exit(1) }
-    argv = argv.slice(0, 3)
+    var takePath = path.resolve(argv[3])
+    // The Handbook records the .md files of agents' homes (fork/recorder.ts).
+    if (/\\.md$/i.test(takePath)) { console.error('cumora: a secret never goes into a .md file, which the Handbook records. Name a file such as ~/.secrets/<name>.'); process.exit(64) }
+    try { fs.mkdirSync(path.dirname(takePath), { recursive: true, mode: 0o700 }) }
+    catch (e) { console.error('cumora: cannot create the folder for ' + takePath + ' (' + e.code + ')'); process.exit(1) }
+    try { take = { path: takePath, fd: fs.openSync(takePath, 'wx', 0o600), done: false } }
+    catch (e) {
+      console.error('cumora: ' + (e.code === 'EEXIST'
+        ? takePath + ' exists. A secret can be taken only once, so name a new file.'
+        : 'cannot create ' + takePath + ' (' + e.code + ')'))
+      process.exit(1)
+    }
+    process.on('exit', function () {
+      if (take.done) return
+      try { fs.closeSync(take.fd) } catch (e) {}
+      try { fs.unlinkSync(take.path) } catch (e) {}
+    })
+    argv = argv.slice(0, 3).concat('--shim-file')
   }
   var id = crypto.randomUUID()
   var requests = path.join(ipc, 'requests')
@@ -1253,14 +1266,16 @@ export const CUMORA_SHIM = `#!/usr/bin/env node
   try { data = JSON.parse(fs.readFileSync(response, 'utf8')) }
   finally { try { fs.unlinkSync(response) } catch (e) {} }
   if (data && typeof data.error === 'string' && data.error) console.error('cumora: ' + data.error)
-  if (takePath && typeof data.file === 'string') {
+  if (take && typeof data.file === 'string') {
     try {
-      fs.writeFileSync(takePath, Buffer.from(data.file, 'base64'), { mode: 0o600, flag: 'wx' })
-      data.text = 'saved the secret to ' + takePath + ' (mode 600). The server no longer has it, so this file is the only copy: use it from there and never print it.'
+      fs.writeFileSync(take.fd, Buffer.from(data.file, 'base64'))
+      fs.closeSync(take.fd)
+      take.done = true
+      data.text = 'saved the secret to ' + take.path + ' (mode 600). The server no longer has it, so this file is the only copy: use it from there and never print it.'
     } catch (e) {
       data.text = ''
       data.exitCode = 1
-      console.error('cumora: the secret arrived but could not be written to ' + takePath + ' (' + e.message + '), and the server no longer has it. Ask again with cumora secret request.')
+      console.error('cumora: the secret arrived but could not be written to ' + take.path + ' (' + e.message + '), and the server no longer has it. Ask again with cumora secret request.')
     }
   }
   const code = typeof data.exitCode === 'number' ? data.exitCode : 0

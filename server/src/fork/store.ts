@@ -689,8 +689,13 @@ export async function openForkStore(file: string) {
       return readCard(companyId, messageId)
     },
 
-    /** A room's cards, oldest first. Secrets past their time go first, so none
-     *  outlives SECRET_TTL_MS by more than the wait until a take or a room load. */
+    /** Drops the sent secrets nobody took within SECRET_TTL_MS (./cards.ts
+     *  runs this on a timer). */
+    dropExpiredSecrets(now = new Date()): void {
+      expireSecrets(now)
+    },
+
+    /** A room's cards, oldest first, after dropping the secrets past their time. */
     cards(companyId: string, conversationId: string, now = new Date()): Card[] {
       expireSecrets(now)
       return rows(
@@ -734,17 +739,18 @@ export async function openForkStore(file: string) {
 
     /** Hands a sent secret to the agent that asked for it, once, and forgets
      *  it. Otherwise why not: no such card of this agent's, nobody sent it
-     *  yet, the agent took it before, or it expired. */
+     *  yet (or its reply is not posted yet, so the card may still open again),
+     *  the agent took it before, or it expired. */
     takeSecret(companyId: string, messageId: string, agentId: string, now = new Date()): { sealed: string } | 'missing' | 'waiting' | 'taken' | 'expired' {
       expireSecrets(now)
       const row = rows(
-        "SELECT answered_at, secret, taken_at FROM cards WHERE company_id = ? AND message_id = ? AND agent_id = ? AND kind = 'secret'",
+        "SELECT answer_message_id, secret, taken_at FROM cards WHERE company_id = ? AND message_id = ? AND agent_id = ? AND kind = 'secret'",
         [companyId, messageId, agentId],
       )[0]
       if (!row) return 'missing'
-      const [answeredAt, sealed, takenAt] = row
+      const [answerMessageId, sealed, takenAt] = row
       if (takenAt !== null) return 'taken'
-      if (answeredAt === null) return 'waiting'
+      if (answerMessageId === null) return 'waiting'
       if (sealed === null) return 'expired'
       forgetSecrets('company_id = ? AND message_id = ?', [companyId, messageId])
       db.run('UPDATE cards SET taken_at = ? WHERE company_id = ? AND message_id = ?', [now.toISOString(), companyId, messageId])

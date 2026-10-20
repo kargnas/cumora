@@ -15,6 +15,7 @@ import { Bubble } from '../chat/MessageList'
 import { Composer } from '../chat/Composer'
 import { createdAt } from '../chat/model'
 import { authorOf } from '../chat/deletedAuthor'
+import { answersCard, useHiddenAnswers } from '../chat/cards'
 import { Spinner } from '../ui/primitives'
 
 const EMPTY: Message[] = []
@@ -48,6 +49,7 @@ export function ThreadView({ convoId, rootId }: { convoId: string; rootId: strin
   const direct = useConversations((s) => s.list.find((x) => x.id === convoId)?.kind === 'direct')
   const [fetched, setFetched] = useState<Message[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const answers = useHiddenAnswers(convoId)
 
   useEffect(() => {
     let cancelled = false
@@ -60,7 +62,8 @@ export function ThreadView({ convoId, rootId }: { convoId: string; rootId: strin
   }, [convoId, rootId])
 
   // Live rows win over fetched ones (they carry reactions and the optimistic
-  // pending/failed flags); matching by id or by the optimistic client id.
+  // pending/failed flags); matching by id or by the optimistic client id. A
+  // reply that answered the root's card shows in the card, not here.
   const replies = useMemo(() => {
     const out = [...(fetched ?? [])]
     for (const m of live) {
@@ -69,8 +72,10 @@ export function ThreadView({ convoId, rootId }: { convoId: string; rootId: strin
       if (i >= 0) out[i] = m
       else out.push(m)
     }
-    return out.sort((a, b) => createdAt(a).getTime() - createdAt(b).getTime())
-  }, [fetched, live, rootId])
+    return out
+      .filter((m) => !answersCard(answers, m))
+      .sort((a, b) => createdAt(a).getTime() - createdAt(b).getTime())
+  }, [fetched, live, rootId, answers])
 
   return (
     <div className="nx-thread">

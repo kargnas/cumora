@@ -5,5 +5,6 @@ export const CARDS_PROMPT =
   '`cumora ask <convo_id> "<question>" "<option>" "<option>"` instead of ending a message with a question; ' +
   'their pick comes back as their reply quoting it. When you need a secret (an API key, a token, a password), ' +
   'never ask for it in chat: run `cumora secret request <convo_id> "<what it is for>"`, and once a person sends it, ' +
-  'run `cumora secret take <message_id> <path>` once. The secret goes only into that new file: use it from there ' +
-  'and never print it.\n\n'
+  'run `cumora secret take <message_id> <path>` once, with a path outside git work trees and memory/ such as ' +
+  '`~/.secrets/<name>`. The secret goes only into that new file: use it from there, never print it and never ' +
+  'commit it.\n\n'

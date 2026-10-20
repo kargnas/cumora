@@ -419,18 +419,29 @@
 .nx-ask__answer { display: flex; align-items: center; gap: 8px; }
 .nx-ask__answer > svg { flex: none; width: 16px; height: 16px; color: var(--muted-foreground); }
 .nx-ask__answer[data-muted] { color: var(--muted-foreground); }
-.nx-ask__secret { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+/* Send sits at the field's last line while a pasted key makes it taller. */
+.nx-ask__secret { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; }
 .nx-ask__field { position: relative; }
-/* Mono tells 0 from O and l from 1 in a shown secret; the hint stays in the UI font. */
-.nx-ask__field .nx-input { padding-right: 36px; font-family: var(--font-mono); }
+/* One line like an input, growing with a pasted key or certificate. Mono tells
+   0 from O and l from 1 in a shown secret; the placeholder stays in the UI font. */
+.nx-ask__field .nx-input {
+  display: block;
+  min-height: 32px;
+  max-height: 160px;
+  padding: 6px 36px 6px 12px;
+  font-family: var(--font-mono);
+  line-height: 20px;
+  resize: none;
+  field-sizing: content;
+}
 .nx-ask__field .nx-input::placeholder { font-family: var(--font-sans); }
 .nx-ask__field .nx-input[data-masked] { -webkit-text-security: disc; }
 .nx-ask__peek {
   position: absolute;
-  top: 0;
   right: 0;
+  bottom: 0;
   width: 32px;
-  height: 100%;
+  height: 32px;
   display: grid;
   place-items: center;
   border: 0;
@@ -451,10 +462,9 @@
 .nx-ask__error { grid-column: 1 / -1; font-size: var(--text-caption); color: var(--destructive); }
 @media (pointer: coarse) {
   .nx-ask__option { min-height: 44px; }
-  .nx-ask__secret .nx-input,
   .nx-ask__secret .nx-btn { height: 44px; }
-  .nx-ask__field .nx-input { padding-right: 44px; font-size: 16px; }
-  .nx-ask__peek { width: 44px; }
+  .nx-ask__field .nx-input { min-height: 44px; padding: 11px 44px 11px 12px; font-size: 16px; line-height: 22px; }
+  .nx-ask__peek { width: 44px; height: 44px; }
 }
 
 /* Swipe to reply (MessageList useSwipeReply). The avatar column and the

@@ -137,6 +137,7 @@ const core = {
   'secret.sent': 'Sent by {name} · waiting for {agent} to save it',
   'secret.saved': '{agent} saved it',
   'secret.expired': 'Deleted: {agent} did not save it within a day',
+  'secret.left': 'Not sent: {agent} has left this room',
 
   'composer.placeholder': 'Message {room}',
   'composer.replyThread': 'Reply in thread',

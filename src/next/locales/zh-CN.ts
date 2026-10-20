@@ -147,6 +147,7 @@ export const zhCN: Partial<Record<keyof typeof en, string>> = {
   'secret.sent': '{name} 已发送 · 等待 {agent} 保存',
   'secret.saved': '{agent} 已保存',
   'secret.expired': '已删除：{agent} 一天内没有保存',
+  'secret.left': '未发送：{agent} 已离开此房间',
 
   'composer.placeholder': '发消息到 {room}',
   'composer.replyThread': '在话题中回复',
