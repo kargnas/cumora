@@ -618,7 +618,7 @@ export function HandbookTab({ c, docked }: { c: Conversation; docked: boolean })
   const nt = useNT()
   const { agents } = useRoomAgents(c)
   const agent = usePickedAgent(agents)
-  if (!agent) return <div className="nx-empty">{nt('handbook.noAgents')}</div>
+  if (!agent) return <div className="nx-empty">{nt('panel.noAgents')}</div>
   return (
     <>
       <AgentChips agents={agents} picked={agent} />

@@ -1,6 +1,6 @@
 /**
- * Picks one of the room's agents (`?agent=`). The Handbook and Details tabs
- * share the pick, so switching tabs keeps the same agent in view.
+ * Picks one of the room's agents (`?agent=`). The Handbook tab and Edit share
+ * the pick, so the same agent stays in view between them.
  */
 import type { Participant } from '@/types'
 import { useNT } from '../i18n'

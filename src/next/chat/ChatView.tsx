@@ -15,6 +15,7 @@ import { Avatar, AvatarStack } from '../ui/Avatar'
 import { IconButton, T_QUICK } from '../ui/primitives'
 import { IChevronDown, IChevronLeft, IHash, IMail, IPanelRight, ISearch, IX } from '../ui/icons'
 import { isImeComposing } from '@/lib/keyboard'
+import { EditDialog, openEdit } from '../panel/EditDialog'
 import { MessageList, type Find } from './MessageList'
 import { Composer } from './Composer'
 
@@ -57,7 +58,6 @@ function ChatHeader({ c, layout, panelOpen, onSearch, searching }: {
       navigate(withRoute(r, { panel: layout === 'full' ? null : 'handbook' }), { replace: layout === 'full' })
     }
   }, [panelOpen, layout])
-  const openDetails = () => navigate(withRoute(getRoute(), { panel: 'details', peek: null, threadId: null }), { replace: layout === 'full' })
 
   const glyph = c.kind === 'direct' && peer
     ? <Avatar p={peer} size={24} presence />
@@ -82,7 +82,7 @@ function ChatHeader({ c, layout, panelOpen, onSearch, searching }: {
           <IconButton label={nt('chat.back')} onClick={() => goBack(href({ section: 'chats' }))}><IChevronLeft /></IconButton>
         )}
       </div>
-      <button type="button" className="nx-pill" onClick={openDetails} aria-label={nt('chat.details', { room: c.title })}>
+      <button type="button" className="nx-pill" onClick={openEdit} aria-label={nt('chat.edit', { room: c.title })}>
         {glyph}
         <span className="nx-pill__text">
           <span className="nx-pill__title">{c.title}</span>
@@ -97,6 +97,8 @@ function ChatHeader({ c, layout, panelOpen, onSearch, searching }: {
           <IPanelRight />
         </IconButton>
       </div>
+      {/* The dialog is a portal, so it also opens over the room panel, which covers this header on a phone. */}
+      <EditDialog c={c} agents={agents} />
     </header>
   )
 }

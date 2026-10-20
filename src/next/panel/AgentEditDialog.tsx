@@ -1,6 +1,6 @@
 /**
  * The full agent editor (model, computer, avatar and the rest), opened from
- * the Details tab with `?agent-edit=<id>`. It is the editor the Agents section
+ * the room's Edit with `?agent-edit=<id>`. It is the editor the Agents section
  * opens (the classic AgentEditor with the Look Studio as its avatar fields);
  * agents.css folds its own modal frame into the Dialog.
  */

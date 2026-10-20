@@ -1,4 +1,10 @@
-import { useEffect, useState } from 'react'
+/**
+ * Edit: the room's own settings and, for workspace owners and admins, the
+ * room's agent, in a dialog over the chat (`?edit=1`). The room's name in the
+ * chat header and the pencil in the room panel's header open it. The agents
+ * come from the chat header, which already follows them.
+ */
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, type AgentInput } from '@/api/client'
 import { useAuth } from '@/stores/auth'
 import { isMuted, useConversations } from '@/stores/conversations'
@@ -6,17 +12,22 @@ import { useParticipants } from '@/stores/participants'
 import type { Conversation, Participant } from '@/types'
 import { haptic } from '../haptics'
 import { useNT } from '../i18n'
-import { href, linkClick, navigate, useRoute, withRoute } from '../router'
+import { getRoute, goBack, href, linkClick, navigate, useRoute, withRoute } from '../router'
 import { Avatar } from '../ui/Avatar'
-import { Spinner, Switch } from '../ui/primitives'
+import { Dialog, Spinner, Switch } from '../ui/primitives'
 import { ICheck, IChevronRight, IConvene, IExit, IHash } from '../ui/icons'
-import { useRoomAgents } from '../chat/ChatView'
 import { AgentChips, usePickedAgent } from './AgentChips'
 import { AGENT_EDIT_PARAM, AgentEditDialog } from './AgentEditDialog'
-import { CodingGroup } from './CodingGroup'
+
+const EDIT_PARAM = 'edit'
+
+/** Opens Edit over the room on screen. A push, so Back closes it. */
+export function openEdit(): void {
+  navigate(withRoute(getRoute(), { params: { [EDIT_PARAM]: '1' } }))
+}
 
 /** A field that saves on blur/Enter and shows its own pending state, so an
- *  edit never blocks the rest of the panel. */
+ *  edit never blocks the rest of the dialog. */
 function EditableField({ label, value, multiline, rows = 3, placeholder, onSave }: {
   label: string
   value: string
@@ -67,7 +78,7 @@ function EditableField({ label, value, multiline, rows = 3, placeholder, onSave 
       <span className="nx-field__label">
         {label}
         {saving && <Spinner />}
-        {saved && <span className="nx-field__saved" role="status"><ICheck aria-hidden />{nt('details.saved')}</span>}
+        {saved && <span className="nx-field__saved" role="status"><ICheck aria-hidden />{nt('edit.saved')}</span>}
       </span>
       {multiline
         ? <textarea {...common} rows={rows} onChange={(e) => setDraft(e.target.value)} />
@@ -120,31 +131,31 @@ function AgentGroup({ agents }: { agents: Participant[] }) {
     await useParticipants.getState().refresh()
   }
   return (
-    <section className="nx-details__group" aria-label={a.name}>
+    <section className="nx-edit__group" aria-label={a.name}>
       <AgentChips agents={agents} picked={a} />
-      <h3 className="nx-details__head"><Avatar p={a} size={20} />{a.name}</h3>
-      <p className="nx-details__scope">{nt('details.agentScope', { name: a.name })}</p>
+      <h3 className="nx-edit__head"><Avatar p={a} size={20} />{a.name}</h3>
+      <p className="nx-edit__scope">{nt('edit.agentScope', { name: a.name })}</p>
       {/* Keyed by agent: a draft never carries over to another agent. */}
       <EditableField
         key={`${a.id}:name`}
-        label={nt('details.agentName')}
+        label={nt('edit.agentName')}
         value={a.name}
-        onSave={(v) => (v ? save({ name: v }) : Promise.reject(new Error(nt('details.agentNameRequired'))))}
+        onSave={(v) => (v ? save({ name: v }) : Promise.reject(new Error(nt('edit.agentNameRequired'))))}
       />
-      <EditableField key={`${a.id}:role`} label={nt('details.agentRole')} value={a.role ?? ''} onSave={(v) => save({ role: v })} />
-      <EditableField key={`${a.id}:bio`} label={nt('details.agentBio')} value={a.bio ?? ''} multiline onSave={(v) => save({ bio: v })} />
+      <EditableField key={`${a.id}:role`} label={nt('edit.agentRole')} value={a.role ?? ''} onSave={(v) => save({ role: v })} />
+      <EditableField key={`${a.id}:bio`} label={nt('edit.agentBio')} value={a.bio ?? ''} multiline onSave={(v) => save({ bio: v })} />
       <EditableField
         key={`${a.id}:style`}
-        label={nt('details.agentStyle')}
+        label={nt('edit.agentStyle')}
         value={a.systemPrompt ?? ''}
         multiline
         rows={6}
         // An empty style blanks the agent's persona in every room; the full editor refuses it too.
-        onSave={(v) => (v ? save({ systemPrompt: v }) : Promise.reject(new Error(nt('details.agentStyleRequired'))))}
+        onSave={(v) => (v ? save({ systemPrompt: v }) : Promise.reject(new Error(nt('edit.agentStyleRequired'))))}
       />
       <div className="nx-rows">
         <a className="nx-row nx-row--link" href={withRoute(route, { params: { [AGENT_EDIT_PARAM]: a.id } })} onClick={linkClick}>
-          <span className="nx-row__text"><span>{nt('details.agentMore')}</span></span>
+          <span className="nx-row__text"><span>{nt('edit.agentMore')}</span></span>
           <span className="nx-row__value nx-mono">{a.model ?? nt('agents.modelDefault')}</span>
           <IChevronRight aria-hidden />
         </a>
@@ -153,10 +164,9 @@ function AgentGroup({ agents }: { agents: Participant[] }) {
   )
 }
 
-export function DetailsTab({ c }: { c: Conversation }) {
+function RoomEdit({ c, agents }: { c: Conversation; agents: Participant[] }) {
   const nt = useNT()
   const [convening, setConvening] = useState(false)
-  const { agents } = useRoomAgents(c)
   const admin = useAuth((s) => {
     const role = s.companies.find((x) => x.id === s.activeCompanyId)?.role
     return role === 'owner' || role === 'admin'
@@ -164,34 +174,33 @@ export function DetailsTab({ c }: { c: Conversation }) {
   const muted = isMuted(c)
   const canRename = c.kind === 'group'
   return (
-    <div className="nx-details">
-      <section className="nx-details__group" aria-label={nt('details.thisRoom')}>
-        <h3 className="nx-details__head"><IHash aria-hidden />{nt('details.thisRoom')}</h3>
-        {canRename && <EditableField label={nt('details.title')} value={c.title} onSave={(v) => api.setTitle(c.id, v)} />}
+    <div className="nx-edit">
+      <section className="nx-edit__group" aria-label={nt('edit.thisRoom')}>
+        <h3 className="nx-edit__head"><IHash aria-hidden />{nt('edit.thisRoom')}</h3>
+        {canRename && <EditableField label={nt('edit.title')} value={c.title} onSave={(v) => api.setTitle(c.id, v)} />}
         <EditableField
-          label={nt('details.topic')}
+          label={nt('edit.topic')}
           value={c.topic ?? ''}
-          placeholder={nt('details.topicPlaceholder')}
+          placeholder={nt('edit.topicPlaceholder')}
           multiline
           onSave={(v) => api.setTopic(c.id, v || null)}
         />
         <div className="nx-rows">
-          <ToggleRow label={nt('details.pinned')} checked={!!c.pinned} onChange={(v) => api.togglePin(c.id, v)} />
+          <ToggleRow label={nt('edit.pinned')} checked={!!c.pinned} onChange={(v) => api.togglePin(c.id, v)} />
           <ToggleRow
-            label={nt('details.muted')}
-            hint={muted && c.mutedUntil ? nt('details.mutedUntil', { when: new Date(c.mutedUntil).toLocaleString() }) : undefined}
+            label={nt('edit.muted')}
+            hint={muted && c.mutedUntil ? nt('edit.mutedUntil', { when: new Date(c.mutedUntil).toLocaleString() }) : undefined}
             checked={muted}
             onChange={(v) => api.setMute(c.id, v, null)}
           />
           {c.projectName && (
-            <div className="nx-row"><span className="nx-row__text"><span>{nt('details.project')}</span></span><span className="nx-chip">{c.projectName}</span></div>
+            <div className="nx-row"><span className="nx-row__text"><span>{nt('edit.project')}</span></span><span className="nx-chip">{c.projectName}</span></div>
           )}
         </div>
       </section>
       {admin && agents.length > 0 && <AgentGroup agents={agents} />}
-      {admin && agents.length > 0 && <CodingGroup agents={agents} />}
       {admin && <AgentEditDialog />}
-      <div className="nx-details__actions">
+      <div className="nx-edit__actions">
         {c.kind !== 'email' && (
           <button
             type="button"
@@ -212,7 +221,7 @@ export function DetailsTab({ c }: { c: Conversation }) {
             }}
           >
             {convening ? <Spinner /> : <IConvene />}
-            {nt('details.convene')}
+            {nt('edit.convene')}
           </button>
         )}
         {c.kind === 'group' && (
@@ -227,10 +236,32 @@ export function DetailsTab({ c }: { c: Conversation }) {
             }}
           >
             <IExit />
-            {nt('details.leave')}
+            {nt('edit.leave')}
           </button>
         )}
       </div>
     </div>
+  )
+}
+
+export function EditDialog({ c, agents }: { c: Conversation; agents: Participant[] }) {
+  const nt = useNT()
+  const open = useRoute().search.has(EDIT_PARAM)
+  // A second goBack before the first lands (a double click on the scrim)
+  // would also leave the room.
+  const closing = useRef(false)
+  useEffect(() => { closing.current = false }, [open])
+  const close = useCallback(() => {
+    const r = getRoute()
+    // Esc reaches this dialog too while the agent editor is open over it; the
+    // editor closes alone.
+    if (closing.current || !r.search.has(EDIT_PARAM) || r.search.has(AGENT_EDIT_PARAM)) return
+    closing.current = true
+    goBack(withRoute(r, { params: { [EDIT_PARAM]: null } }))
+  }, [])
+  return (
+    <Dialog open={open} onClose={close} title={nt('chat.edit', { room: c.title })}>
+      <RoomEdit c={c} agents={agents} />
+    </Dialog>
   )
 }

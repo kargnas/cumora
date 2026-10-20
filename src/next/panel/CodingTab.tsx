@@ -1,24 +1,23 @@
 /**
- * Coding: the T3 Code threads the room's agents launched, in the Details tab
- * under the agents. The server copies them from T3 once a minute
- * (server/src/fork/coding.ts), so the group reloads every 30 seconds while
- * it is open. It shows only when an agent has a thread, so a room without
- * coding keeps its Details tab as it was. It sits below the room's fields and
- * the agents, so its arrival after the first answer moves nothing a finger may
- * be heading for, and the last answer per agent draws it at once when the tab
- * opens again. A thread with pull requests opens the last one T3 lists; T3
- * has no address a phone can open. Owners and admins only, like the agent fields.
+ * Coding: the T3 Code threads the room's agents launched. The server copies
+ * them from T3 once a minute (server/src/fork/coding.ts), so the tab reloads
+ * every 30 seconds while it is open, and the last answer per agent draws the
+ * list at once when the tab opens again. A thread with pull requests opens the
+ * last one T3 lists; T3 has no address a phone can open. Owners and admins
+ * only, because a title an agent wrote can quote any room.
  */
 import { useEffect, useState } from 'react'
 import { http } from '@/api/client'
 import { useLocale } from '@/lib/i18n'
-import type { Participant } from '@/types'
+import { useAuth } from '@/stores/auth'
+import type { Conversation, Participant } from '@/types'
 import { relative } from '../format'
 import { useNT, type NKey } from '../i18n'
 import { Avatar } from '../ui/Avatar'
 import { Spinner } from '../ui/primitives'
-import { ICheck, IComputer, IInfo, IStop, IX } from '../ui/icons'
+import { ICheck, IInfo, IStop, IX } from '../ui/icons'
 import { errText } from '../sections/calendar/parts'
+import { useRoomAgents } from '../chat/ChatView'
 
 interface Thread {
   server: string
@@ -39,7 +38,7 @@ const RELOAD_MS = 30_000
 const ACTIVE = new Set(['preparing', 'queued', 'starting', 'running', 'waiting'])
 const STOPPED = new Set(['interrupted', 'cancelled', 'rolled_back'])
 
-// The last answer for each agent, so the group draws at once when the tab opens
+// The last answer for each agent, so the list draws at once when the tab opens
 // again, and its entrance plays only the first time (src/next/AGENTS.md).
 const cache = new Map<string, Coding>()
 const cached = (ids: string): AgentCoding[] | null => {
@@ -83,11 +82,11 @@ function CodingRow({ t, agent, server }: { t: Thread; agent?: Participant; serve
     : <div className="nx-row nx-coding" data-tone={tone}>{body}</div>
 }
 
-export function CodingGroup({ agents }: { agents: Participant[] }) {
+function CodingList({ agents }: { agents: Participant[] }) {
   const nt = useNT()
   const ids = agents.map((a) => a.id).join(' ')
   const [coding, setCoding] = useState(() => cached(ids))
-  // Only a group that arrives with a first answer fades in.
+  // Only a list that arrives with a first answer fades in.
   const [rise, setRise] = useState(() => cached(ids) === null)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
@@ -121,24 +120,42 @@ export function CodingGroup({ agents }: { agents: Participant[] }) {
     }
   }, [ids])
 
+  if (coding === null) {
+    return error
+      ? <div className="nx-empty" role="alert">{error}</div>
+      : <div className="nx-center" aria-busy="true"><Spinner /></div>
+  }
   const byId = new Map(agents.map((a) => [a.id, a]))
-  const rows = (coding ?? [])
+  const rows = coding
     .flatMap((c) => c.threads.map((t) => ({ t, agent: byId.get(c.agentId) })))
     .sort((a, b) => b.t.updatedAt.localeCompare(a.t.updatedAt))
-  // A failing T3 server is a note under the threads it may be holding back; a
-  // room whose agents have none shows nothing, whatever the servers do.
-  if (rows.length === 0) return null
-  const servers = coding?.[0]?.servers ?? []
+  const servers = coding[0]?.servers ?? []
   return (
-    <section className={rise ? 'nx-details__group nx-coding-group' : 'nx-details__group'} aria-label={nt('coding.head')}>
-      <h3 className="nx-details__head"><IComputer aria-hidden />{nt('coding.head')}</h3>
-      <div className="nx-rows">
-        {rows.map(({ t, agent }) => (
-          <CodingRow key={`${t.server} ${t.threadId}`} t={t} agent={agents.length > 1 ? agent : undefined} server={servers.length > 1} />
-        ))}
-      </div>
+    <>
+      {rows.length === 0
+        ? <div className="nx-empty">{nt('coding.none')}</div>
+        : (
+          <div className={rise ? 'nx-rows nx-coding-list' : 'nx-rows'}>
+            {rows.map(({ t, agent }) => (
+              <CodingRow key={`${t.server} ${t.threadId}`} t={t} agent={agents.length > 1 ? agent : undefined} server={servers.length > 1} />
+            ))}
+          </div>
+        )}
+      {/* A failing T3 server may be holding threads back, even when none show. */}
       {servers.filter((s) => s.error).map((s) => <p key={s.name} className="nx-field__error" role="alert">{nt('coding.serverError', { server: s.name, error: s.error ?? '' })}</p>)}
       {error && <p className="nx-field__error" role="alert">{error}</p>}
-    </section>
+    </>
   )
+}
+
+export function CodingTab({ c }: { c: Conversation }) {
+  const nt = useNT()
+  const { agents } = useRoomAgents(c)
+  const admin = useAuth((s) => {
+    const role = s.companies.find((x) => x.id === s.activeCompanyId)?.role
+    return role === 'owner' || role === 'admin'
+  })
+  if (agents.length === 0) return <div className="nx-empty">{nt('panel.noAgents')}</div>
+  if (!admin) return <div className="nx-empty"><b>{nt('coding.locked')}</b>{nt('coding.lockedBody')}</div>
+  return <CodingList agents={agents} />
 }

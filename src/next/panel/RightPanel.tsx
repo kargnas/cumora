@@ -3,7 +3,8 @@
  * classic panes (they read the useApp fields that the router projects from
  * the URL); an event peek is the Calendar section's own detail, and the tabs
  * are the redesign's own. The header identity follows whichever agent is
- * working in the room, so a glance says who is busy right now.
+ * working in the room, so a glance says who is busy right now. The room's
+ * settings are not a tab: the pencil opens Edit over the chat.
  */
 import { lazy, Suspense, useRef, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -14,11 +15,12 @@ import { getRoute, goBack, href, navigate, withRoute, type PanelTab, type Route 
 import type { Layout } from '../layout'
 import { Avatar } from '../ui/Avatar'
 import { IconButton, Segmented, Spinner, T_FAST } from '../ui/primitives'
-import { IChevronLeft, IHash, IX } from '../ui/icons'
+import { IChevronLeft, IHash, IPencil, IX } from '../ui/icons'
 import { useRoomAgents } from '../chat/ChatView'
 import { HandbookTab } from './HandbookTab'
+import { CodingTab } from './CodingTab'
 import { MembersTab } from './MembersTab'
-import { DetailsTab } from './DetailsTab'
+import { openEdit } from './EditDialog'
 import { FilesTab } from './FilesTab'
 import { RoutinesTab } from './RoutinesTab'
 import { ThreadView } from './ThreadView'
@@ -75,7 +77,9 @@ function Identity({ c }: { c: Conversation }) {
   )
 }
 
-const TABS: PanelTab[] = ['handbook', 'members', 'details', 'files', 'routines']
+const TABS: PanelTab[] = ['handbook', 'coding', 'members', 'files', 'routines']
+// A 1:1 room's two members are the room itself.
+const DIRECT_TABS = TABS.filter((t) => t !== 'members')
 
 export function RightPanel({ route, layout }: { route: Route; layout: Layout }) {
   const nt = useNT()
@@ -120,7 +124,9 @@ export function RightPanel({ route, layout }: { route: Route; layout: Layout }) 
     return <Classic layout={layout}>{pane}</Classic>
   }
 
-  const tab: PanelTab = route.panel && route.panel !== 'none' ? route.panel : 'handbook'
+  const tabs = c.kind === 'direct' ? DIRECT_TABS : TABS
+  // A tab this room lacks (Members kept in the URL from a group room) falls back too.
+  const tab: PanelTab = route.panel && route.panel !== 'none' && tabs.includes(route.panel) ? route.panel : 'handbook'
   const setTab = (t: PanelTab) => navigate(withRoute(getRoute(), { panel: t }), { replace: true })
 
   return (
@@ -130,14 +136,17 @@ export function RightPanel({ route, layout }: { route: Route; layout: Layout }) 
           {layout === 'stack'
             ? <IconButton label={nt('chat.back')} onClick={() => closePanel(layout)}><IChevronLeft /></IconButton>
             : <span />}
-          <IconButton small label={nt('panel.close')} onClick={() => closePanel(layout)}><IX /></IconButton>
+          <span className="nx-panel__acts">
+            <IconButton small label={nt('panel.edit')} onClick={openEdit}><IPencil /></IconButton>
+            <IconButton small label={nt('panel.close')} onClick={() => closePanel(layout)}><IX /></IconButton>
+          </span>
         </div>
         <Identity c={c} />
         <Segmented
           label={nt('panel.label')}
           value={tab}
           onChange={setTab}
-          items={TABS.map((k) => ({ key: k, label: nt(`panel.${k}`) }))}
+          items={tabs.map((k) => ({ key: k, label: nt(`panel.${k}`) }))}
         />
       </header>
       <div ref={body} className="nx-panel__body nx-scroll">
@@ -151,8 +160,8 @@ export function RightPanel({ route, layout }: { route: Route; layout: Layout }) 
             transition={{ duration: 0.15 }}
           >
             {tab === 'handbook' && <HandbookTab c={c} docked={layout === 'full'} />}
+            {tab === 'coding' && <CodingTab c={c} />}
             {tab === 'members' && <MembersTab c={c} />}
-            {tab === 'details' && <DetailsTab c={c} />}
             {tab === 'files' && <FilesTab c={c} />}
             {tab === 'routines' && <RoutinesTab c={c} />}
           </motion.div>
