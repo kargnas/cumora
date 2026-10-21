@@ -3,13 +3,14 @@
  * the eight PR digest events not folding into one job, unrelated routines
  * that share a prompt folding together, an "every N hours" change that
  * deletes a time it keeps or loses the anchor the URL points at, and a new
- * member that starts in the past (the scheduler would fire it at once).
+ * member that starts in the past (the scheduler would fire it at once), and
+ * a routine booked without a room missing from the 1:1 room it posts into.
  * Dates are built in local time, so the checks hold in any timezone.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import type { CalendarEvent } from '../src/types'
-import { everyHours, familiesOf, hhmm, memberAt, minuteOf, planFor, timesFor, titleFor } from '../src/next/panel/routines.ts'
+import type { CalendarEvent, Conversation } from '../src/types'
+import { everyHours, familiesOf, hhmm, memberAt, minuteOf, planFor, postsInto, timesFor, titleFor } from '../src/next/panel/routines.ts'
 
 const PROMPT = 'PR digest check. ALL config is in workspace/state/digest.json.'
 const daily = { freq: 'daily', interval: 1 } as const
@@ -37,6 +38,12 @@ test('the eight digest events fold into one job every 3 hours, the weekly summar
   assert.deepEqual(digest.events.map((e) => hhmm(minuteOf(e))), ['00:07', '03:07', '06:07', '09:07', '12:07', '15:07', '18:07', '21:07'])
   assert.equal(everyHours(digest), 3)
   assert.equal(everyHours(fams[1]), null, 'weekly rules have no hour spacing')
+})
+
+test('a job title drops the bracket its times opened', () => {
+  const fams = familiesOf([4, 7, 10].map((h) => ev(`s${h}`, `Slack 조사 → 상락님 보고 (KST ${h}시)`, h)))
+  assert.deepEqual(fams.map((f) => f.title), ['Slack 조사 → 상락님 보고'])
+  assert.equal(familiesOf([ev('a', 'Report (daily) 01:07', 1), ev('b', 'Report (daily) 13:07', 13)])[0].title, 'Report (daily)')
 })
 
 test('routines that only share a prompt stay apart', () => {
@@ -73,4 +80,15 @@ test('a new member never starts in the past', () => {
   assert.equal(later.startAt, new Date(2026, 9, 19, 4, 7).toISOString())
   assert.equal(later.status, 'paused')
   assert.deepEqual([later.agentPrompt, later.assigneeId, later.recurrence], [PROMPT, 'pr-summary-bot', daily])
+})
+
+test('a routine without a room shows in the 1:1 room of its creator and assignee, where the server posts it', () => {
+  // Useless Researcher on 2026-10-21: it booked its Slack reports for itself without --in.
+  const own = ev('s', 'Slack report', 4, { createdBy: 'researcher', assigneeId: 'researcher', targetConversationId: null })
+  const dm: Pick<Conversation, 'id' | 'kind' | 'members'> = { id: 'direct-me', kind: 'direct', members: ['me', 'researcher'] }
+  assert.equal(postsInto(own, dm), true)
+  assert.equal(postsInto(own, { ...dm, kind: 'group' }), false, 'a group room of the same two people is not the fallback')
+  const mates = ev('m', 'Their task', 4, { createdBy: 'mate', assigneeId: 'researcher', targetConversationId: null })
+  assert.equal(postsInto(mates, dm), false, "a teammate's task posts into the teammate's 1:1 room")
+  assert.equal(postsInto(ev('x', 'Elsewhere', 4, { createdBy: 'researcher', assigneeId: 'researcher', targetConversationId: 'group-1' }), dm), false)
 })

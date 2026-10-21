@@ -22,7 +22,7 @@ import { IconButton, Spinner, Switch } from '../ui/primitives'
 import { IChevronLeft, IChevronRight, IRepeat } from '../ui/icons'
 import { describeRepeat } from '../sections/calendar/model'
 import { errText, RunNow } from '../sections/calendar/parts'
-import { everyHours, familiesOf, HOUR_STEPS, isDaily, memberAt, minuteOf, planFor, timesFor, titleFor, type Family } from './routines'
+import { everyHours, familiesOf, HOUR_STEPS, isDaily, memberAt, minuteOf, planFor, postsInto, timesFor, titleFor, type Family } from './routines'
 import { NewTriggerDialog, TriggerRow, TriggerView, useTriggers } from './triggers'
 
 /** The active member that fires next, or null when every member is paused. */
@@ -246,8 +246,8 @@ export function RoutinesTab({ c }: { c: Conversation }) {
   const events = useCalendar((s) => s.events)
   useEffect(() => { if (!loaded && !loading) void useCalendar.getState().load() }, [loaded, loading])
   const routines = useMemo(
-    () => events.filter((e) => e.kind === 'agent_task' && e.targetConversationId === c.id && e.status !== 'cancelled'),
-    [events, c.id],
+    () => events.filter((e) => e.kind === 'agent_task' && e.status !== 'cancelled' && postsInto(e, c)),
+    [events, c],
   )
   const families = useMemo(() => familiesOf(routines), [routines])
   const triggers = useTriggers(c.id)

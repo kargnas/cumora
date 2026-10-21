@@ -7,7 +7,16 @@
  * delete, so the schedule changes without hourly support on the server.
  */
 import type { CalendarEventInput } from '@/api/client'
-import type { CalendarEvent, CalendarEventStatus } from '@/types'
+import type { CalendarEvent, CalendarEventStatus, Conversation } from '@/types'
+
+/** Whether the event posts into `c`. One booked without a room (an agent's
+ *  `calendar create` without `--in`) posts into a 1:1 room holding its creator
+ *  and its assignee (`resolveTargetConversation` in server/src/calendar.ts). */
+export function postsInto(e: CalendarEvent, c: Pick<Conversation, 'id' | 'kind' | 'members'>): boolean {
+  if (e.targetConversationId) return e.targetConversationId === c.id
+  return c.kind === 'direct' && c.members.length === 2 && e.assigneeId !== null
+    && c.members.includes(e.createdBy) && c.members.includes(e.assigneeId)
+}
 
 /** Steps that split a day evenly, so every day runs the same times. */
 export const HOUR_STEPS = [1, 2, 3, 4, 6, 8, 12, 24] as const
@@ -39,7 +48,10 @@ export function isDaily(f: Family): boolean {
 function stem(titles: string[]): string {
   let p = titles[0]
   for (const t of titles) while (!t.startsWith(p)) p = p.slice(0, -1)
-  return p.replace(/[\s\d:.,·|-]+$/u, '').trim()
+  const s = p.replace(/[\s\d:.,·|-]+$/u, '').trim()
+  // "Report (KST 4시)" and "Report (KST 7시)" share "Report (KST": drop the
+  // bracket the times opened, unless nothing else is left (that would split the job).
+  return s.replace(/\s*[([][^)\]]*$/u, '') || s
 }
 
 export function familiesOf(events: CalendarEvent[]): Family[] {
