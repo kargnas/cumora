@@ -21,14 +21,24 @@ import { AgentChips, usePickedAgent } from './AgentChips'
 interface Poll { state: 'open' | 'closed'; seq: number; frame?: string; width?: number; height?: number; url: string | null }
 type Input = Record<string, string | number>
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
-const shown = () => new Promise<void>((resolve) => {
-  const on = () => {
+// Both resolve early when the poll is aborted (unmount, agent switch, large
+// view opening), so cleanup never waits on a backoff or a hidden tab.
+const sleep = (ms: number, signal: AbortSignal) => new Promise<void>((resolve) => {
+  const done = () => { clearTimeout(timer); signal.removeEventListener('abort', done); resolve() }
+  const timer = setTimeout(done, ms)
+  signal.addEventListener('abort', done)
+})
+const shown = (signal: AbortSignal) => new Promise<void>((resolve) => {
+  if (!document.hidden || signal.aborted) { resolve(); return }
+  const done = () => {
     if (document.hidden) return
-    document.removeEventListener('visibilitychange', on)
+    off()
     resolve()
   }
-  document.addEventListener('visibilitychange', on)
+  const off = () => { document.removeEventListener('visibilitychange', done); signal.removeEventListener('abort', stop) }
+  const stop = () => { off(); resolve() }
+  document.addEventListener('visibilitychange', done)
+  signal.addEventListener('abort', stop)
 })
 
 // CDP's modifier bits: Alt 1, Ctrl 2, Meta 4, Shift 8. The browser runs on
@@ -55,6 +65,9 @@ function Screen({ agent, big = false }: { agent: Participant; big?: boolean }) {
   // The page's size in CSS pixels, from the newest frame: clicks are given in it.
   const page = useRef({ w: 0, h: 0 })
   const [state, setState] = useState<'loading' | Poll['state']>('loading')
+  // A frame has been painted: the canvas stays hidden until then, so its box
+  // never flashes the default aspect before the first frame fills it.
+  const [drawn, setDrawn] = useState(false)
   const [url, setUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [text, setText] = useState('')
@@ -85,46 +98,54 @@ function Screen({ agent, big = false }: { agent: Participant; big?: boolean }) {
   useEffect(() => {
     // The large view polls on its own, so this one rests meanwhile.
     if (large) return
-    let live = true
+    // Aborting on cleanup drops the in-flight long poll at once (up to 5s
+    // otherwise), so an agent switch does not leave a stale request holding a
+    // connection on the phone's native HTTP pool.
+    const ac = new AbortController()
+    const { signal } = ac
     // A first poll answers at once with the newest frame the server holds.
     let after = 0
     void (async () => {
-      while (live) {
+      while (!signal.aborted) {
         if (document.hidden) {
-          await shown()
+          await shown(signal)
           continue
         }
         try {
-          const r = await http<Poll>(`${path}?after=${after}`)
-          if (!live) return
+          const r = await http<Poll>(`${path}?after=${after}`, { signal })
+          if (signal.aborted) return
           after = r.seq
           if (r.frame) {
             const bytes = Uint8Array.from(atob(r.frame), (c) => c.charCodeAt(0))
             const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/jpeg' }))
             const c = canvas.current
-            if (live && c) {
+            if (!signal.aborted && c) {
               if (c.width !== bitmap.width) c.width = bitmap.width
               if (c.height !== bitmap.height) c.height = bitmap.height
               c.getContext('2d')?.drawImage(bitmap, 0, 0)
               page.current = { w: r.width || bitmap.width, h: r.height || bitmap.height }
+              setDrawn(true)
             }
             bitmap.close()
           }
+          // A browser that closed drops its last frame, so the next open waits
+          // for a fresh one instead of flashing the stale page.
+          if (r.state === 'closed') setDrawn(false)
           setState(r.state)
           setUrl(r.url)
           setError(null)
         } catch (e) {
-          if (!live) return
+          // An abort rejects the fetch; that is cleanup, not an error.
+          if (signal.aborted) return
           setError(errText(e))
-          await sleep(3_000)
+          await sleep(3_000, signal)
         }
       }
     })()
-    return () => { live = false }
+    return () => ac.abort()
   }, [path, large])
 
-  const at = (e: { clientX: number; clientY: number }) => {
-    const r = canvas.current?.getBoundingClientRect()
+  const at = (e: { clientX: number; clientY: number }, r = canvas.current?.getBoundingClientRect()) => {
     if (!r || r.width === 0) return { x: 0, y: 0 }
     return {
       x: Math.round(((e.clientX - r.left) / r.width) * page.current.w),
@@ -170,7 +191,7 @@ function Screen({ agent, big = false }: { agent: Participant; big?: boolean }) {
       const r = e.currentTarget.getBoundingClientRect()
       const deltaY = ((t.lastY - e.clientY) / r.height) * page.current.h
       t.lastY = e.clientY
-      send({ type: 'input_mouse', eventType: 'mouseWheel', ...at({ clientX: t.x, clientY: t.y }), deltaX: 0, deltaY })
+      send({ type: 'input_mouse', eventType: 'mouseWheel', ...at({ clientX: t.x, clientY: t.y }, r), deltaX: 0, deltaY })
       return
     }
     // Only a drag moves the mouse there; hovering would send a stream for nothing.
@@ -219,10 +240,11 @@ function Screen({ agent, big = false }: { agent: Participant; big?: boolean }) {
           {!big && <IconButton small label={nt('computer.expand')} onClick={() => setLarge(true)}><IExpand /></IconButton>}
         </div>
       )}
-      {/* Mounted while closed too, so the first frame has somewhere to land. */}
+      {/* Mounted while closed too, so the first frame has somewhere to land;
+          hidden until a frame is drawn, so its box never flashes the default aspect. */}
       <canvas
         ref={canvas}
-        hidden={state !== 'open'}
+        hidden={state !== 'open' || !drawn}
         className="nx-screen__view"
         tabIndex={0}
         aria-label={nt('computer.screen', { name: agent.name })}
@@ -234,7 +256,7 @@ function Screen({ agent, big = false }: { agent: Participant; big?: boolean }) {
         onKeyDown={(e) => onKey(e, true)}
         onKeyUp={(e) => onKey(e, false)}
       />
-      {state === 'loading' && <div className="nx-center" aria-busy="true"><Spinner /></div>}
+      {(state === 'loading' || (state === 'open' && !drawn)) && <div className="nx-center" aria-busy="true"><Spinner /></div>}
       {state === 'closed' && (
         <div className="nx-empty">
           <b>{nt('computer.closed', { name: agent.name })}</b>

@@ -23,7 +23,7 @@ const MAX_FPS = 10 // the most frames per second the dashboard sends one stream
 const HOLD_MS = 5_000 // a poll waits this long for something newer
 const IDLE_MS = 30_000 // a stream nobody polled for this long closes
 const RETRY_MS = 3_000 // a browser that is not open is looked for this often
-const GATE_MS = 30_000 // a passed role check holds this long, so a poll per frame skips the database
+const HANDSHAKE_MS = 10_000 // give up a stalled websocket upgrade so it retries
 
 export interface ScreenPoll {
   state: 'open' | 'closed'
@@ -83,7 +83,9 @@ class Screen {
     if (this.ended) return
     let port: number | undefined
     try {
-      port = (await dashboardSessions()).find((s) => s.session === this.agentId)?.port
+      const found = (await dashboardSessions()).find((s) => s.session === this.agentId)?.port
+      // The port goes straight into the ws URL path, so only a real port number does.
+      if (typeof found === 'number' && Number.isInteger(found) && found > 0 && found <= 65535) port = found
     } catch (e) {
       // A dashboard that is down looks like a browser that is not open; the
       // next try finds it again.
@@ -96,7 +98,9 @@ class Screen {
       this.retry = setTimeout(() => void this.connect(), RETRY_MS)
       return
     }
-    const ws = new WebSocket(`ws://${DASHBOARD.host}:${DASHBOARD.port}/api/session/${port}/stream`, { headers: { host: LOOPBACK } })
+    // handshakeTimeout so a half-open upgrade (TCP up, HTTP never finishes)
+    // fails into the close handler and retries, instead of sitting forever.
+    const ws = new WebSocket(`ws://${DASHBOARD.host}:${DASHBOARD.port}/api/session/${port}/stream`, { headers: { host: LOOPBACK }, handshakeTimeout: HANDSHAKE_MS })
     this.ws = ws
     ws.on('open', () => {
       ws.send(JSON.stringify({ type: 'config', maxFps: MAX_FPS }))
@@ -246,15 +250,15 @@ export function parseScreenInput(body: unknown): object[] | null {
 }
 
 type Requirer = (req: Request & AuthedRequest) => Promise<{ userId: string; companyId: string }>
-const passed = new Map<string, number>()
 
 /** The agent of the route, for workspace owners and admins only: the browser
- *  shows every site the agent is signed in to. Null once it has answered. */
+ *  shows every site the agent is signed in to, and input drives it live. The
+ *  role is checked on every call, not cached, so demoting a viewer or deleting
+ *  the agent cuts off both watching and driving at once (as agentCoding does).
+ *  Null once it has answered. */
 async function gate(requireCompany: Requirer, req: Request & AuthedRequest, res: Response): Promise<string | null> {
   const { userId, companyId } = await requireCompany(req)
   const agentId = String(req.params.agentId)
-  const key = `${companyId} ${userId} ${agentId}`
-  if ((passed.get(key) ?? 0) > Date.now()) return agentId
   const { pool } = await import('../db/pool.js')
   const { rows } = await pool.query<{ role: string | null; agent: boolean }>(
     `SELECT (SELECT role FROM company_members WHERE company_id = $1 AND user_id = $2) AS role,
@@ -270,7 +274,6 @@ async function gate(requireCompany: Requirer, req: Request & AuthedRequest, res:
     res.status(404).json({ error: 'not found' })
     return null
   }
-  passed.set(key, Date.now() + GATE_MS)
   return agentId
 }
 
@@ -280,7 +283,7 @@ async function gate(requireCompany: Requirer, req: Request & AuthedRequest, res:
 export async function agentScreen(requireCompany: Requirer, req: Request & AuthedRequest, res: Response): Promise<void> {
   const agentId = await gate(requireCompany, req, res)
   if (!agentId) return
-  const after = Number(req.query.after) || 0
+  const after = Math.max(0, Number(req.query.after) || 0)
   const abort = new AbortController()
   res.on('close', () => abort.abort())
   const poll = await screenOf(agentId).poll(after, abort.signal)
