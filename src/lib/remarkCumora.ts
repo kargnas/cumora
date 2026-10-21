@@ -20,9 +20,76 @@
  * kinds — but we map every kind it can emit, defensively.
  */
 import type { Link, Parents, Root, RootContent, Text } from 'mdast'
+import type { Extension as FromMarkdownExtension } from 'mdast-util-from-markdown'
+import type { State, Tokenizer } from 'micromark-util-types'
+import type {} from 'remark-parse'
+import type { Processor } from 'unified'
 import { SKIP, visit } from 'unist-util-visit'
 import { splitHttpUrlCandidate } from './markdownUrls'
 import { parseBody, type RichToken } from './utils'
+
+declare module 'micromark-util-types' {
+  interface TokenTypeMap {
+    cumoraSlackLink: 'cumoraSlackLink'
+  }
+}
+
+// Slack links must be recognized before GFM splits their URLs and labels.
+// A syntax token also lets Markdown keep code spans and fenced blocks literal.
+const tokenizeSlackLink: Tokenizer = (effects, ok, nok) => {
+  let value = ''
+  return start
+
+  function start(code: number | null) {
+    effects.enter('cumoraSlackLink')
+    effects.consume(code)
+    return inside
+  }
+
+  function inside(code: number | null): ReturnType<State> {
+    if (code === 62) {
+      if (!/^https?:\/\/[^\s<>|\\]+\\?\|[^<>]+$/i.test(value)) return nok(code)
+      effects.consume(code)
+      effects.exit('cumoraSlackLink')
+      return ok
+    }
+    // Micromark uses negative codes for tabs and line endings.
+    if (code === null || code < 32 || code === 60) return nok(code)
+    value += String.fromCharCode(code)
+    effects.consume(code)
+    return inside
+  }
+}
+
+function decodeSlackEntities(value: string): string {
+  return value.replace(/&(amp|lt|gt);/g, (_, name: string) => (
+    name === 'amp' ? '&' : name === 'lt' ? '<' : '>'
+  ))
+}
+
+const slackLinkFromMarkdown: FromMarkdownExtension = {
+  enter: {
+    cumoraSlackLink(token) {
+      const raw = this.sliceSerialize(token)
+      // Existing Markdown links own their labels; never create nested anchors.
+      if (this.stack.some((node) => node.type === 'link' || node.type === 'linkReference')) {
+        this.enter({ type: 'text', value: raw }, token)
+        return
+      }
+      const separator = raw.indexOf('|')
+      // GFM tables require the separator to be escaped as \|.
+      const url = raw.slice(1, separator).replace(/\\$/, '')
+      this.enter({
+        type: 'link',
+        url: decodeSlackEntities(url),
+        children: [{ type: 'text', value: decodeSlackEntities(raw.slice(separator + 1, -1)) }],
+      }, token)
+    },
+  },
+  exit: {
+    cumoraSlackLink(token) { this.exit(token) },
+  },
+}
 
 /** A custom mdast node that mdast-util-to-hast renders as `<hName …>` because of
  *  `data.hName` / `data.hProperties`. react-markdown then routes it to our
@@ -125,7 +192,15 @@ function repairLiteralAutolinks(parent: Parents): void {
   }
 }
 
-export function remarkCumora() {
+export function remarkCumora(this: Processor) {
+  const data = this.data()
+  const micromarkExtensions = data.micromarkExtensions ??= []
+  const fromMarkdownExtensions = data.fromMarkdownExtensions ??= []
+  micromarkExtensions.push({
+    text: { 60: { name: 'cumoraSlackLink', tokenize: tokenizeSlackLink } },
+  })
+  fromMarkdownExtensions.push(slackLinkFromMarkdown)
+
   return (tree: Root): void => {
     repairLiteralAutolinks(tree)
 
