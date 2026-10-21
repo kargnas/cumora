@@ -1,16 +1,20 @@
 /**
- * Coding: the T3 Code threads each agent launched, listed in the Details tab
- * (src/next/panel/CodingGroup.tsx), and a wake for the agent when one comes
- * to rest or asks a question.
+ * Coding: the T3 Code threads each agent launched, listed in the room panel's
+ * Coding tab (src/next/panel/CodingTab.tsx), and a wake for the agent when one
+ * comes to rest or asks a question.
  *
  * T3 keeps no record of which MCP client made a thread, so the computer marks
- * it: a Claude Code PreToolUse hook (computer/t3-tag.mjs in the deploy repo)
- * puts `[@<agent id>] ` before the title of every t3_thread_launch. Once a
- * minute the server reads every project of every T3 server for titles with
- * that mark and copies them into the fork store, so a missed poll or a restart
- * loses nothing: T3 holds the record. A thread keeps the agent and the room of
- * its first copy, so renaming it in T3 does not move it. A thread renamed
- * without its mark, archived or deleted in T3 stays as it was last read.
+ * it: a PreToolUse hook in Claude Code and Codex (computer/t3-tag.mjs in the
+ * deploy repo) puts `[@<agent id>] ` before the title of every
+ * t3_thread_launch. The server reads every project of every T3 server for
+ * titles with that mark and copies them into the fork store, so a missed poll
+ * or a restart loses nothing: T3 holds the record. A read lists every project
+ * of a server, so it comes every few seconds only while T3 may be changing a
+ * marked thread (hot) and once a minute otherwise, and each server is read on
+ * its own, so one that sleeps holds back nothing. A change is announced to the
+ * workspace, whose open Coding tabs then read their list again. A thread keeps
+ * the agent of its first copy, so renaming it in T3 does not move it. A thread
+ * renamed without its mark, archived or deleted in T3 stays as it was last read.
  *
  * compose names the T3 servers in T3_FILE (the MCP server name Claude Code
  * knows each by, its URL and its token file) and mounts the server's own T3
@@ -22,8 +26,8 @@
  * launched it is woken through upstream's postDispatchMessage in the
  * `calendar_event` envelope, like a trigger (./triggers.ts). The hook cannot
  * tell which room the agent was working in, so the wake goes to the room of the
- * agent's model call nearest to the thread's creation: the computer's daemon
- * puts the room of each turn on its calls in upstream's llm_calls.
+ * turn that launched the thread: the computer's daemon puts the room of each
+ * turn on its calls in upstream's llm_calls (launchRoom).
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -32,7 +36,13 @@ import type { AuthedRequest } from '../auth.js'
 import { redact } from './redact.js'
 import { codingWakeKey, getForkStore, type CodingThread, type NewCodingThread } from './store.js'
 
-const POLL_MS = 60_000
+// The poller asks this often whether a T3 server is hot (two small queries)
+// and reads it then; otherwise it reads it once a minute, for a person acting
+// on a marked thread in T3 itself.
+const HOT_MS = 3_000
+const COLD_MS = 60_000
+// T3's statuses of a thread that is still moving (the Coding tab's ACTIVE).
+const MOVING = ['preparing', 'queued', 'starting', 'running', 'waiting'] as const
 // Same convention as the recorder: relative to the server's cwd, where compose
 // puts the T3 server list and mounts the server's T3 tokens.
 const T3_FILE = resolve(process.cwd(), 'server/computer/t3code.json')
@@ -49,7 +59,7 @@ const WAKE_STATUSES = ['completed', 'failed', 'interrupted', 'cancelled', 'rolle
 // A thread first copied this long after it came to rest is history: the store
 // was new or the server was down, and its agent is not woken for it.
 const STALE_MS = 30 * 60_000
-// ponytail: the Details tab shows each agent's 10 most recently changed
+// ponytail: the Coding tab shows each agent's 10 most recently changed
 // threads; page the route if someone needs the older ones there.
 const LIST = 10
 
@@ -88,7 +98,7 @@ function t3Servers(): T3Server[] {
 async function connect(server: T3Server): Promise<T3Session> {
   const token = readFileSync(join(TOKEN_DIR, server.tokenFile), 'utf8').trim()
   // Checked here, without the value: fetch would put a malformed header value
-  // in its error, and the error reaches the log and the Details tab.
+  // in its error, and the error reaches the log and the Coding tab.
   if (!/^[\x21-\x7e]+$/.test(token)) throw new Error(`${server.tokenFile} does not hold a one-line token`)
   let session: string | null = null
   let id = 0
@@ -140,7 +150,7 @@ async function connect(server: T3Server): Promise<T3Session> {
 /** Every thread of every project on the server whose title carries a mark.
  *  T3 lists threads per project only, for a caller outside a T3 thread.
  *  Exported for tests, which fake T3 at fetch.
- *  ponytail: one t3_thread_list per project per minute, each filtered by T3
+ *  ponytail: one t3_thread_list per project per read, each filtered by T3
  *  to marked titles. Skip projects without marked threads if T3 feels it. */
 export async function markedThreads(server: T3Server): Promise<ReadThread[]> {
   const t3 = await connect(server)
@@ -191,21 +201,61 @@ async function agentCompanies(ids: string[]): Promise<Map<string, string>> {
   return new Map(rows.map((r) => [r.id, r.company_id]))
 }
 
-/** The room of the agent's model call nearest to `at`, within 15 minutes. The
- *  computer's daemon reports a turn's calls within a second, with the turn's
- *  room, so the call that launched the thread is already there.
+/** The room of the turn that launched a thread at `at`: the room on the first
+ *  turn call the agent records from then on. Claude Code records each model
+ *  call as it ends (the launching call, or the next one, which reads the
+ *  launch's result) and Codex a whole turn when it ends, so that call is the
+ *  launching turn's. undefined while the turn has recorded nothing since the
+ *  launch; null when the turn had no one room.
  *  ponytail: a turn that answers several rooms at once records none of them,
- *  and its thread wakes nobody. */
-async function roomNear(agentId: string, at: string): Promise<string | null> {
+ *  and its thread wakes nobody.
+ *  Exported for tests. */
+export async function launchRoom(agentId: string, at: string): Promise<string | null | undefined> {
   const { pool } = await import('../db/pool.js')
-  const { rows } = await pool.query<{ conversation_id: string }>(
+  const { rows } = await pool.query<{ conversation_id: string | null }>(
     `SELECT conversation_id FROM llm_calls
-      WHERE agent_id = $1 AND conversation_id IS NOT NULL
-        AND created_at BETWEEN $2::timestamptz - interval '15 minutes' AND $2::timestamptz + interval '15 minutes'
-      ORDER BY abs(extract(epoch FROM created_at - $2::timestamptz)) LIMIT 1`,
+      WHERE agent_id = $1 AND purpose = 'agent-turn' AND created_at >= $2::timestamptz
+      ORDER BY created_at LIMIT 1`,
     [agentId, at],
   )
-  return rows[0]?.conversation_id ?? null
+  return rows.length === 0 ? undefined : rows[0].conversation_id
+}
+
+/** Whether T3 may be changing a marked thread on `server` now: a thread copied
+ *  from it is still moving, or an agent's status was set or renewed within the
+ *  busy lease. A computer agent renews it all through a turn, where it may
+ *  launch a thread, and sets it again when the turn ends, so a launch at the
+ *  very end of a turn is still read soon.
+ *  Exported for tests. */
+export async function hot(server: string): Promise<boolean> {
+  if ((await getForkStore()).codingThreadIn(server, MOVING)) return true
+  // Imported here, like db/pool.js: status.js loads it.
+  const [{ pool }, { BUSY_STATUS_LEASE_MS }] = await Promise.all([import('../db/pool.js'), import('../status.js')])
+  const { rows } = await pool.query<{ busy: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM participants WHERE kind = 'agent' AND status_updated_at > NOW() - $1 * interval '1 millisecond'
+     ) AS busy`,
+    [BUSY_STATUS_LEASE_MS],
+  )
+  return rows[0].busy
+}
+
+/** Tells the open Coding tabs of each workspace that its copy changed, so they
+ *  read it again. Like ./agentTool.ts, it goes straight to Redis on the status
+ *  channel, which ws.ts fans out to the workspace. It names no thread: every
+ *  member gets it, and a title is for owners and admins. */
+async function announce(companyIds: Set<string>): Promise<void> {
+  if (companyIds.size === 0) return
+  // Imported here: redis.js loads env.ts, which exits without OPENAI_API_KEY in tests.
+  const { redis, CH_STATUS } = await import('../redis.js')
+  for (const companyId of companyIds) await redis.publish(CH_STATUS, JSON.stringify({ type: 'fork.coding', companyId }))
+}
+
+/** Every workspace with an agent: a failing T3 server shows under each one's list. */
+async function agentWorkspaces(): Promise<string[]> {
+  const { pool } = await import('../db/pool.js')
+  const { rows } = await pool.query<{ company_id: string }>(`SELECT DISTINCT company_id FROM participants WHERE kind = 'agent'`)
+  return rows.map((r) => r.company_id)
 }
 
 function envelope(t: CodingThread): string {
@@ -231,18 +281,22 @@ function envelope(t: CodingThread): string {
 async function wake(t: CodingThread): Promise<void> {
   const store = await getForkStore()
   const key = codingWakeKey(t)
-  if (!t.conversationId) {
+  const room = t.conversationId ?? await launchRoom(t.agentId, t.createdAt)
+  // The launching turn is still running and has recorded nothing since the
+  // launch, so the agent is busy anyway: a later poll asks again.
+  if (room === undefined) return
+  if (room === null) {
     console.warn(`[fork] T3 thread ${t.threadId} of ${t.agentId} is ${t.status}, but the room it was launched from is unknown`)
     store.markCodingWoken(t.server, t.threadId, key, 'the room it was launched from is unknown')
     return
   }
   // Claimed before the post, like a trigger firing (./triggers.ts): a crash
   // between the two must not wake the agent twice.
-  store.markCodingWoken(t.server, t.threadId, key, null)
+  store.markCodingWoken(t.server, t.threadId, key, null, room)
   try {
     // Imported here, not at the top: calendar.js loads db/pool.js and env.ts.
     const { postDispatchMessage } = await import('../calendar.js')
-    await postDispatchMessage({ event: { company_id: t.companyId, assignee_id: t.agentId }, conversationId: t.conversationId, body: envelope(t) })
+    await postDispatchMessage({ event: { company_id: t.companyId, assignee_id: t.agentId }, conversationId: room, body: envelope({ ...t, conversationId: room }) })
   } catch (err) {
     console.error(`[fork] could not wake ${t.agentId} for T3 thread ${t.threadId}:`, err)
     store.markCodingWoken(t.server, t.threadId, key, err instanceof Error ? err.message : String(err))
@@ -250,42 +304,44 @@ async function wake(t: CodingThread): Promise<void> {
 }
 
 // Why the last poll of each T3 server failed, shown under the coding list. The
-// same failure every minute is logged once.
+// same failure on every poll is logged once.
 const pollErrors = new Map<string, string>()
 
-async function poll(): Promise<void> {
-  const seen: Array<{ server: string; thread: ReadThread; agentId: string; title: string }> = []
-  for (const server of t3Servers()) {
-    try {
-      for (const thread of await markedThreads(server)) {
-        const mark = parseMark(thread.title)
-        if (mark) seen.push({ server: server.name, thread, ...mark })
-      }
-      pollErrors.delete(server.name)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      if (pollErrors.get(server.name) !== message) console.error(`[fork] T3 poll of ${server.name} failed:`, err)
-      pollErrors.set(server.name, message)
+async function poll(server: T3Server): Promise<void> {
+  const failed = pollErrors.get(server.name)
+  const seen: Array<{ thread: ReadThread; agentId: string; title: string }> = []
+  try {
+    for (const thread of await markedThreads(server)) {
+      const mark = parseMark(thread.title)
+      if (mark) seen.push({ thread, ...mark })
     }
+    pollErrors.delete(server.name)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (failed !== message) console.error(`[fork] T3 poll of ${server.name} failed:`, err)
+    pollErrors.set(server.name, message)
   }
   const store = await getForkStore()
   const companies = await agentCompanies([...new Set(seen.map((s) => s.agentId))])
   const known = store.codingThreadKeys()
   const threads: NewCodingThread[] = []
-  for (const { server, thread, agentId, title } of seen) {
+  for (const { thread, agentId, title } of seen) {
     const companyId = companies.get(agentId)
     if (!companyId) continue
-    const fresh = !known.has(`${server} ${thread.threadId}`)
     const t: CodingThread = {
-      server, threadId: thread.threadId, companyId, agentId,
-      conversationId: fresh ? await roomNear(agentId, thread.createdAt) : null,
+      server: server.name, threadId: thread.threadId, companyId, agentId,
+      // Found by its first wake: the launching turn may not have recorded a call yet.
+      conversationId: null,
       title, status: thread.requestId ? 'question' : thread.status, runId: thread.latestRunId, requestId: thread.requestId,
       pullRequests: thread.pullRequests, createdAt: thread.createdAt, updatedAt: thread.updatedAt,
     }
+    const fresh = !known.has(`${server.name} ${thread.threadId}`)
     threads.push({ ...t, woken: fresh && Date.now() - Date.parse(t.updatedAt) > STALE_MS ? codingWakeKey(t) : null })
   }
-  store.saveCodingThreads(threads)
-  for (const t of store.codingWakesDue(WAKE_STATUSES)) await wake(t)
+  const changed = store.saveCodingThreads(threads)
+  if (pollErrors.get(server.name) !== failed) for (const id of await agentWorkspaces()) changed.add(id)
+  await announce(changed)
+  for (const t of store.codingWakesDue(server.name, WAKE_STATUSES)) await wake(t)
 }
 
 let started = false
@@ -293,20 +349,26 @@ let started = false
 export function startCodingPoller(): void {
   if (started) return
   started = true
-  let busy = false
-  const tick = async () => {
-    if (busy) return
-    busy = true
-    try {
-      await poll()
-    } catch (err) {
-      console.error('[fork] coding poll failed:', err)
-    } finally {
-      busy = false
+  for (const server of t3Servers()) {
+    let read = 0
+    // The same failure on every tick is logged once.
+    let failed: string | null = null
+    const tick = async () => {
+      try {
+        if (Date.now() - read >= COLD_MS || await hot(server.name)) {
+          read = Date.now()
+          await poll(server)
+        }
+        failed = null
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        if (failed !== message) console.error(`[fork] coding poll of ${server.name} failed:`, err)
+        failed = message
+      }
+      setTimeout(() => void tick(), HOT_MS).unref()
     }
+    setTimeout(() => void tick(), 15_000).unref()
   }
-  setTimeout(() => void tick(), 15_000).unref()
-  setInterval(() => void tick(), POLL_MS).unref()
 }
 
 type Requirer = (req: Request & AuthedRequest) => Promise<{ userId: string; companyId: string }>

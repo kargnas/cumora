@@ -1,13 +1,14 @@
 /**
  * Coding: the T3 Code threads the room's agents launched. The server copies
- * them from T3 once a minute (server/src/fork/coding.ts), so the tab reloads
- * every 30 seconds while it is open, and the last answer per agent draws the
- * list at once when the tab opens again. A thread with pull requests opens the
- * last one T3 lists; T3 has no address a phone can open. Owners and admins
- * only, because a title an agent wrote can quote any room.
+ * them from T3 (server/src/fork/coding.ts) and says on the workspace's socket
+ * when its copy changed, so the tab reads the list again then, and the last
+ * answer per agent draws the list at once when the tab opens again. A thread
+ * with pull requests opens the last one T3 lists; T3 has no address a phone
+ * can open. Owners and admins only, because a title an agent wrote can quote
+ * any room.
  */
 import { useEffect, useState } from 'react'
-import { http } from '@/api/client'
+import { http, ws } from '@/api/client'
 import { useLocale } from '@/lib/i18n'
 import { useAuth } from '@/stores/auth'
 import type { Conversation, Participant } from '@/types'
@@ -31,7 +32,6 @@ interface Thread {
 interface Coding { threads: Thread[]; servers: Array<{ name: string; error: string | null }> }
 type AgentCoding = Coding & { agentId: string }
 
-const RELOAD_MS = 30_000
 // T3's thread statuses, in the words and colours the row uses. T3 shows a run
 // that just finished as `waiting` while it saves the checkpoint, and counts it
 // as running; 'question' is the server's, for a thread that waits for an answer.
@@ -91,31 +91,40 @@ function CodingList({ agents }: { agents: Participant[] }) {
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     let live = true
+    // An event can start a read while an older one is still out; only the
+    // newest may draw.
+    let latest = 0
     const hit = cached(ids)
     setCoding(hit)
     setRise(hit === null)
     setError(null)
     const load = async () => {
       if (document.hidden) return
+      const mine = ++latest
       try {
         const lists = await Promise.all(ids.split(' ').map(async (agentId) =>
           ({ agentId, ...(await http<Coding>(`/fork/agents/${encodeURIComponent(agentId)}/coding`)) })))
-        if (!live) return
+        if (!live || mine !== latest) return
         for (const { agentId, threads, servers } of lists) cache.set(agentId, { threads, servers })
         setCoding(lists)
         setError(null)
       } catch (e) {
-        if (live) setError(errText(e))
+        if (live && mine === latest) setError(errText(e))
       }
     }
     // Back from the background, the list may be minutes old.
     const onVisible = () => { if (!document.hidden) void load() }
+    // `fork.coding` (a fork event, outside the client's event union) says the
+    // server's copy changed. `hello` opens every connection, after events missed
+    // while the socket was down.
+    const off = ws.on((e) => {
+      if (e.type === 'hello' || (e as { type: string }).type === 'fork.coding') void load()
+    })
     void load()
-    const timer = window.setInterval(() => void load(), RELOAD_MS)
     document.addEventListener('visibilitychange', onVisible)
     return () => {
       live = false
-      window.clearInterval(timer)
+      off()
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [ids])

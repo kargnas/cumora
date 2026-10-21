@@ -61,7 +61,8 @@ export interface CodingThread {
   threadId: string
   companyId: string
   agentId: string
-  /** The room the agent launched it from, or null when that could not be told. */
+  /** The room of the turn that launched it, found when its agent is first woken
+   *  (./coding.ts launchRoom); null until then, or when that turn had no one room. */
   conversationId: string | null
   /** Without the agent's `[@<id>] ` mark. */
   title: string
@@ -283,7 +284,7 @@ const MIGRATIONS = [
    );`,
 
   // Coding (./coding.ts): the T3 Code threads agents launched, copied from T3
-  // once a minute. `status` is T3's, or 'question' while the thread waits for
+  // by its poller. `status` is T3's, or 'question' while the thread waits for
   // the answer to `request_id`. `woken` holds the codingWakeKey the agent was
   // last woken for, and `wake_error` why that wake could not be posted.
   // ponytail: rows are never pruned, one per launched thread. Prune by age if
@@ -758,45 +759,60 @@ export async function openForkStore(file: string) {
 
     /** Copies one poll of T3 in one write. The poller hands over every thread on
      *  every poll, so nothing is written when no status, title, run, question or
-     *  pull request changed. A row keeps its agent and its room from the first copy. */
-    saveCodingThreads(threads: NewCodingThread[]): void {
-      let changed = 0
+     *  pull request changed. A row keeps the agent of its first copy and the room
+     *  its first wake found. Returns the workspaces whose rows changed. */
+    saveCodingThreads(threads: NewCodingThread[]): Set<string> {
+      const changed = new Set<string>()
       db.run('BEGIN')
       try {
         for (const t of threads) {
-          db.run(
+          // RETURNING answers only for a row that was written, with its own workspace.
+          for (const [companyId] of rows(
             `INSERT INTO coding_threads (server, thread_id, company_id, agent_id, conversation_id, title, status, run_id, request_id, pull_requests, created_at, updated_at, woken)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT (server, thread_id) DO UPDATE SET
                title = excluded.title, status = excluded.status, run_id = excluded.run_id, request_id = excluded.request_id,
                pull_requests = excluded.pull_requests, updated_at = excluded.updated_at
              WHERE title IS NOT excluded.title OR status IS NOT excluded.status OR run_id IS NOT excluded.run_id
-                OR request_id IS NOT excluded.request_id OR pull_requests IS NOT excluded.pull_requests`,
+                OR request_id IS NOT excluded.request_id OR pull_requests IS NOT excluded.pull_requests
+             RETURNING company_id`,
             [t.server, t.threadId, t.companyId, t.agentId, t.conversationId, t.title, t.status, t.runId, t.requestId,
               JSON.stringify(t.pullRequests), t.createdAt, t.updatedAt, t.woken],
-          )
-          changed += db.getRowsModified()
+          )) changed.add(String(companyId))
         }
         db.run('COMMIT')
       } catch (err) {
         db.run('ROLLBACK')
         throw err
       }
-      if (changed > 0) save()
+      if (changed.size > 0) save()
+      return changed
     },
 
-    /** Threads resting in one of `statuses` that their agent was not woken for yet. */
-    codingWakesDue(statuses: readonly string[]): CodingThread[] {
+    /** Whether a thread copied from `server` is in one of `statuses`. */
+    codingThreadIn(server: string, statuses: readonly string[]): boolean {
       return rows(
-        `SELECT ${CODING_COLUMNS}, woken FROM coding_threads WHERE status IN (${statuses.map(() => '?').join(', ')})`,
-        [...statuses],
+        `SELECT 1 FROM coding_threads WHERE server = ? AND status IN (${statuses.map(() => '?').join(', ')}) LIMIT 1`,
+        [server, ...statuses],
+      ).length > 0
+    },
+
+    /** Threads from `server` resting in one of `statuses` that their agent was not woken for yet. */
+    codingWakesDue(server: string, statuses: readonly string[]): CodingThread[] {
+      return rows(
+        `SELECT ${CODING_COLUMNS}, woken FROM coding_threads WHERE server = ? AND status IN (${statuses.map(() => '?').join(', ')})`,
+        [server, ...statuses],
       ).filter((r) => r[r.length - 1] !== codingWakeKey(toCodingThread(r))).map(toCodingThread)
     },
 
     /** Records the wake a thread's agent got, or why it could not be posted;
-     *  either way the poller does not try that wake again. */
-    markCodingWoken(server: string, threadId: string, key: string, error: string | null): void {
-      db.run('UPDATE coding_threads SET woken = ?, wake_error = ? WHERE server = ? AND thread_id = ?', [key, error, server, threadId])
+     *  either way the poller does not try that wake again. A room the wake went
+     *  to is kept for the thread's later wakes. */
+    markCodingWoken(server: string, threadId: string, key: string, error: string | null, conversationId: string | null = null): void {
+      db.run(
+        'UPDATE coding_threads SET woken = ?, wake_error = ?, conversation_id = coalesce(conversation_id, ?) WHERE server = ? AND thread_id = ?',
+        [key, error, conversationId, server, threadId],
+      )
       save()
     },
 

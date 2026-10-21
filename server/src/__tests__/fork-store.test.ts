@@ -310,10 +310,15 @@ test('a coding thread keeps its first agent and room, and wakes its agent once p
     status, runId: 'run-1', requestId: null, pullRequests: [], createdAt: '2026-10-20T01:00:00Z', updatedAt: '2026-10-20T01:05:00Z',
     woken: null, ...more,
   })
-  const due = () => store.codingWakesDue(REST).map((t) => `${t.threadId}:${t.runId}:${t.status}:${t.requestId ?? ''}`)
-  const wakeAll = () => { for (const t of store.codingWakesDue(REST)) store.markCodingWoken(t.server, t.threadId, codingWakeKey(t), null) }
+  const due = () => store.codingWakesDue('t3code', REST).map((t) => `${t.threadId}:${t.runId}:${t.status}:${t.requestId ?? ''}`)
+  const wakeAll = () => { for (const t of store.codingWakesDue('t3code', REST)) store.markCodingWoken(t.server, t.threadId, codingWakeKey(t), null) }
 
-  store.saveCodingThreads([thread('running')])
+  // The poller announces a change to the workspaces it returns, and reads a moving thread's server again soon.
+  assert.deepEqual([...store.saveCodingThreads([thread('running')])], ['c1'])
+  assert.deepEqual([...store.saveCodingThreads([thread('running')])], [], 'an unchanged thread is no change')
+  assert.equal(store.codingThreadIn('t3code', ['running']), true)
+  assert.equal(store.codingThreadIn('t3code-m4', ['running']), false, 'per server')
+  assert.deepEqual(store.codingWakesDue('t3code-m4', ['running']), [], 'per server')
   assert.deepEqual(store.codingThreads('c2', 'bot', 10), [], 'scoped by company')
   assert.deepEqual(due(), [], 'a running thread wakes nobody')
 
@@ -334,16 +339,24 @@ test('a coding thread keeps its first agent and room, and wakes its agent once p
   assert.deepEqual(done.pullRequests, [{ number: 7, url: 'https://x/7', state: null }])
   assert.deepEqual(due(), ['th-1:run-1:completed:'])
 
-  store.markCodingWoken('t3code', 'th-1', codingWakeKey(done), null)
+  store.markCodingWoken('t3code', 'th-1', codingWakeKey(done), null, 'another room')
+  assert.equal(store.codingThreads('c1', 'bot', 10)[0].conversationId, 'room', 'a wake keeps the room the thread has')
   const reopened = await openForkStore(file)
-  assert.deepEqual(reopened.codingWakesDue(REST), [], 'woken once, across a restart')
+  assert.deepEqual(reopened.codingWakesDue('t3code', REST), [], 'woken once, across a restart')
   reopened.saveCodingThreads([thread('completed', { runId: 'run-2' })])
-  assert.deepEqual(reopened.codingWakesDue(REST).map((t) => t.runId), ['run-2'], 'a new run wakes again')
+  assert.deepEqual(reopened.codingWakesDue('t3code', REST).map((t) => t.runId), ['run-2'], 'a new run wakes again')
 
   // A thread first copied long after it came to rest arrives woken.
   reopened.saveCodingThreads([thread('failed', { threadId: 'th-old', runId: 'r', woken: codingWakeKey({ runId: 'r', status: 'failed', requestId: null }) })])
-  assert.ok(!reopened.codingWakesDue(REST).some((t) => t.threadId === 'th-old'))
+  assert.ok(!reopened.codingWakesDue('t3code', REST).some((t) => t.threadId === 'th-old'))
   assert.deepEqual([...reopened.codingThreadKeys()].sort(), ['t3code th-1', 't3code th-old'])
+
+  // The poller copies a thread without a room; its first wake keeps the room it found.
+  reopened.saveCodingThreads([thread('completed', { threadId: 'th-new', conversationId: null })])
+  const [fresh] = reopened.codingWakesDue('t3code', REST).filter((t) => t.threadId === 'th-new')
+  assert.equal(fresh.conversationId, null)
+  reopened.markCodingWoken('t3code', 'th-new', codingWakeKey(fresh), null, 'the room')
+  assert.equal(reopened.codingThreads('c1', 'bot', 10).find((t) => t.threadId === 'th-new')?.conversationId, 'the room')
 })
 
 test('a card takes one answer, opens again when its reply was not posted, and goes with its agent', async () => {
