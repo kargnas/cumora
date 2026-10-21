@@ -19,6 +19,7 @@ import { IChevronLeft, IHash, IPencil, IX } from '../ui/icons'
 import { useRoomAgents } from '../chat/ChatView'
 import { HandbookTab } from './HandbookTab'
 import { CodingTab } from './CodingTab'
+import { ComputerTab } from './ComputerTab'
 import { MembersTab } from './MembersTab'
 import { openEdit } from './EditDialog'
 import { FilesTab } from './FilesTab'
@@ -77,7 +78,7 @@ function Identity({ c }: { c: Conversation }) {
   )
 }
 
-const TABS: PanelTab[] = ['handbook', 'coding', 'members', 'files', 'routines']
+const TABS: PanelTab[] = ['handbook', 'coding', 'computer', 'members', 'files', 'routines']
 // A 1:1 room's two members are the room itself.
 const DIRECT_TABS = TABS.filter((t) => t !== 'members')
 
@@ -161,6 +162,7 @@ export function RightPanel({ route, layout }: { route: Route; layout: Layout }) 
           >
             {tab === 'handbook' && <HandbookTab c={c} docked={layout === 'full'} />}
             {tab === 'coding' && <CodingTab c={c} />}
+            {tab === 'computer' && <ComputerTab c={c} />}
             {tab === 'members' && <MembersTab c={c} />}
             {tab === 'files' && <FilesTab c={c} />}
             {tab === 'routines' && <RoutinesTab c={c} />}
