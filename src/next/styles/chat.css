@@ -374,6 +374,39 @@
 }
 .nx-msg__failed { display: flex; gap: 8px; align-items: center; font-size: var(--text-caption); color: var(--destructive); }
 .nx-msg__failed button { border: 0; padding: 0; background: none; color: inherit; font-weight: 600; text-decoration: underline; }
+
+/* Developer token figures (chat/TokenFigures.tsx): a muted line under the
+   agents' reply bubble, an agenda turn card on a line of its own, and their details. */
+.nx-tokens {
+  position: relative;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--muted-foreground);
+  font-size: var(--text-micro);
+  transition: color var(--duration-quick);
+}
+.nx-tokens--card { padding: 4px 12px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--border); }
+@media (pointer: coarse) {
+  /* The card's row pads it by 8px; the hit area fills that row and no other. */
+  .nx-tokens--card::before { content: ""; position: absolute; inset: -8px -8px; }
+}
+@media (hover: hover) {
+  .nx-tokens:hover { color: var(--foreground); }
+}
+.nx-tokens-detail { display: flex; flex-direction: column; gap: 16px; font-size: var(--text-body); }
+.nx-tokens-detail > p { margin: 0; color: var(--muted-foreground); font-size: var(--text-caption); }
+.nx-tokens-agent h3 { margin: 0 0 8px; font-size: var(--text-title); font-weight: 600; }
+.nx-tokens-agent h3 .nx-mono { margin-left: 4px; color: var(--muted-foreground); font-size: var(--text-caption); font-weight: 400; }
+.nx-tokens-agent dl { margin: 0; display: grid; gap: 4px; }
+.nx-tokens-agent dl > div,
+.nx-tokens-agent li { display: flex; justify-content: space-between; gap: 12px; }
+.nx-tokens-agent dt { color: var(--muted-foreground); }
+.nx-tokens-agent dd { margin: 0; text-align: right; }
+.nx-tokens-agent h4 { margin: 12px 0 4px; font-size: var(--text-caption); font-weight: 600; }
+.nx-tokens-agent ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.nx-tokens-agent li > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-tokens-agent li > .nx-mono { flex: none; color: var(--muted-foreground); font-size: var(--text-caption); }
 .nx-artifacts { max-width: 100%; display: flex; flex-direction: column; gap: 4px; }
 
 /* A card under an agent's question (AskCard.tsx). A fixed width so the

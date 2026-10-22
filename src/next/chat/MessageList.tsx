@@ -36,6 +36,8 @@ import { buildItems, createdAt, floatingDay, type DayPill, type Item, type Pos, 
 import { authorOf } from './deletedAuthor'
 import { answersCard, useCards, useHiddenAnswers } from './cards'
 import { AskCard } from './AskCard'
+import { openFigures, useRoomTokens, useTokens } from './tokens'
+import { AgendaCards, TokenDialog, TokenLine } from './TokenFigures'
 
 const EMPTY: Message[] = []
 const QUICK = ['👍', '❤️', '😂', '👀', '✅', '🔥']
@@ -323,9 +325,12 @@ interface BubbleProps {
   /** Swipe left to reply. Only the room's transcript sets it: its composer
    *  shows the reply, which a thread's composer does not. */
   swipe?: boolean
+  /** Developer token figures in an agent's reply: the room's transcript only,
+   *  since they count from my message to my next one in the room. */
+  tokens?: boolean
 }
 
-export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fresh, at, hl, swipe }: BubbleProps) {
+export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fresh, at, hl, swipe, tokens }: BubbleProps) {
   const nt = useNT()
   const locale = useLocale()
   const menu = useMenu()
@@ -353,10 +358,13 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
   const reply = () => useApp.getState().setReplyingTo(msg.conversationId, msg.id)
   const swipeRef = useSwipeReply(swipe ? reply : null, hold.onTouchCancel)
   const thread = () => navigate(withRoute(getRoute(), { threadId: msg.id, peek: null }))
+  const figures = useTokens((s) => (tokens && !mine ? s.byMessage[msg.id] : undefined))
   const entries: MenuEntry[] = [
     { key: 'reply', label: nt('msg.reply'), icon: <IReply />, onSelect: reply },
     { key: 'thread', label: nt('msg.thread'), icon: <IThread />, onSelect: thread },
     ...(hasText ? [{ key: 'copy', label: nt('msg.copy'), icon: <ICopy />, onSelect: () => void copyText(msg.body) }] : []),
+    // The line under the bubble is too small for a finger; the sheet opens the same details.
+    ...(figures ? [{ key: 'tokens', label: nt('tokens.title'), icon: <ISpark />, onSelect: () => openFigures(nt('tokens.title'), figures) }] : []),
   ]
 
   return (
@@ -405,6 +413,7 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
             <IconButton small label={nt('msg.more')} onClick={(e) => menu.toggleFrom(e.currentTarget, mine ? 'end' : 'start')}><IMore /></IconButton>
           </div>
         </div>
+        {figures && <TokenLine figures={figures} />}
         {card && <AskCard card={card} showQuestion={!msg.body.trim().endsWith(card.question)} rise={cardLate.current} />}
         <Artifacts msg={msg} />
         <Reactions msg={msg} mine={mine} />
@@ -653,6 +662,7 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
     [raw, answers],
   )
   const items = useMemo(() => buildItems(shown, me), [shown, me])
+  useRoomTokens(convoId, items)
 
   // Messages present at open never animate; anything after does, once.
   const seen = seenMap(convoId)
@@ -797,7 +807,9 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
           at={it.at}
           hl={it.key === currentHit ? 'current' : hitSet.has(it.key) ? 'match' : undefined}
           swipe
+          tokens
         />
+        <AgendaCards msgId={it.msg.id} />
       </>
     )
   }, [byId, locale, nt, seen, currentHit, hitSet, float])
@@ -846,6 +858,7 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
       >
         <IArrowDown />
       </button>
+      <TokenDialog />
     </div>
   )
 }
