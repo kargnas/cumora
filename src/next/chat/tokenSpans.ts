@@ -51,8 +51,8 @@ export interface Figures {
 
 export interface AgendaCard { runId: string; at: string; figures: Figures }
 
-/** A message as the figures see it: its id, time (ISO) and whether I wrote it. */
-export interface Mark { id: string; at: string; mine: boolean }
+/** A message as the figures see it: its id, time (ISO), and whether I or an agent wrote it. */
+export interface Mark { id: string; at: string; mine: boolean; agent: boolean }
 
 /** Figures of calls in time order, or null without any. */
 export function figuresOf(calls: Call[], from: string, to: string | null): Figures | null {
@@ -85,21 +85,26 @@ export function figuresOf(calls: Call[], from: string, to: string | null): Figur
   return { from, to, agents: [...byAgent.values()], ctx: lead?.ctx ?? null, window: lead?.window ?? null, hit: prompt > 0 ? read / prompt : null }
 }
 
-/** Figures under each of my messages, keyed by message id, and agenda cards
- *  after the message each turn followed. Marks and calls are in time order.
+/** Figures for the calls from each of my messages to my next one, keyed by the
+ *  agents' last reply in that stretch, below what it cost (a stretch without
+ *  one shows nothing), and agenda cards after the message each turn followed. Marks and calls are in time order.
  *  `cut`: the server dropped calls before it, so nothing that starts earlier is drawn. */
 export function place(marks: Mark[], calls: Call[], agenda: Call[], cut: string | null): { byMessage: Record<string, Figures>; cardsAfter: Record<string, AgendaCard[]> } {
   const mine = marks.filter((m) => m.mine)
   const byMessage: Record<string, Figures> = {}
   let i = 0
+  let j = 0
   for (let m = 0; m < mine.length; m++) {
     const from = mine[m].at
     const to = mine[m + 1]?.at ?? null
     while (i < calls.length && calls[i].at < from) i++
     const start = i
     while (i < calls.length && (to === null || calls[i].at < to)) i++
-    const f = cut !== null && from < cut ? null : figuresOf(calls.slice(start, i), from, to)
-    if (f) byMessage[mine[m].id] = f
+    while (j < marks.length && marks[j].at < from) j++
+    let reply: string | null = null
+    for (; j < marks.length && (to === null || marks[j].at < to); j++) if (marks[j].agent) reply = marks[j].id
+    const f = reply === null || (cut !== null && from < cut) ? null : figuresOf(calls.slice(start, i), from, to)
+    if (f && reply) byMessage[reply] = f
   }
   const runs = new Map<string, Call[]>()
   for (const c of agenda) {

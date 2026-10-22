@@ -325,8 +325,8 @@ interface BubbleProps {
   /** Swipe left to reply. Only the room's transcript sets it: its composer
    *  shows the reply, which a thread's composer does not. */
   swipe?: boolean
-  /** Developer token figures under my message: the room's transcript only,
-   *  since they count from it to my next message in the room. */
+  /** Developer token figures in an agent's reply: the room's transcript only,
+   *  since they count from my message to my next one in the room. */
   tokens?: boolean
 }
 
@@ -358,7 +358,7 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
   const reply = () => useApp.getState().setReplyingTo(msg.conversationId, msg.id)
   const swipeRef = useSwipeReply(swipe ? reply : null, hold.onTouchCancel)
   const thread = () => navigate(withRoute(getRoute(), { threadId: msg.id, peek: null }))
-  const figures = useTokens((s) => (tokens && mine ? s.byMessage[msg.id] : undefined))
+  const figures = useTokens((s) => (tokens && !mine ? s.byMessage[msg.id] : undefined))
   const entries: MenuEntry[] = [
     { key: 'reply', label: nt('msg.reply'), icon: <IReply />, onSelect: reply },
     { key: 'thread', label: nt('msg.thread'), icon: <IThread />, onSelect: thread },
@@ -403,6 +403,7 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
             {hasText && <div className="nx-bubble__text"><RichBody body={msg.body} conversationId={msg.conversationId} /></div>}
             {msg.kind === 'poll' && <PollBubble msg={msg} />}
             {msg.attachment && <Attachment a={msg.attachment} />}
+            {figures && <TokenLine figures={figures} />}
           </div>
           <div className="nx-msg__tools" role="toolbar" aria-label={nt('msg.actions')}>
             {QUICK.slice(0, 3).map((e) => (
@@ -429,7 +430,6 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
             <button type="button" onClick={() => discardFailedMessage(msg.conversationId, msg.id)}>{nt('msg.discard')}</button>
           </div>
         )}
-        {figures && <TokenLine figures={figures} />}
       </div>
       <Menu
         open={menu.open}

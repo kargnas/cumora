@@ -1,6 +1,6 @@
 /**
- * Developer token figures (chat/tokens.ts): the line under my message, the
- * agenda turn cards, and the details dialog they open. On a touch screen the
+ * Developer token figures (chat/tokens.ts): the line at the end of the
+ * agents' reply bubble, the agenda turn cards, and the details dialog they open. On a touch screen the
  * line is too small to aim at, so the message's long-press sheet opens the
  * same details (MessageList's Bubble). Nothing renders unless developer mode
  * filled the store.
@@ -25,7 +25,8 @@ function summary(f: Figures, nt: NT): string {
   return parts.filter(Boolean).join(' · ')
 }
 
-/** Under one of my messages: the agents' calls from it to my next message. */
+/** In the agents' last reply after one of my messages, on a line of its own:
+ *  the agents' calls from my message to my next one. */
 export function TokenLine({ figures }: { figures: Figures }) {
   const nt = useNT()
   const text = summary(figures, nt)

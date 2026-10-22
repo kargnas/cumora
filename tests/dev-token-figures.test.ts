@@ -1,30 +1,37 @@
 /**
- * Developer token figures (src/next/chat/tokens.ts). The mistakes worth
- * catching: a call landing under the wrong message, a subagent's call taking
- * the place of the agent's own context, a turn's rest counting as a call, and
- * an agenda turn landing anywhere but after the message it followed, and
- * figures drawn from a stretch the server cut short.
+ * Developer token figures (src/next/chat/tokenSpans.ts). The mistakes worth
+ * catching: a call landing in the wrong reply, a subagent's call taking the
+ * place of the agent's own context, a turn's rest counting as a call, an
+ * agenda turn landing anywhere but after the message it followed, and figures
+ * drawn from a stretch the server cut short.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { figuresOf, place, type Call, type Mark } from '../src/next/chat/tokenSpans.ts'
 
-const msg = (id: string, at: string, mine: boolean): Mark => ({ id, at, mine })
+const msg = (id: string, at: string, mine: boolean, agent = !mine): Mark => ({ id, at, mine, agent })
 
 const call = (at: string, over: Partial<Call> = {}): Call => ({
   at, agentId: 'atlas', runId: 'run-1', model: 'claude-test', input: 2, read: 900, write: 100, output: 10,
   window: 200000, sub: null, rest: null, ...over,
 })
 
-test('each call lands under the last of my messages before it, the last one running to now', () => {
-  const items = [msg('a', '2026-10-22T10:00:00.000Z', true), msg('b', '2026-10-22T10:01:00.000Z', false), msg('c', '2026-10-22T10:02:00.000Z', true)]
-  const calls = [call('2026-10-22T09:59:00.000Z'), call('2026-10-22T10:00:30.000Z'), call('2026-10-22T10:01:30.000Z'), call('2026-10-22T10:05:00.000Z')]
+test('the calls from my message to my next one go in the agents\' last reply between them', () => {
+  const items = [
+    msg('a', '2026-10-22T10:00:00.000Z', true),
+    msg('b1', '2026-10-22T10:00:40.000Z', false),
+    msg('h', '2026-10-22T10:00:50.000Z', false, false),
+    msg('b2', '2026-10-22T10:01:00.000Z', false),
+    msg('c', '2026-10-22T10:02:00.000Z', true),
+    msg('d', '2026-10-22T10:06:00.000Z', true),
+    msg('e', '2026-10-22T10:07:00.000Z', false),
+  ]
+  const calls = [call('2026-10-22T09:59:00.000Z'), call('2026-10-22T10:00:30.000Z'), call('2026-10-22T10:01:30.000Z'), call('2026-10-22T10:03:00.000Z'), call('2026-10-22T10:08:00.000Z')]
   const { byMessage } = place(items, calls, [], null)
-  assert.equal(byMessage.a.agents[0].calls, 2, 'a call before my first message belongs to nobody; an agent reply does not end my stretch')
-  assert.equal(byMessage.a.to, '2026-10-22T10:02:00.000Z')
-  assert.equal(byMessage.c.agents[0].calls, 1)
-  assert.equal(byMessage.c.to, null)
-  assert.equal(byMessage.b, undefined, 'only my messages carry figures')
+  assert.deepEqual(Object.keys(byMessage).sort(), ['b2', 'e'], 'a stretch without an agent reply shows nothing; another person\'s message is no reply')
+  assert.equal(byMessage.b2.agents[0].calls, 2, 'a call before my first message belongs to nobody')
+  assert.equal(byMessage.b2.to, '2026-10-22T10:02:00.000Z')
+  assert.equal(byMessage.e.to, null, 'the last stretch runs to now')
 })
 
 test('the context is the agent\'s own latest call, and a rest adds tokens but no call', () => {
@@ -56,11 +63,11 @@ test('an agenda turn is a card after the message it followed', () => {
 })
 
 test('a stretch that starts before the server\'s cut gets no figures', () => {
-  const items = [msg('a', '2026-10-22T10:00:00.000Z', true), msg('c', '2026-10-22T10:02:00.000Z', true)]
+  const items = [msg('a', '2026-10-22T10:00:00.000Z', true), msg('b', '2026-10-22T10:01:00.000Z', false), msg('c', '2026-10-22T10:02:00.000Z', true), msg('d', '2026-10-22T10:02:30.000Z', false)]
   const calls = [call('2026-10-22T10:01:30.000Z'), call('2026-10-22T10:03:00.000Z')]
   const agenda = [call('2026-10-22T10:01:00.000Z', { runId: 'early' }), call('2026-10-22T10:04:00.000Z', { runId: 'late' })]
   const { byMessage, cardsAfter } = place(items, calls, agenda, '2026-10-22T10:01:30.000Z')
-  assert.equal(byMessage.a, undefined, 'its first calls were cut')
-  assert.equal(byMessage.c.agents[0].calls, 1)
+  assert.equal(byMessage.b, undefined, 'its first calls were cut')
+  assert.equal(byMessage.d.agents[0].calls, 1)
   assert.deepEqual(Object.values(cardsAfter).flat().map((c) => c.runId), ['late'])
 })

@@ -1,8 +1,8 @@
 /**
  * Developer token figures in a room, shown while developer mode is on (owners
- * and admins). Under each of my messages: the context of the latest agent call
- * and the cache hit ratio of every agent call from that message to my next one,
- * or to now. A 1:1 room's agent's agenda turns, which answer no room, show as
+ * and admins). At the end of the agents' last reply after each of my messages:
+ * the context of the latest agent call and the cache hit ratio of every agent
+ * call from my message to my next one, or to now. A 1:1 room's agent's agenda turns, which answer no room, show as
  * cards after the message they followed. The calls come from
  * GET /api/fork/rooms/:id/tokens (server/src/fork/tokens.ts), and
  * tokenSpans.ts places them.
@@ -11,6 +11,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { create } from 'zustand'
 import { ApiError, http } from '@/api/client'
 import { useDevtools } from '@/stores/devtools'
+import { useParticipants } from '@/stores/participants'
 import type { Item } from './model'
 import { type AgendaCard, type Call, type Figures, type Mark, place } from './tokenSpans'
 
@@ -78,10 +79,13 @@ export function useRoomTokens(convoId: string, items: Item[]): void {
   useEffect(() => () => useTokens.setState({ open: null }), [convoId])
 
   const loaded = useTokens((s) => s.rooms[convoId])
-  const marks = useMemo(() => items.flatMap((it): Mark[] => (it.type === 'msg' ? [{ id: it.msg.id, at: it.at.toISOString(), mine: it.mine }] : [])), [items])
-  // A streamed reply or a reaction changes the items without moving a
-  // message; place again only when a message comes, goes or changes time.
-  const key = marks.map((m) => `${m.id}@${m.at}${m.mine ? '*' : ''}`).join(' ')
+  const byId = useParticipants((s) => s.byId)
+  const marks = useMemo(() => items.flatMap((it): Mark[] => (it.type === 'msg'
+    ? [{ id: it.msg.id, at: it.at.toISOString(), mine: it.mine, agent: byId[it.msg.authorId]?.kind === 'agent' }]
+    : [])), [items, byId])
+  // A streamed reply, a reaction or an agent's status changes these without
+  // moving a message; place again only when a message comes, goes or changes time.
+  const key = marks.map((m) => `${m.id}@${m.at}${m.mine ? '*' : ''}${m.agent ? '^' : ''}`).join(' ')
   const marksRef = useRef(marks)
   marksRef.current = marks
   useEffect(() => {
