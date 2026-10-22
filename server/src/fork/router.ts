@@ -9,7 +9,7 @@ import { stopAgent } from './stop.js'
 import { answerChoice, listCards, sendSecret, startCardSweeper } from './cards.js'
 import { computerPurges, purgeAgent } from './purge.js'
 import { agentScreen, agentScreenInput } from './screen.js'
-import { PROFILE_RE, REPO_RE, listProfiles, pollErrorOf, runNow, startTriggerPoller } from './triggers.js'
+import { MAX_PROMPT, MAX_TITLE, PROFILE_RE, REPO_RE, listProfiles, pollErrorOf, runNow, startTriggerPoller } from './triggers.js'
 
 type CompanyContext = { userId: string; companyId: string }
 
@@ -229,7 +229,7 @@ export function createForkRouter(deps: ForkRouterDeps): Router {
     if (!REPO_RE.test(repo)) throw new ForkError(400, 'repo must be owner/name')
     const profile = text(body.profile, 'profile', 100)
     if (!PROFILE_RE.test(profile) || !listProfiles().includes(profile)) throw new ForkError(400, 'profile is not signed in on the computer')
-    const input = { companyId, createdBy: userId, conversationId, assigneeId, repo, profile, title: text(body.title, 'title', 120), prompt: text(body.prompt, 'prompt', 4000) }
+    const input = { companyId, createdBy: userId, conversationId, assigneeId, repo, profile, title: text(body.title, 'title', MAX_TITLE), prompt: text(body.prompt, 'prompt', MAX_PROMPT) }
     await requireRoom(companyId, userId, conversationId, assigneeId)
     res.status(201).json({ trigger: { ...(await getForkStore()).createTrigger(input), pollError: null } })
   })
@@ -246,8 +246,8 @@ export function createForkRouter(deps: ForkRouterDeps): Router {
       if (body.status !== 'active' && body.status !== 'paused') throw new ForkError(400, 'status must be active or paused')
       patch.status = body.status
     }
-    if (body.title !== undefined) patch.title = text(body.title, 'title', 120)
-    if (body.prompt !== undefined) patch.prompt = text(body.prompt, 'prompt', 4000)
+    if (body.title !== undefined) patch.title = text(body.title, 'title', MAX_TITLE)
+    if (body.prompt !== undefined) patch.prompt = text(body.prompt, 'prompt', MAX_PROMPT)
     store.updateTrigger(companyId, trigger.id, patch)
     res.json({ ok: true })
   })

@@ -18,9 +18,16 @@
  * triage's alarm gates wake the assignee as they do for a routine, and the
  * clients keep it out of the transcript the same way. The pull request is the
  * event's description and the trigger's prompt its brief.
+ *
+ * People make triggers in the Routines tab (./router.ts), agents with
+ * `cumora trigger` (runTriggerCli below), under the tab's rule: a room's
+ * triggers are its members' business.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import type { ParsedArgs } from '../agents/cli-parse.js'
+import type { CliResult } from '../agents/cli-result.js'
+import { inRoom } from './cards.js'
 import { getForkStore, type Trigger } from './store.js'
 
 const POLL_MS = 60_000
@@ -30,6 +37,8 @@ const GH_DIR = resolve(process.cwd(), 'server/computer/gh')
 // The names gh-profile.mjs accepts.
 export const PROFILE_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
 export const REPO_RE = /^[\w.-]+\/[\w.-]+$/
+export const MAX_TITLE = 120
+export const MAX_PROMPT = 4000
 // ponytail: one page of the newest closed pull requests per poll; more than
 // this many merged within a minute lose the oldest. Page on if that happens.
 const PAGE = 30
@@ -220,4 +229,93 @@ export function startTriggerPoller(): void {
   }
   setTimeout(() => void tick(), 10_000).unref()
   setInterval(() => void tick(), POLL_MS).unref()
+}
+
+/* ── Agent CLI ─────────────────────────────────────────────────────────── */
+
+const USAGE = `usage: trigger list
+       trigger create <convo_id> "<title>" --repo <owner/name> --profile <gh profile> --prompt "<what to do for each merge>" [--assignee <agent_id>]
+       trigger delete <trigger_id>`
+
+const HELP = `${USAGE}
+
+A trigger wakes an agent in a room each time a pull request merges into any
+branch of a GitHub repository, with the pull request and --prompt as its brief.
+Use one instead of a polling loop, a background process or a cron job: the
+server checks the repository once a minute as the gh profile you name
+(\`gh-profile --list\`), only for merges after the trigger was made, and fires
+each merge once. --assignee defaults to you and must be an agent in the room.
+\`list\` shows the triggers of the rooms you are in, which people see and pause
+in the room's Routines tab.`
+
+function cliFail(text: string): CliResult {
+  return { ok: false, text, exitCode: 1 }
+}
+
+function describe(t: Trigger): string {
+  const fired = t.lastFire
+    ? `fired ${t.fires}x, last for ${t.lastFire.label} at ${t.lastFire.at}${t.lastFire.error ? `, which failed: ${t.lastFire.error}` : ''}`
+    : 'not fired yet'
+  const pollError = pollErrorOf(t)
+  return `${t.id} · ${t.status} · "${t.title}" · ${t.repo} as ${t.profile} · wakes @${t.assigneeId} in ${t.conversationId} · ${fired}` +
+    (pollError ? `\n  polling fails: ${pollError}` : '') +
+    `\n  prompt: ${t.prompt.replace(/\s+/g, ' ')}`
+}
+
+/** `cumora trigger`: the Routines tab's triggers for an agent, which sees,
+ *  makes and deletes them only in rooms it is in. */
+export async function runTriggerCli(parsed: ParsedArgs, me: string): Promise<CliResult> {
+  if (parsed.flags.help) return { ok: true, text: HELP, exitCode: 0 }
+  const [verb = 'list', ...args] = parsed.positional
+  // Imported here, not at the top: db/pool.js loads env.ts (see fire above).
+  const { pool } = await import('../db/pool.js')
+  const { rows } = await pool.query<{ company_id: string }>(
+    "SELECT company_id FROM participants WHERE id = $1 AND kind = 'agent' AND departed_at IS NULL",
+    [me],
+  )
+  const companyId = rows[0]?.company_id
+  if (!companyId) return cliFail(`unknown agent ${me}`)
+  const store = await getForkStore()
+
+  if (verb === 'list') {
+    const { rows: rooms } = await pool.query<{ conversation_id: string }>(
+      'SELECT conversation_id FROM conversation_members WHERE company_id = $1 AND participant_id = $2',
+      [companyId, me],
+    )
+    const triggers = rooms.flatMap((r) => store.triggers(companyId, r.conversation_id))
+    return { ok: true, text: triggers.length ? triggers.map(describe).join('\n') : 'no triggers in your rooms', exitCode: 0 }
+  }
+
+  if (verb === 'create') {
+    const [convoId, rawTitle] = args
+    const flag = (name: string) => (typeof parsed.flags[name] === 'string' ? String(parsed.flags[name]).trim() : '')
+    const title = (rawTitle ?? '').trim()
+    const repo = flag('repo')
+    const profile = flag('profile')
+    const prompt = flag('prompt')
+    const assigneeId = flag('assignee') || me
+    if (!convoId || !title || !repo || !profile || !prompt) return cliFail(USAGE)
+    if (title.length > MAX_TITLE) return cliFail(`the title must be at most ${MAX_TITLE} characters`)
+    if (prompt.length > MAX_PROMPT) return cliFail(`the prompt must be at most ${MAX_PROMPT} characters`)
+    if (!REPO_RE.test(repo)) return cliFail('--repo must be owner/name')
+    const profiles = listProfiles()
+    if (!profiles.includes(profile)) {
+      return cliFail(`--profile must be a gh profile signed in on the computer: ${profiles.join(', ') || 'none is'}`)
+    }
+    if (!(await inRoom(companyId, me, convoId, 'agent'))) return cliFail(`you are not in ${convoId}`)
+    if (!(await inRoom(companyId, assigneeId, convoId, 'agent'))) return cliFail(`${assigneeId} is not an agent in ${convoId}`)
+    const t = store.createTrigger({ companyId, createdBy: me, conversationId: convoId, assigneeId, title, prompt, repo, profile })
+    return { ok: true, text: `created ${t.id}: from now on, each pull request merged in ${repo} wakes @${assigneeId} in ${convoId}`, exitCode: 0 }
+  }
+
+  if (verb === 'delete') {
+    const t = args[0] ? store.trigger(companyId, args[0]) : null
+    if (!t || !(await inRoom(companyId, me, t.conversationId, 'agent'))) {
+      return cliFail(`no trigger ${args[0] ?? ''} in your rooms; cumora trigger list shows them`)
+    }
+    store.deleteTrigger(companyId, t.id)
+    return { ok: true, text: `deleted ${t.id} ("${t.title}")`, exitCode: 0 }
+  }
+
+  return cliFail(USAGE)
 }

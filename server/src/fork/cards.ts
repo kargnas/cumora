@@ -230,7 +230,7 @@ class CardError extends Error {
 }
 
 /** Whether a participant of that kind is in the room now. */
-async function inRoom(companyId: string, participantId: string, conversationId: string, kind: 'human' | 'agent'): Promise<boolean> {
+export async function inRoom(companyId: string, participantId: string, conversationId: string, kind: 'human' | 'agent'): Promise<boolean> {
   const { pool } = await import('../db/pool.js')
   const { rowCount } = await pool.query(
     `SELECT 1 FROM conversation_members m
