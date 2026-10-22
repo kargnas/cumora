@@ -13,6 +13,7 @@ import { ws } from '@/api/client'
 import { useComputers } from '@/stores/computers'
 import { useParticipants } from '@/stores/participants'
 import type { Message } from '@/types'
+import { AccessoryRig, earFace, outlineOf } from './accessories'
 import type { BotEngine } from './engine/engine'
 import { EXPRESSION_BY_ID } from './engine/expressions'
 import { RAYON } from './engine/repere'
@@ -51,6 +52,8 @@ interface Act { kind: ToolKind; since: number; until?: number }
 
 interface Bot {
   engine: BotEngine | null
+  /** Places the accessories the look wears, from each frame of `engine`. */
+  rig: AccessoryRig
   /** Seconds added to the shared clock, so agents blink and glance at their own moments. */
   offset: number
   look: BloubLook
@@ -82,8 +85,8 @@ function offsetOf(id: string): number {
   return (h >>> 0) % 600
 }
 
-const shapeOf = (look: BloubLook) => SHAPE_BY_ID.get(look.shape)?.radii ?? null
-const expressionOf = (look: BloubLook) => EXPRESSION_BY_ID.get(look.expression) ?? null
+const shapeOf = (look: Pick<BloubLook, 'shape'>) => SHAPE_BY_ID.get(look.shape)?.radii ?? null
+const expressionOf = (look: Pick<BloubLook, 'expression'>) => EXPRESSION_BY_ID.get(look.expression) ?? null
 const easeOut = (k: number) => 1 - (1 - Math.min(1, Math.max(0, k))) ** 3
 
 /** Modes the editor's preview stage plays (sections/agents/LookStudio.tsx), by
@@ -113,6 +116,12 @@ function syncAct(bot: Bot, at: number) {
   bot.engine?.setExpression(face, at)
 }
 
+/** Gives the ears the face on screen at `at`: an act's, a state's own, or the agent's. */
+function syncEars(bot: Bot, at: number) {
+  const state = bot.head.program.steps[bot.head.index][0]
+  bot.rig.setFace(earFace(state, bot.act ? ACTS[bot.act.kind].face : bot.look.expression), at)
+}
+
 function frame() {
   raf = 0
   const now = clock()
@@ -124,6 +133,7 @@ function frame() {
     advance(bot.head, t, (state, at) => {
       engine.setState(state, at)
       syncAct(bot, at)
+      syncEars(bot, at)
     })
     // Reduced motion: each state is drawn once, settled, and nothing loops.
     // That frame is taken a second into the state, or now if that is later, so
@@ -141,12 +151,15 @@ function frame() {
       if (left >= 1 || still() || leaving.kind === bot.act?.kind) bot.leaving = null
       else acts.push({ kind: leaving.kind, t: at - leaving.since, presence: 1 - easeOut(left) })
     }
-    const f = engine.sample(still() ? at + 0.5 : at)
+    const sampled = still() ? at + 0.5 : at
+    const f = engine.sample(sampled)
+    const { accessories } = bot.look
+    const gear = accessories.length > 0 ? bot.rig.update(f, outlineOf(engine), sampled, accessories, !still()) : null
     // The body leans aside as far as the props have come in.
     const lean = acts.reduce((most, act) => Math.max(most, act.presence), 0)
     for (const view of bot.views) {
       if (!view.visible) continue
-      view.draw(f)
+      view.draw(f, gear)
       view.props(acts)
       view.lean(lean)
     }
@@ -163,6 +176,7 @@ function play(bot: Bot, head: Playhead) {
   bot.head = head
   bot.engine?.setState(head.program.steps[0][0], head.since)
   syncAct(bot, head.since)
+  syncEars(bot, head.since)
   wake()
 }
 
@@ -243,10 +257,12 @@ export function attach(agentId: string, svg: SVGSVGElement, look: BloubLook): ()
     const offset = offsetOf(agentId)
     const mode = modeFor(agentId)
     const t = clock() + offset
+    const head: Playhead = { program: programFor(null, mode), index: 0, since: t }
+    const rig = new AccessoryRig(offset, earFace(head.program.steps[0][0], look.expression))
+    rig.setShape(look.shape)
     const created: Bot = {
-      engine: null, offset, look, mode, wanted: mode, tool: null, appliedTool: null, act: null, leaving: null,
-      appliedAt: t, timer: 0, views: new Set(), visible: 0,
-      head: { program: programFor(null, mode), index: 0, since: t },
+      engine: null, rig, offset, look, mode, wanted: mode, tool: null, appliedTool: null, act: null, leaving: null,
+      appliedAt: t, timer: 0, views: new Set(), visible: 0, head,
     }
     bots.set(agentId, created)
     bot = created
@@ -301,25 +317,37 @@ export function unstage(id: string): void {
   staged.delete(id)
 }
 
-/** A new shape or face morphs in; the colour is CSS on each view. */
+/** A new shape or face morphs in, and accessories come or go; the colour is
+ *  CSS on each view. */
 export function restyle(agentId: string, look: BloubLook): void {
   const bot = bots.get(agentId)
   if (!bot) return
   bot.look = look
   const t = timeOf(bot)
   bot.engine?.setShape(shapeOf(look), t)
+  bot.rig.setShape(look.shape)
   // While an act plays, its face stays; the agent's own comes back when it ends.
   if (!bot.act) bot.engine?.setExpression(expressionOf(look), t)
+  syncEars(bot, t)
   wake()
 }
 
 /** Draws one resting frame of a look into `svg`, for the picker. */
-export function drawStill(svg: SVGSVGElement, shape: BloubLook['shape'], expression: BloubLook['expression']): () => void {
+export function drawStill(svg: SVGSVGElement, look: Pick<BloubLook, 'shape' | 'expression' | 'accessories'>): () => void {
   let live = true
   const { draw } = createView(svg)
   void loadEngine().then(({ BotEngine }) => {
+    if (!live) return
+    const engine = new BotEngine(RAYON, 'idle', shapeOf(look), expressionOf(look))
     // 1 s in: before the first scheduled blink, with the gaze near its rest.
-    if (live) draw(new BotEngine(RAYON, 'idle', SHAPE_BY_ID.get(shape)?.radii ?? null, EXPRESSION_BY_ID.get(expression) ?? null).sample(1))
+    const frame = engine.sample(1)
+    let gear = null
+    if (look.accessories.length > 0) {
+      const rig = new AccessoryRig(0, look.expression)
+      rig.setShape(look.shape)
+      gear = rig.update(frame, outlineOf(engine), 1, look.accessories, false)
+    }
+    draw(frame, gear)
   })
   return () => { live = false }
 }

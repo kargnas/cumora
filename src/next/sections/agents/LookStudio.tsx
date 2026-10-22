@@ -7,12 +7,14 @@
  * the editor's one Save keeps both.
  *
  * The bloub's face is not picked: it is the face of the agent's latest message
- * (server/src/fork/mood.ts). The stage's moments play one instead.
+ * (server/src/fork/mood.ts). The stage's moments play one instead. Its
+ * accessories are picked like a shape, any number at once.
  */
 import { useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { AgentEditor, PALETTE as BACKGROUNDS, type AvatarSlot, type PortraitState } from '@/components/AgentEditor'
 import { useParticipants } from '@/stores/participants'
 import type { Participant } from '@/types'
+import { ACCESSORIES } from '../../bloub/accessories'
 import { BloubAvatar, BloubStill, inkProps, PALETTE } from '../../bloub/BloubAvatar'
 import { stage, unstage } from '../../bloub/director'
 import type { ExpressionId } from '../../bloub/engine/expressions'
@@ -46,7 +48,7 @@ const oneOf = <T,>(items: readonly T[]): T => items[Math.floor(Math.random() * i
 /** A first look: any shape, in a colour no other agent wears while one is left. */
 function randomLook(taken: ReadonlySet<string>): BloubPick {
   const free = PALETTE.filter((c) => !taken.has(c.id))
-  return { shape: oneOf(SHAPES).id, color: oneOf(free.length > 0 ? free : PALETTE).id }
+  return { shape: oneOf(SHAPES).id, color: oneOf(free.length > 0 ? free : PALETTE).id, accessories: [] }
 }
 
 /** The classic editor with the Look Studio in place of its avatar fields. Key
@@ -105,11 +107,11 @@ function LookStudio({ agent, portrait, draft, setDraft }: {
 
   const name = agent?.name ?? nt('agents.newAgent')
   const animated = draft.animated ?? saved !== undefined
-  const pick = draft.pick ?? (saved ? { shape: saved.shape, color: saved.color } : undefined)
+  const pick = draft.pick ?? (saved ? { shape: saved.shape, color: saved.color, accessories: saved.accessories } : undefined)
   const face = moment ? PLAYS[moment].face : saved?.expression ?? 'neutre'
   const look = useMemo<BloubLook | null>(
-    () => (pick ? { shape: pick.shape, color: pick.color, expression: face } : null),
-    [pick?.shape, pick?.color, face],
+    () => (pick ? { shape: pick.shape, color: pick.color, expression: face, accessories: pick.accessories } : null),
+    [pick?.shape, pick?.color, pick?.accessories, face],
   )
 
   // The other agents, those wearing a bloub first, since only those can look alike.
@@ -119,9 +121,10 @@ function LookStudio({ agent, portrait, draft, setDraft }: {
   [byId, looks, agent?.id])
   const taken = useMemo(() => new Set(others.flatMap((p) => (looks[p.id] ? [looks[p.id].color] : []))), [others, looks])
   const twin = animated && pick ? others.find((p) => looks[p.id]?.color === pick.color) : undefined
-  const warning = twin && pick
-    ? nt(looks[twin.id].shape === pick.shape ? 'agents.lookSame' : 'agents.lookSameColor', { name: twin.name })
-    : null
+  // Accessories tell two bloubs of one shape and colour apart.
+  const worn = (accessories: readonly string[]) => [...accessories].sort().join(' ')
+  const same = twin && pick && looks[twin.id].shape === pick.shape && worn(looks[twin.id].accessories) === worn(pick.accessories)
+  const warning = twin ? nt(same ? 'agents.lookSame' : 'agents.lookSameColor', { name: twin.name }) : null
 
   // The portrait as it would be saved, drawn under the stage's own id so the
   // agent's saved bloub does not stand in for it.
@@ -181,7 +184,7 @@ function LookStudio({ agent, portrait, draft, setDraft }: {
               <Choices label={nt('agents.bloubShape')}>
                 {SHAPES.map(({ id }) => (
                   <Choice key={id} label={nt(`agents.bloub.shape.${id}`)} on={pick.shape === id} onPick={() => setDraft((d) => ({ ...d, pick: { ...pick, shape: id } }))}>
-                    <BloubStill look={{ shape: id, color: pick.color, expression: 'neutre' }} size={22} />
+                    <BloubStill look={{ shape: id, color: pick.color, expression: 'neutre', accessories: pick.accessories }} size={22} />
                   </Choice>
                 ))}
               </Choices>
@@ -192,6 +195,26 @@ function LookStudio({ agent, portrait, draft, setDraft }: {
                   </Choice>
                 ))}
               </Choices>
+              <div className="nx-look__group">
+                <span className="nx-look__label">{nt('agents.bloubAccessories')}</span>
+                <div className="nx-look__toggles" role="group" aria-label={nt('agents.bloubAccessories')}>
+                  {ACCESSORIES.map((id) => {
+                    const on = pick.accessories.includes(id)
+                    const accessories = on ? pick.accessories.filter((worn) => worn !== id) : [...pick.accessories, id]
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        className="nx-btn nx-btn--sm nx-btn--outline nx-look__toggle"
+                        aria-pressed={on}
+                        onClick={() => setDraft((d) => ({ ...d, pick: { ...pick, accessories } }))}
+                      >
+                        {nt(`agents.bloub.accessory.${id}`)}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
               <p className="nx-look__note">{nt('agents.lookFace', { name })} {nt('agents.lookPortraitStays')}</p>
             </>
           ) : (

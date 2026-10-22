@@ -213,9 +213,15 @@ test('a bloub avatar is the agent look for the whole company, with the face of i
 
   // A message's face sticks through a new pick, and a new pick replaces the row.
   assert.equal(store.setBloubExpression('c1', 'agent-a', 'heureux'), true)
-  store.setBloubAvatar('c1', 'agent-a', { shape: 'nuage', color: 'rose' })
-  assert.deepEqual(store.bloubAvatars('c1'), { 'agent-a': { shape: 'nuage', color: 'rose', expression: 'heureux' } })
-  assert.deepEqual(store.bloubAvatars('c2'), { 'agent-a': { shape: 'cercle', color: 'encre', expression: 'neutre' } })
+  store.setBloubAvatar('c1', 'agent-a', { shape: 'nuage', color: 'rose', accessories: ['ears', 'whiskers'] })
+  assert.deepEqual(store.bloubAvatars('c1'), { 'agent-a': { shape: 'nuage', color: 'rose', expression: 'heureux', accessories: ['ears', 'whiskers'] } })
+  assert.deepEqual(store.bloubAvatars('c2'), { 'agent-a': { shape: 'cercle', color: 'encre', expression: 'neutre', accessories: [] } })
+
+  // An app built before accessories sends no list, and must not take them off.
+  store.setBloubAvatar('c1', 'agent-a', { shape: 'galet', color: 'rose' })
+  assert.deepEqual(store.bloubAvatars('c1')['agent-a']?.accessories, ['ears', 'whiskers'])
+  store.setBloubAvatar('c1', 'agent-a', { shape: 'galet', color: 'rose', accessories: [] })
+  assert.deepEqual(store.bloubAvatars('c1')['agent-a']?.accessories, [])
   assert.equal(store.setBloubExpression('c1', 'agent-b', 'triste'), false, 'an agent without a bloub gets no face')
 
   // Clearing one company's look leaves the other's, survives a reopen, and clearing twice is harmless.
@@ -231,9 +237,11 @@ test('faces picked before moods existed go back to rest', async () => {
   ;(await openForkStore(file)).setBloubAvatar('c1', 'agent-a', { shape: 'galet', color: 'violet' })
   const SQL = await initSqlJs()
   const raw = new SQL.Database(readFileSync(file))
-  raw.run("UPDATE bloub_avatars SET expression = 'timide'; DROP TABLE triggers; DROP TABLE trigger_fires; DROP TABLE computer_purges; DROP TABLE purged_agents; DROP TABLE coding_threads; DROP TABLE cards; PRAGMA user_version = 5")
+  raw.run("UPDATE bloub_avatars SET expression = 'timide'; ALTER TABLE bloub_avatars DROP COLUMN accessories; DROP TABLE triggers; DROP TABLE trigger_fires; DROP TABLE computer_purges; DROP TABLE purged_agents; DROP TABLE coding_threads; DROP TABLE cards; PRAGMA user_version = 5")
   writeFileSync(file, raw.export())
-  assert.equal((await openForkStore(file)).bloubAvatars('c1')['agent-a']?.expression, 'neutre')
+  const upgraded = (await openForkStore(file)).bloubAvatars('c1')['agent-a']
+  assert.equal(upgraded?.expression, 'neutre')
+  assert.deepEqual(upgraded?.accessories, [], 'a look from before accessories wears none')
 })
 
 test('a file keeps its newest versions, and the oldest one left is its baseline', async () => {

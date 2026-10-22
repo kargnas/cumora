@@ -41,6 +41,15 @@ function lookId(value: unknown, label: string): string {
   return value
 }
 
+/** The accessories of a pick: catalogue ids like a shape's, each once. Left
+ *  out, the pick keeps what the agent wears. */
+function accessoryIds(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined
+  // More than the client's catalogue has, so a newer client's ids still fit.
+  if (!Array.isArray(value) || value.length > 8) throw new ForkError(400, 'accessories must be a list of at most 8 ids')
+  return [...new Set(value.map((id) => lookId(id, 'accessory')))]
+}
+
 /** Changing how an agent looks changes it for everyone in the workspace, so it
  *  takes the same bar as upstream's PUT /api/agents/:id: owner or admin. */
 async function requireAgentEditor(companyId: string, userId: string, participantId: string): Promise<void> {
@@ -190,7 +199,7 @@ export function createForkRouter(deps: ForkRouterDeps): Router {
     const participantId = routeKey(req.params.participantId, 'participantId')
     const body = req.body ?? {}
     // The expression is not picked: it follows the agent's messages (./mood.ts).
-    const look = { shape: lookId(body.shape, 'shape'), color: lookId(body.color, 'color') }
+    const look = { shape: lookId(body.shape, 'shape'), color: lookId(body.color, 'color'), accessories: accessoryIds(body.accessories) }
     await requireAgentEditor(companyId, userId, participantId)
     const store = await getForkStore()
     store.setBloubAvatar(companyId, participantId, look)

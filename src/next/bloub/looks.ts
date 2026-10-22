@@ -4,7 +4,8 @@
  * fork's SQLite store behind /api/fork/bloub-avatars, so upstream's
  * participants.avatar_url keeps the portrait the classic UI, push and email show.
  *
- * Owners pick the shape and colour in the agent editor (sections/agents/LookStudio.tsx).
+ * Owners pick the shape, the colour and any accessories in the agent editor
+ * (sections/agents/LookStudio.tsx).
  * The expression is not picked: the server gives it the face of the agent's
  * latest message (server/src/fork/mood.ts) and sends `fork.agent.mood`. A
  * changed pick has no realtime event: NextApp loads the looks on start and
@@ -17,10 +18,16 @@ import { loadEngine } from './director'
 import type { ExpressionId } from './engine/expressions'
 import type { ColorId, ShapeId } from './engine/skins'
 
-export interface BloubLook { shape: ShapeId; color: ColorId; expression: ExpressionId }
+export interface BloubLook {
+  shape: ShapeId
+  color: ColorId
+  expression: ExpressionId
+  /** Catalogue ids of accessories.ts. One this build does not know is kept and not drawn. */
+  accessories: string[]
+}
 
 /** The part of a look an owner picks. */
-export type BloubPick = Pick<BloubLook, 'shape' | 'color'>
+export type BloubPick = Pick<BloubLook, 'shape' | 'color' | 'accessories'>
 
 interface State {
   byId: Record<string, BloubLook>

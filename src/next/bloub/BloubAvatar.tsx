@@ -2,7 +2,7 @@ import { memo, useEffect, useRef, type CSSProperties, type Ref } from 'react'
 import { COLORS, type BotColor, type ColorId } from './engine/skins'
 import { attach, drawStill, restyle } from './director'
 import type { BloubLook } from './looks'
-import { VIEW_BOX } from './view'
+import { VIEW_BOX, VIEW_BOX_EARS } from './view'
 
 /** The colours offered. Ink follows the theme (cream in dark mode, see `.nx-ink`),
  *  so bloub's Cream would repeat it there and all but vanish on light surfaces. */
@@ -25,7 +25,7 @@ function Svg({ look, size, svgRef }: { look: BloubLook; size: number; svgRef: Re
       {...inkProps(look.color)}
       width={size}
       height={size}
-      viewBox={VIEW_BOX}
+      viewBox={look.accessories.includes('ears') ? VIEW_BOX_EARS : VIEW_BOX}
       aria-hidden
     />
   )
@@ -56,9 +56,11 @@ export const BloubAvatar = memo(function BloubAvatar({ agentId, look, size, clas
 export function BloubStill({ look, size }: { look: BloubLook; size: number }) {
   const svg = useRef<SVGSVGElement>(null)
   const { shape, expression } = look
+  // Callers build a new list every render; the effect redraws only when what is worn changes.
+  const worn = look.accessories.join(' ')
   useEffect(() => {
     if (!svg.current) return
-    return drawStill(svg.current, shape, expression)
-  }, [shape, expression])
+    return drawStill(svg.current, { shape, expression, accessories: worn ? worn.split(' ') : [] })
+  }, [shape, expression, worn])
   return <Svg look={look} size={size} svgRef={svg} />
 }
