@@ -1,8 +1,10 @@
 The fork's own web UI (`src/next`) follows the `web-design` skill: read `.agents/skills/web-design/SKILL.md` before you build, change or review it. Upstream's classic UI is outside its scope: a change there keeps the classic style, so upstream merges stay small.
 
-Every rule in the skill applies to `src/next` unless an AGENTS.md, such as `src/next/AGENTS.md`, has a rule on the same point; then the AGENTS.md rule wins. In particular:
+Every rule in the skill applies to `src/next` unless an AGENTS.md, such as `src/next/AGENTS.md`, or this file has a rule on the same point; then that rule wins. This file changes the skill in these points:
 
-- `src/next` is plain CSS with `nx-` classes, not shadcn or Tailwind. Skip the skill's Stack section, and map its Tailwind classes onto the same-named tokens in `src/next/styles/tokens.css`.
-- The bundled transitions guide is a reference, not code to paste. Rebuild a recipe with the motion tokens, classes and smoothness rules of `src/next`.
+- `src/next` is plain CSS with `nx-` classes, not shadcn or Tailwind. Skip the skill's Stack section, and map its Tailwind classes onto the same-named tokens in `src/next/styles/tokens.css`. That file decides which tokens exist and what they hold, even where the skill or the transitions guide lists other values (its `--ease-in-out` is a different curve) or more tokens.
+- The bundled transitions guide is a reference, not code to paste. Rebuild a recipe with the motion tokens, classes and smoothness rules of `src/next`. Build menus and dialogs on `Menu` and `Dialog` from `src/next/ui/primitives.tsx`, not on a recipe's opacity-only closed state, which leaves hidden content reachable by Tab and screen readers.
+- Recipe 13 (input clear) has two bugs in its JavaScript: its `cubic-bezier()` parser rejects the spaced values the recipe itself uses, so the easing falls back to linear, and its reduced-motion guard does not stop the `requestAnimationFrame` loop. Fix both when you rebuild it.
+- The Review Preflight fetches `command.md` at commit [`434b7f9`](https://raw.githubusercontent.com/vercel-labs/web-interface-guidelines/434b7f91364665f2f733b310ec54809bf8f37937/command.md) instead of `main`. If it cannot be fetched, say so in the review and continue with the skill's rules; the review stays valid.
 
 The skill is `design-frontend-sangrak` 0.9.1 from [kargnas/skills@fdd5749](https://github.com/kargnas/skills/tree/fdd57498056933c6026153222be604071f25b7c2/design-frontend-sangrak), copied with only its name, description and title changed.

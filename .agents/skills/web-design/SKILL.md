@@ -1,6 +1,6 @@
 ---
 name: web-design
-description: Use when building, changing, theming, or reviewing/auditing the fork's own web UI (src/next) in this repository. Read DESIGN.md first; where an AGENTS.md such as src/next/AGENTS.md has a rule on the same point, that rule wins over this skill. Default design baseline for new screens, plus container-first responsive rules, URL-first routing, scoped async loading, theme/i18n defaults, and applied UX laws.
+description: Use when building, changing, theming, or reviewing/auditing the fork's own web UI (src/next) in this repository. Read DESIGN.md first; its changes, and any AGENTS.md rule on the same point such as src/next/AGENTS.md, win over this skill. Default design baseline for new screens, plus container-first responsive rules, URL-first routing, scoped async loading, theme/i18n defaults, and applied UX laws.
 metadata:
   author: kargnas
   version: "0.9.1"
