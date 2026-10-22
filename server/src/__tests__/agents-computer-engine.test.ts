@@ -1215,3 +1215,137 @@ if (argv.includes('--input-format')) {
     assert.equal(triageArgv[triageArgv.indexOf('--model') + 1], profile.fastModel)
   }))
 })
+
+// ── Token accounting: the ledger must match the engine's own records ────────
+
+test('persistent Claude ledgers each response once and closes a turn with modelUsage', { skip: IS_WIN }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cumora-claude-usage-'))
+  tempDirs.push(root)
+  const binDir = join(root, 'bin')
+  const home = join(root, 'home')
+  await mkdir(binDir)
+  await mkdir(home)
+  // Claude Code emits each content block of one response as its own event with
+  // the response's usage, whose output is still partial. modelUsage in the
+  // result is the process's running total per model, subagents included.
+  await writeFakeCli(
+    binDir,
+    'claude',
+    "const out = (m) => process.stdout.write(JSON.stringify({ session_id: 's1', ...m }) + '\\n')\n" +
+    'let turn = 0\n' +
+    "process.stdin.on('data', () => {\n" +
+    '  turn += 1\n' +
+    '  if (turn === 1) {\n' +
+    '    const usage = { input_tokens: 2, cache_read_input_tokens: 1000, cache_creation_input_tokens: 100, output_tokens: 3 }\n' +
+    "    out({ type: 'assistant', message: { id: 'msg_a', model: 'claude-test', usage, content: [{ type: 'thinking', thinking: '' }] } })\n" +
+    "    out({ type: 'assistant', message: { id: 'msg_a', model: 'claude-test', usage, content: [{ type: 'tool_use', id: 'toolu_1', name: 'Agent', input: {} }] } })\n" +
+    "    out({ type: 'system', subtype: 'task_started', tool_use_id: 'toolu_1', description: 'Look around', subagent_type: 'general-purpose' })\n" +
+    "    out({ type: 'system', subtype: 'task_notification', tool_use_id: 'toolu_1', status: 'completed', usage: { total_tokens: 5000, tool_uses: 2, duration_ms: 1500 } })\n" +
+    "    out({ type: 'result', subtype: 'success', usage, modelUsage: { 'claude-test': { inputTokens: 4, outputTokens: 310, cacheReadInputTokens: 1000, cacheCreationInputTokens: 5090, contextWindow: 200000 } } })\n" +
+    '  } else {\n' +
+    "    out({ type: 'assistant', message: { id: 'msg_b', model: 'claude-test', usage: { input_tokens: 1, cache_read_input_tokens: 1100, cache_creation_input_tokens: 20, output_tokens: 1 }, content: [{ type: 'text', text: 'ok' }] } })\n" +
+    "    out({ type: 'result', subtype: 'success', modelUsage: { 'claude-test': { inputTokens: 5, outputTokens: 350, cacheReadInputTokens: 2100, cacheCreationInputTokens: 5110, contextWindow: 200000 } } })\n" +
+    '  }\n' +
+    '})\n' +
+    'setInterval(() => {}, 1 << 30)\n',
+  )
+  useFakeCliPath(binDir)
+
+  const hops: EngineHopReport[] = []
+  const session = getAdapter('claude').startSession?.({
+    home,
+    env: secureClaudeEnv(root),
+    model: null,
+    fastModel: null,
+    onLog: () => {},
+    onHopUsage: (h) => hops.push(h),
+  })
+  assert.ok(session)
+  liveSessions.push(session)
+
+  const first = await session.send('wake')
+  assert.deepEqual(hops.map((h) => h.repeat ?? false), [false, true, false], 'the second block of msg_a is a repeat, then the rest')
+  assert.deepEqual(first.usage, { input_tokens: 4, output_tokens: 310, cache_read_input_tokens: 1000, cache_creation_input_tokens: 5090 },
+    "the turn is modelUsage's growth, the subagent included")
+  const rest = hops[2]
+  assert.deepEqual(rest.usage, { input_tokens: 2, output_tokens: 307, cache_read_input_tokens: 0, cache_creation_input_tokens: 4990 },
+    'the rest is the turn minus the one ledgered response')
+  assert.deepEqual(rest.rest?.subs, [{ id: 'toolu_1', description: 'Look around', type: 'general-purpose', tokens: 5000, toolUses: 2, durationMs: 1500 }])
+  assert.equal(rest.window, 200000)
+
+  const second = await session.send('again')
+  assert.deepEqual(second.usage, { input_tokens: 1, output_tokens: 40, cache_read_input_tokens: 1100, cache_creation_input_tokens: 20 },
+    'a later turn counts only what the totals grew by')
+  assert.equal(hops[3].window, 200000, 'calls after the first result carry the context window')
+  assert.deepEqual(hops[4].usage, { input_tokens: 0, output_tokens: 39, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 })
+})
+
+async function codexUsageTurn(resumeUpdate: boolean) {
+  process.env.CUMORA_BYOA_ALLOW_UNSANDBOXED = '1'
+  const root = await mkdtemp(join(tmpdir(), 'cumora-codex-usage-'))
+  tempDirs.push(root)
+  const home = join(root, 'home')
+  const binDir = join(root, 'bin')
+  await mkdir(home, { recursive: true })
+  await mkdir(binDir, { recursive: true })
+  // The thread already used about a million tokens before this process. Its
+  // first update repeats once, and output already includes reasoning.
+  await writeFakeCli(
+    binDir,
+    'codex',
+    "const send = (m) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...m }) + '\\n')\n" +
+    'const t = (input, cached, output, reasoning) => ({ inputTokens: input, cachedInputTokens: cached, outputTokens: output, reasoningOutputTokens: reasoning, totalTokens: input + output })\n' +
+    "const usage = (total, last) => send({ method: 'thread/tokenUsage/updated', params: { threadId: 't1', turnId: 'u1', tokenUsage: { total, last, modelContextWindow: 400000 } } })\n" +
+    "let buf = ''\n" +
+    "process.stdin.on('data', (d) => {\n" +
+    "  buf += d.toString('utf8')\n" +
+    '  let nl\n' +
+    "  while ((nl = buf.indexOf('\\n')) >= 0) {\n" +
+    '    const line = buf.slice(0, nl); buf = buf.slice(nl + 1)\n' +
+    '    let msg; try { msg = JSON.parse(line) } catch { continue }\n' +
+    "    if (msg.method === 'initialize') send({ id: msg.id, result: {} })\n" +
+    "    else if (msg.method === 'thread/start' || msg.method === 'thread/resume') {\n" +
+    "      send({ id: msg.id, result: { thread: { id: 't1' } } })\n" +
+    (resumeUpdate ? "      usage(t(1000000, 900000, 5000, 996), t(500, 400, 20, 5))\n" : '') +
+    "    }\n" +
+    "    else if (msg.method === 'turn/start') {\n" +
+    "      send({ id: msg.id, result: { turn: { id: 'u1' } } })\n" +
+    '      usage(t(1000100, 900050, 5010, 1000), t(100, 50, 10, 4))\n' +
+    '      usage(t(1000100, 900050, 5010, 1000), t(100, 50, 10, 4))\n' +
+    '      usage(t(1000300, 900200, 5030, 1008), t(200, 150, 20, 8))\n' +
+    "      send({ method: 'turn/completed', params: { turn: { id: 'u1', status: 'completed' } } })\n" +
+    '    }\n' +
+    '  }\n' +
+    '})\n' +
+    'setInterval(() => {}, 1 << 30)\n',
+  )
+  const hops: EngineHopReport[] = []
+  const session = getAdapter('codex').startSession!({
+    home,
+    env: secureClaudeEnv(root, { PATH: `${binDir}${delimiter}${process.env.PATH ?? ''}` }),
+    model: 'gpt-test',
+    resumeSessionId: 't1',
+    onLog: () => {},
+    onHopUsage: (h) => hops.push(h),
+  })
+  assert.ok(session)
+  liveSessions.push(session!)
+
+  const result = await session!.send('wake')
+  return { result, hops }
+}
+
+for (const resumeUpdate of [false, true]) {
+  test(`a Codex session ledgers each model call from a resumed thread (${resumeUpdate ? 'totals sent at resume' : 'first totals inside the turn'})`, { skip: IS_WIN }, async () => {
+    const { result, hops } = await codexUsageTurn(resumeUpdate)
+    assert.equal(result.exitCode, 0)
+    assert.deepEqual(hops.map((h) => h.usage), [
+      { input_tokens: 50, cache_read_input_tokens: 50, cache_creation_input_tokens: 0, output_tokens: 10 },
+      { input_tokens: 50, cache_read_input_tokens: 150, cache_creation_input_tokens: 0, output_tokens: 20 },
+    ], 'one hop per call: the repeated update adds none, and the history before this process is not a call')
+    assert.equal(hops[0].window, 400000)
+    assert.deepEqual(result.usage, { input_tokens: 100, cache_read_input_tokens: 200, cache_creation_input_tokens: 0, output_tokens: 30 },
+      'the turn is its two calls, reasoning counted once')
+    assert.ok(hops.every((h) => h.exact), 'the daemon marks these rows for the token figures')
+  })
+}

@@ -36,6 +36,8 @@ import { buildItems, createdAt, floatingDay, type DayPill, type Item, type Pos, 
 import { authorOf } from './deletedAuthor'
 import { answersCard, useCards, useHiddenAnswers } from './cards'
 import { AskCard } from './AskCard'
+import { useRoomTokens } from './tokens'
+import { AgendaCards, TokenDialog, TokenLine } from './TokenFigures'
 
 const EMPTY: Message[] = []
 const QUICK = ['👍', '❤️', '😂', '👀', '✅', '🔥']
@@ -421,6 +423,7 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
             <button type="button" onClick={() => discardFailedMessage(msg.conversationId, msg.id)}>{nt('msg.discard')}</button>
           </div>
         )}
+        {mine && <TokenLine msgId={msg.id} />}
       </div>
       <Menu
         open={menu.open}
@@ -653,6 +656,7 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
     [raw, answers],
   )
   const items = useMemo(() => buildItems(shown, me), [shown, me])
+  useRoomTokens(convoId, items)
 
   // Messages present at open never animate; anything after does, once.
   const seen = seenMap(convoId)
@@ -798,6 +802,7 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
           hl={it.key === currentHit ? 'current' : hitSet.has(it.key) ? 'match' : undefined}
           swipe
         />
+        <AgendaCards msgId={it.msg.id} />
       </>
     )
   }, [byId, locale, nt, seen, currentHit, hitSet, float])
@@ -846,6 +851,7 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
       >
         <IArrowDown />
       </button>
+      <TokenDialog />
     </div>
   )
 }

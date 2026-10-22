@@ -1975,6 +1975,8 @@ export class AgentRunner {
    *  during this turn carry it so the ledger can link them back to the run.
    *  Cleared at turn end. */
   private currentRunId: string | null = null
+  /** An agenda turn (proactive board work, no room) is running. */
+  private agendaTurn = false
 
   constructor(
     private readonly cfg: DaemonConfig,
@@ -2036,11 +2038,20 @@ export class AgentRunner {
       // posted and another `write` hop must not.
       if (this.requestedStatus !== 'working' || tool !== this.requestedTool) void this.postStatus(token, 'working', tool)
     }
+    if (report.repeat) return
     try {
-      const extras: Record<string, unknown> = {}
+      // `acct: 2` marks rows whose usage matches the engine's own records (one
+      // row per model call, then the turn's `rest`); the chat's developer token
+      // figures read only these (server/src/fork/tokens.ts).
+      const extras: Record<string, unknown> = report.exact ? { acct: 2 } : {}
       if (typeof report.hopIndex === 'number') extras.hopIndex = report.hopIndex
       if (typeof report.toolUses === 'number') extras.toolUses = report.toolUses
       if (typeof report.textChars === 'number') extras.textChars = report.textChars
+      if (report.window) extras.window = report.window
+      if (report.sub) extras.sub = report.sub
+      if (report.rest) extras.rest = report.rest
+      // Agenda turns answer no room, even when a wake landed while they ran.
+      if (this.agendaTurn) extras.agenda = true
       this.reporter.push({
         source: byoaSourceOf(this.adapter.id),
         purpose,
@@ -3006,6 +3017,7 @@ export class AgentRunner {
     // hop emitted by the engine is linked back to the agent_runs row. Cleared
     // in finally below alongside the heartbeat stop.
     this.currentRunId = run?.runId ?? null
+    this.agendaTurn = true
     const stopRunBeat = this.beatRun(token, run?.runId)
     const stopStatusBeat = this.beatStatus(token)
     let exitCode = 0
@@ -3049,6 +3061,7 @@ export class AgentRunner {
       // instead of waiting for the 250ms timer. Fire-and-forget — the void
       // wraps because a slow flush must not block the chat path.
       this.currentRunId = null
+      this.agendaTurn = false
       void this.reporter.flush()
       await this.postStatus(token, 'avail')
       // Mirror chat path: release the concurrency slot regardless of outcome.

@@ -9,6 +9,7 @@ import { stopAgent } from './stop.js'
 import { answerChoice, listCards, sendSecret, startCardSweeper } from './cards.js'
 import { computerPurges, purgeAgent } from './purge.js'
 import { agentScreen, agentScreenInput } from './screen.js'
+import { roomTokens } from './tokens.js'
 import { PROFILE_RE, REPO_RE, listProfiles, pollErrorOf, runNow, startTriggerPoller } from './triggers.js'
 
 type CompanyContext = { userId: string; companyId: string }
@@ -104,6 +105,7 @@ export function createForkRouter(deps: ForkRouterDeps): Router {
   router.get('/agents/:agentId/screen', (req, res) => agentScreen(deps.requireCompany, req, res))
   router.post('/agents/:agentId/screen/input', (req, res) => agentScreenInput(deps.requireCompany, req, res))
   router.post('/rooms/:conversationId/agents/:agentId/stop', (req, res) => stopAgent(deps.requireCompany, req, res))
+  router.get('/rooms/:conversationId/tokens', (req, res) => roomTokens(deps.requireCompany, req, res))
 
   router.get('/cards', (req, res) => listCards(deps.requireCompany, req, res))
   router.post('/cards/:messageId/answer', (req, res) => answerChoice(deps.requireCompany, req, res))
