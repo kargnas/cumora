@@ -3,9 +3,9 @@
  * Upstream's Postgres schema and migrations stay untouched, so merging
  * upstream never conflicts with fork-only tables.
  *
- * sql.js (SQLite compiled to WebAssembly) because the server image runs
- * Node 20, which has no node:sqlite, and a native module would also have to
- * be rebuilt for the Electron app that shares package.json.
+ * sql.js (SQLite compiled to WebAssembly). Electron shares this package.json
+ * and has no node:sqlite, and a native module would also have to be rebuilt
+ * for that app.
  */
 import initSqlJs from 'sql.js'
 import { randomUUID } from 'node:crypto'
@@ -365,8 +365,8 @@ export async function openForkStore(file: string) {
   // ponytail: rewrites the whole file per change. Fine while it stays at a few
   // MB: layout rows plus the Handbook's file versions, which start at the
   // computer's standing files (under 1 MB) and keep up to MAX_FILE_VERSIONS
-  // versions of each file in full. Switch to node:sqlite once the image runs
-  // Node 22+ before the file outgrows that.
+  // versions of each file in full. sql.js stays while Electron shares this
+  // module and has no node:sqlite.
   // When the write fails, the change is undone in memory too, so a later read
   // (the client resyncs after a failed write) never serves a state the file
   // does not have, and the next save does not persist it by accident.

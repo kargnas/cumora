@@ -36,7 +36,7 @@ RUN GOPROXY=https://proxy.golang.org,direct CGO_ENABLED=0 GOOS=linux go build \
       .
 
 # ─── stage 2: the runtime image ─────────────────────────────────────
-FROM node:20-bookworm-slim
+FROM node:24.22.1-bookworm-slim
 
 # tini    — PID-1 reaper / signal forwarder
 # curl / wget — used by the in-pod `cumora` shim + OpenCLI extension fetch

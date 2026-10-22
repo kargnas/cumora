@@ -37,6 +37,9 @@ function packagedRendererUrls(source: string): string[] {
     // Any string literal that names an index.html we hand to a BrowserWindow.
     if (!/index\.html/.test(line)) continue
     if (!/loadURL|return\s/.test(line)) continue
+    // The app:// handler returns an on-disk path for the SPA shell. That is
+    // how the scheme is served, not a window entry point.
+    if (!line.includes('://')) continue
     out.push(line)
   }
   return out
@@ -84,4 +87,9 @@ test('the matcher flags a file:// notification URL', () => {
 test('the matcher ignores the isDev branch', () => {
   const dev = '  if (isDev) return `' + '$' + '{DEV_URL}/index.html#notifications`'
   assert.deepEqual(packagedRendererUrls(dev), [])
+})
+
+test('the matcher ignores the protocol handler filesystem fallback', () => {
+  const fallback = "  if (!path.extname(rel) && !fs.existsSync(resolved)) return path.join(distRoot, 'index.html')"
+  assert.deepEqual(packagedRendererUrls(fallback), [])
 })

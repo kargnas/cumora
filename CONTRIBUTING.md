@@ -10,24 +10,22 @@ project's [MIT License](LICENSE).
 ## Getting set up
 
 You need **Postgres** and **Redis** running locally. Node floors differ by
-artifact. The root `package.json` `engines` field is `>=20`, which is the
+artifact. The root `package.json` `engines` field is `>=24.22.1`, which is the
 install floor the production image proves. npm is not run with
 `engine-strict`, so a dependency's own engines field warns instead of
 failing `npm ci`.
 
 | Artifact | Node |
 | --- | --- |
-| Root `engines` | `>=20` |
-| CI typecheck, test, and deploy (`pr.yml`, `build.yml`, `deploy.yml`, `production-readback.yml`) | 24 |
-| `publish.yml` | 20 |
-| `server/docker/cumora-server.Dockerfile`, `server/docker/agent-computer.Dockerfile` | `node:20-bookworm-slim` |
+| Root `engines`, `.nvmrc` | `24.22.1` (`engines` is `>=24.22.1`) |
+| CI (`pr.yml`, `build.yml`, `deploy.yml`, `production-readback.yml`, `publish.yml`) | 24.22.1 |
+| `server/docker/cumora-server.Dockerfile`, `server/docker/agent-computer.Dockerfile` | `node:24.22.1-bookworm-slim` |
 | `agent-cli/package.json` `engines` | `>=18` |
 | `@capacitor/cli` | `>=22` |
 
-Use Node 22 or newer for local app and mobile work. CI runs Node 24.
-Node 20 can install this tree — the server and agent images do it on every
-build. Node 18 is below the AWS SDK and Capacitor floors. Production images
-still run Node 20 while CI validates Node 24; those are different runtimes.
+Use Node 24.22.1 or newer for local app and mobile work. CI and the production
+images run that same patched release. Node 18 and 20 are below this floor.
+Node 18 is also below the AWS SDK and Capacitor floors.
 
 ```bash
 createdb -h localhost cumora
