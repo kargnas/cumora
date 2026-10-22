@@ -256,13 +256,15 @@ function alive(pid: number): boolean {
 /** A turn settles right after its command gets SIGKILL, and kill(pid, 0) finds
  *  the command until its parent reaps it, which can take a moment on a busy
  *  runner. 500 ms stays well under terminateTurnGroups' 1 s SIGTERM grace, so a
- *  turn that settled before the SIGKILL still fails here. */
+ *  turn that settled before the SIGKILL still fails here. The deadline is wall
+ *  clock: counted sleeps would stretch on a busy runner, past the grace. */
 async function gone(pid: number): Promise<boolean> {
-  for (let i = 0; i < 50; i += 1) {
-    if (!alive(pid)) return true
+  const deadline = Date.now() + 500
+  while (alive(pid)) {
+    if (Date.now() > deadline) return false
     await delay(10)
   }
-  return false
+  return true
 }
 
 async function pidFromLog(logs: string[], tag: 'CMD_PID' | 'MCP_PID'): Promise<number> {
