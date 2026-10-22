@@ -90,8 +90,7 @@ async function listen(): Promise<void> {
       headers: {
         Authorization: `Bearer ${key}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://kargn.as',
-        'X-OpenRouter-Title': 'Sangrak',
+        'X-OpenRouter-Title': 'Cumora',
       },
       body: JSON.stringify(moodRequest(body)),
       signal: AbortSignal.timeout(TIMEOUT_MS),
