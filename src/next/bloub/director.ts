@@ -15,7 +15,7 @@ import { useParticipants } from '@/stores/participants'
 import type { Message } from '@/types'
 import { AccessoryRig, earFace, outlineOf } from './accessories'
 import type { BotEngine } from './engine/engine'
-import { EXPRESSION_BY_ID } from './engine/expressions'
+import { EXPRESSION_BY_ID, type ExpressionId } from './engine/expressions'
 import { RAYON } from './engine/repere'
 import { SHAPE_BY_ID } from './engine/skins'
 import type { BloubLook } from './looks'
@@ -101,25 +101,29 @@ function modeFor(id: string): Mode {
   return modeOf(p, p.computerId ? useComputers.getState().byId[p.computerId] : undefined)
 }
 
+/** The step the playhead is on: its state, how long it holds, and its tool. */
+const stepOf = (bot: Bot) => bot.head.program.steps[bot.head.index]
+
+/** The agent's face on screen: an act's while one plays, else its own. */
+const faceOf = (bot: Bot): ExpressionId => (bot.act ? ACTS[bot.act.kind].face : bot.look.expression)
+
 /** Starts or ends the tool act of the step the playhead is on, at time `at`:
  *  the act wears its kind's face, and ending it gives back the agent's own
  *  face and gaze. */
 function syncAct(bot: Bot, at: number) {
-  const kind = bot.head.program.steps[bot.head.index][2] ?? null
+  const kind = stepOf(bot)[2] ?? null
   if (kind === (bot.act?.kind ?? null)) return
   if (bot.act) {
     bot.leaving = { ...bot.act, until: at }
     bot.engine?.setLook(null, at)
   }
   bot.act = kind ? { kind, since: at } : null
-  const face = kind ? EXPRESSION_BY_ID.get(ACTS[kind].face) ?? null : expressionOf(bot.look)
-  bot.engine?.setExpression(face, at)
+  bot.engine?.setExpression(EXPRESSION_BY_ID.get(faceOf(bot)) ?? null, at)
 }
 
-/** Gives the ears the face on screen at `at`: an act's, a state's own, or the agent's. */
+/** Gives the ears the face of the state on screen, or the agent's. */
 function syncEars(bot: Bot, at: number) {
-  const state = bot.head.program.steps[bot.head.index][0]
-  bot.rig.setFace(earFace(state, bot.act ? ACTS[bot.act.kind].face : bot.look.expression), at)
+  bot.rig.setFace(earFace(stepOf(bot)[0], faceOf(bot)), at)
 }
 
 function frame() {
@@ -153,8 +157,7 @@ function frame() {
     }
     const sampled = still() ? at + 0.5 : at
     const f = engine.sample(sampled)
-    const { accessories } = bot.look
-    const gear = accessories.length > 0 ? bot.rig.update(f, outlineOf(engine), sampled, accessories, !still()) : null
+    const gear = bot.look.accessories.length > 0 ? bot.rig.update(f, outlineOf(engine), sampled, bot.look, !still()) : null
     // The body leans aside as far as the props have come in.
     const lean = acts.reduce((most, act) => Math.max(most, act.presence), 0)
     for (const view of bot.views) {
@@ -257,19 +260,18 @@ export function attach(agentId: string, svg: SVGSVGElement, look: BloubLook): ()
     const offset = offsetOf(agentId)
     const mode = modeFor(agentId)
     const t = clock() + offset
-    const head: Playhead = { program: programFor(null, mode), index: 0, since: t }
-    const rig = new AccessoryRig(offset, earFace(head.program.steps[0][0], look.expression))
-    rig.setShape(look.shape)
+    const start: Playhead = { program: programFor(null, mode), index: 0, since: t }
+    const rig = new AccessoryRig(offset, earFace(start.program.steps[0][0], look.expression))
     const created: Bot = {
       engine: null, rig, offset, look, mode, wanted: mode, tool: null, appliedTool: null, act: null, leaving: null,
-      appliedAt: t, timer: 0, views: new Set(), visible: 0, head,
+      appliedAt: t, timer: 0, views: new Set(), visible: 0, head: start,
     }
     bots.set(agentId, created)
     bot = created
     void loadEngine().then(({ BotEngine }) => {
       if (bots.get(agentId) !== created) return
       const { head } = created
-      const face = created.act ? EXPRESSION_BY_ID.get(ACTS[created.act.kind].face) ?? null : expressionOf(created.look)
+      const face = EXPRESSION_BY_ID.get(faceOf(created)) ?? null
       const engine = new BotEngine(RAYON, head.program.steps[head.index][0], shapeOf(created.look), face)
       // Start the state at the playhead's time, so a burst already half played is not replayed.
       engine.reset(head.program.steps[head.index][0], head.since)
@@ -325,7 +327,6 @@ export function restyle(agentId: string, look: BloubLook): void {
   bot.look = look
   const t = timeOf(bot)
   bot.engine?.setShape(shapeOf(look), t)
-  bot.rig.setShape(look.shape)
   // While an act plays, its face stays; the agent's own comes back when it ends.
   if (!bot.act) bot.engine?.setExpression(expressionOf(look), t)
   syncEars(bot, t)
@@ -344,8 +345,7 @@ export function drawStill(svg: SVGSVGElement, look: Pick<BloubLook, 'shape' | 'e
     let gear = null
     if (look.accessories.length > 0) {
       const rig = new AccessoryRig(0, look.expression)
-      rig.setShape(look.shape)
-      gear = rig.update(frame, outlineOf(engine), 1, look.accessories, false)
+      gear = rig.update(frame, outlineOf(engine), 1, look, false)
     }
     draw(frame, gear)
   })

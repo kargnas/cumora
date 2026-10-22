@@ -16,12 +16,15 @@
  */
 import type { BotEngine, BotFrame } from './engine/engine'
 import type { ExpressionId } from './engine/expressions'
+import { TAU, clamp, easings, lerp, r2 } from './engine/math'
 import { PROFILE_SAMPLES } from './engine/profiles'
 import type { Point } from './engine/shape'
 import type { StateId } from './engine/states'
 
 export const ACCESSORIES = ['ears', 'whiskers'] as const
-export type AccessoryId = (typeof ACCESSORIES)[number]
+
+/** Whether a look wears ears, which need a taller box (view.ts VIEW_BOX_EARS). */
+export const wearsEars = (accessories: readonly string[]) => accessories.includes('ears')
 
 /** The outline of the frame the engine last sampled: its private `pts`, kept
  *  on the instance and rewritten by every sample. tests/bloub-accessories.test.ts
@@ -33,7 +36,11 @@ export const outlineOf = (engine: BotEngine): readonly Point[] => (engine as unk
  *  body whatever the ear does. The left ear is the same path mirrored. */
 export const EAR_D = 'M-0.5 0.45C-0.5 -0.1 -0.17 -0.74 -0.03 -0.93Q0.07 -1.07 0.17 -0.93C0.33 -0.66 0.5 -0.15 0.5 0.45Z'
 
-const TAU = Math.PI * 2
+/** The engine's morph time for a new face (BotEngine.SHAPE_MORPH, which is
+ *  loaded late with the engine): ears and eyes change together. The test
+ *  checks the two stay equal. */
+export const FACE_MORPH = 0.45
+
 const DEG = Math.PI / 180
 /** Profile indexes of the top and the bottom: the profile starts at 3 o'clock
  *  and runs clockwise on screen. */
@@ -42,14 +49,11 @@ const BOTTOM = PROFILE_SAMPLES / 4
 /** An ear's base width and height in engine units (the ball at rest has radius 100). */
 const EAR_W = 56
 const EAR_H = 52
-/** Ears sit this far either side of the top. A triangle's apex would stand up
- *  between ears placed that wide, so its ears hug the apex and it reads as a crown. */
-const SPREAD = 37 * DEG
-const SPREAD_BY_SHAPE: Record<string, number> = { triangle: 24 * DEG }
+/** How far either side of the top the ears sit. A triangle's apex would stand
+ *  up between ears placed that wide, so its ears hug the apex and it reads as a crown. */
+const spreadOf = (shape: string) => (shape === 'triangle' ? 24 : 37) * DEG
 /** How much an ear stands up along the body's axis instead of out along the surface. */
 const UPRIGHT = 0.55
-/** The engine's morph time for a new face: ears and eyes change together. */
-const FACE_MORPH = 0.45
 const WHISKER_LENGTH = 48
 
 /** How an ear sits: splay in degrees (+ is outward and back, the way a cat
@@ -75,12 +79,28 @@ const EAR_POSES: Record<ExpressionId, [EarPose, EarPose]> = {
   somnolent: both(40, 0.86),
 }
 
-/** States whose face the engine draws itself rather than the agent's. */
-const STATE_FACES: Partial<Record<StateId, ExpressionId>> = { notify: 'attentif', wink: 'heureux', sleep: 'somnolent' }
+/** Every state whose face the engine draws itself (`baseFace: false` in
+ *  engine/states.ts) and the face the ears wear there instead of the agent's.
+ *  The test fails when the engine's list changes. */
+export const STATE_FACES: Partial<Record<StateId, ExpressionId>> = {
+  notify: 'attentif',
+  wink: 'heureux',
+  sleep: 'somnolent',
+  wide: 'surpris',
+  alert: 'surpris',
+  exclaim: 'surpris',
+  thinking: 'neutre',
+  egg: 'neutre',
+  hexagon: 'neutre',
+  play: 'neutre',
+  orbit: 'neutre',
+  burst: 'neutre',
+  comet: 'neutre',
+}
+/** The face the ears wear in `state` for the agent's own `face`. */
 export const earFace = (state: StateId, face: ExpressionId): ExpressionId => STATE_FACES[state] ?? face
 
-const easeOutQuint = (k: number) => 1 - (1 - Math.min(1, Math.max(0, k))) ** 5
-const lerp = (a: number, b: number, t: number) => a + (b - a) * t
+const easeOutQuint = (k: number) => easings.easeOutQuint(clamp(k))
 
 function at(pts: readonly Point[], k: number): Point {
   const n = pts.length
@@ -128,16 +148,11 @@ export class AccessoryRig {
   private from: [EarPose, EarPose]
   private to: [EarPose, EarPose]
   private since = Number.NEGATIVE_INFINITY
-  private spread = SPREAD
 
   /** `seed` keeps each agent's flicks to its own moments. */
   constructor(seed: number, face: ExpressionId) {
     this.seed = seed
     this.from = this.to = EAR_POSES[face] ?? EAR_POSES.neutre
-  }
-
-  setShape(shape: string): void {
-    this.spread = SPREAD_BY_SHAPE[shape] ?? SPREAD
   }
 
   setFace(face: ExpressionId, now: number): void {
@@ -157,7 +172,13 @@ export class AccessoryRig {
 
   /** `outline` is the engine's outline for `frame` (outlineOf). `motion`
    *  false (reduced motion) keeps the ears from flicking. */
-  update(frame: BotFrame, outline: readonly Point[], now: number, on: readonly string[], motion: boolean): AccessoryFrame {
+  update(
+    frame: BotFrame,
+    outline: readonly Point[],
+    now: number,
+    look: { shape: string; accessories: readonly string[] },
+    motion: boolean,
+  ): AccessoryFrame {
     const n = outline.length
     let cx = 0
     let cy = 0
@@ -173,14 +194,15 @@ export class AccessoryRig {
     const size = easeOutQuint((radius / n / 100 - 0.3) / 0.5)
 
     const ears: [string | null, string | null] = [null, null]
-    if (on.includes('ears') && size > 0.01) {
+    if (wearsEars(look.accessories) && size > 0.01) {
       const pose = this.poseAt(now)
       const flicks = motion ? flick(now, this.seed) : [0, 0]
+      const spread = spreadOf(look.shape)
       // The body's own up, from the bottom of the profile to its top, so it
       // turns with a body that a state spins.
       const up = unit(outline[TOP]!.x - outline[BOTTOM]!.x, outline[TOP]!.y - outline[BOTTOM]!.y)
       for (const [i, side] of [[0, -1], [1, 1]] as const) {
-        const k = (((-Math.PI / 2 + side * this.spread + TAU) % TAU) / TAU) * n
+        const k = (((-Math.PI / 2 + side * spread + TAU) % TAU) / TAU) * n
         const p = at(outline, k)
         const before = at(outline, k - 1)
         const after = at(outline, k + 1)
@@ -199,7 +221,7 @@ export class AccessoryRig {
 
     let whiskers = ''
     let whiskerAlpha = 0
-    if (on.includes('whiskers') && frame.eyes.length === 2) {
+    if (look.accessories.includes('whiskers') && frame.eyes.length === 2) {
       const [left, right] = frame.eyes.map(eyeCentre).sort((a, b) => a.x - b.x) as [EyeCentre, EyeCentre]
       const across = unit(right.x - left.x, right.y - left.y)
       const down = { x: -across.y, y: across.x }
@@ -221,8 +243,6 @@ export class AccessoryRig {
     return { ears, whiskers, whiskerAlpha }
   }
 }
-
-const r2 = (v: number) => Math.round(v * 100) / 100
 
 interface EyeCentre { x: number; y: number; alpha: number }
 /** An eye's centre is the translation of its matrix (engine.ts writes `matrix(a,b,c,d,e,f)`). */

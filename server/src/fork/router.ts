@@ -43,7 +43,7 @@ function lookId(value: unknown, label: string): string {
 
 /** The accessories of a pick: catalogue ids like a shape's, each once. Left
  *  out, the pick keeps what the agent wears. */
-function accessoryIds(value: unknown): string[] | undefined {
+export function accessoryIds(value: unknown): string[] | undefined {
   if (value === undefined) return undefined
   // More than the client's catalogue has, so a newer client's ids still fit.
   if (!Array.isArray(value) || value.length > 8) throw new ForkError(400, 'accessories must be a list of at most 8 ids')

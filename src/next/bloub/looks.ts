@@ -97,8 +97,12 @@ export const useBloubLooks = create<State>((set, get) => {
     async load() {
       const since = writes
       try {
-        const { avatars } = await enqueue(() => http<{ avatars: Record<string, BloubLook> }>('/fork/bloub-avatars'))
+        const { avatars: sent } = await enqueue(() =>
+          http<{ avatars: Record<string, Omit<BloubLook, 'accessories'> & { accessories?: string[] }> }>('/fork/bloub-avatars'))
         if (writes !== since) return
+        // A server from before accessories sends looks without them. The apps
+        // carry their own web build, so a newer app meets such a server.
+        const avatars = Object.fromEntries(Object.entries(sent).map(([id, look]) => [id, { ...look, accessories: look.accessories ?? [] }]))
         if (Object.keys(avatars).length > 0) preloadEngine()
         // Most foreground returns bring back the same looks; keeping the old
         // object keeps every avatar from re-rendering for nothing.
