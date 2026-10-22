@@ -4,8 +4,6 @@
  * card after the message it followed. Pure, so tests/dev-token-figures.test.ts
  * can run it without a browser.
  */
-import type { Item } from './model'
-
 export interface Sub { id: string; description: string; type: string; tokens: number; toolUses: number; durationMs: number }
 
 /** One model call, or a turn's `rest` (what its calls did not carry). `input` is the prompt part outside the cache. */
@@ -52,6 +50,9 @@ export interface Figures {
 
 export interface AgendaCard { runId: string; at: string; figures: Figures }
 
+/** A message as the figures see it: its id, time (ISO) and whether I wrote it. */
+export interface Mark { id: string; at: string; mine: boolean }
+
 /** Figures of calls in time order, or null without any. */
 export function figuresOf(calls: Call[], from: string, to: string | null): Figures | null {
   if (calls.length === 0) return null
@@ -84,32 +85,33 @@ export function figuresOf(calls: Call[], from: string, to: string | null): Figur
 }
 
 /** Figures under each of my messages, keyed by message id, and agenda cards
- *  after the message each turn followed. Items and calls are in time order. */
-export function place(items: Item[], calls: Call[], agenda: Call[]): { byMessage: Record<string, Figures>; cardsAfter: Record<string, AgendaCard[]> } {
-  const mine = items.filter((it): it is Extract<Item, { type: 'msg' }> => it.type === 'msg' && it.mine)
+ *  after the message each turn followed. Marks and calls are in time order.
+ *  `cut`: the server dropped calls before it, so nothing that starts earlier is drawn. */
+export function place(marks: Mark[], calls: Call[], agenda: Call[], cut: string | null): { byMessage: Record<string, Figures>; cardsAfter: Record<string, AgendaCard[]> } {
+  const mine = marks.filter((m) => m.mine)
   const byMessage: Record<string, Figures> = {}
   let i = 0
   for (let m = 0; m < mine.length; m++) {
-    const from = mine[m].at.toISOString()
-    const to = mine[m + 1]?.at.toISOString() ?? null
+    const from = mine[m].at
+    const to = mine[m + 1]?.at ?? null
     while (i < calls.length && calls[i].at < from) i++
     const start = i
     while (i < calls.length && (to === null || calls[i].at < to)) i++
-    const f = figuresOf(calls.slice(start, i), from, to)
-    if (f) byMessage[mine[m].msg.id] = f
+    const f = cut !== null && from < cut ? null : figuresOf(calls.slice(start, i), from, to)
+    if (f) byMessage[mine[m].id] = f
   }
   const runs = new Map<string, Call[]>()
   for (const c of agenda) {
     const key = c.runId ?? c.at
     runs.set(key, [...(runs.get(key) ?? []), c])
   }
-  const msgs = items.filter((it): it is Extract<Item, { type: 'msg' }> => it.type === 'msg')
   const cardsAfter: Record<string, AgendaCard[]> = {}
   for (const [runId, run] of runs) {
     const at = run[0].at
+    if (cut !== null && at <= cut) continue
     // The last message at or before the turn; one before the loaded history has no place yet.
     let host: string | null = null
-    for (const it of msgs) { if (it.at.toISOString() <= at) host = it.msg.id; else break }
+    for (const m of marks) { if (m.at <= at) host = m.id; else break }
     const figures = figuresOf(run, at, run[run.length - 1].at)
     if (host && figures) (cardsAfter[host] ??= []).push({ runId, at, figures })
   }

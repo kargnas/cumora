@@ -1218,7 +1218,7 @@ if (argv.includes('--input-format')) {
 
 // ── Token accounting: the ledger must match the engine's own records ────────
 
-test('persistent Claude ledgers each response once and closes a turn with modelUsage', { skip: IS_WIN }, async () => {
+test('persistent Claude ledgers each response once and closes a turn per model with modelUsage', { skip: IS_WIN }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'cumora-claude-usage-'))
   tempDirs.push(root)
   const binDir = join(root, 'bin')
@@ -1228,23 +1228,33 @@ test('persistent Claude ledgers each response once and closes a turn with modelU
   // Claude Code emits each content block of one response as its own event with
   // the response's usage, whose output is still partial. modelUsage in the
   // result is the process's running total per model, subagents included.
+  const opus = (i: number, o: number, r: number, w: number) => `{ inputTokens: ${i}, outputTokens: ${o}, cacheReadInputTokens: ${r}, cacheCreationInputTokens: ${w}, contextWindow: 200000 }`
+  const haiku = '{ inputTokens: 4, outputTokens: 60, cacheReadInputTokens: 0, cacheCreationInputTokens: 4000, contextWindow: 100000 }'
   await writeFakeCli(
     binDir,
     'claude',
     "const out = (m) => process.stdout.write(JSON.stringify({ session_id: 's1', ...m }) + '\\n')\n" +
+    "const said = (id, model, usage, extra = {}) => out({ type: 'assistant', ...extra, message: { id, model, usage, content: [{ type: 'text', text: 'x' }] } })\n" +
     'let turn = 0\n' +
     "process.stdin.on('data', () => {\n" +
     '  turn += 1\n' +
     '  if (turn === 1) {\n' +
     '    const usage = { input_tokens: 2, cache_read_input_tokens: 1000, cache_creation_input_tokens: 100, output_tokens: 3 }\n' +
-    "    out({ type: 'assistant', message: { id: 'msg_a', model: 'claude-test', usage, content: [{ type: 'thinking', thinking: '' }] } })\n" +
-    "    out({ type: 'assistant', message: { id: 'msg_a', model: 'claude-test', usage, content: [{ type: 'tool_use', id: 'toolu_1', name: 'Agent', input: {} }] } })\n" +
+    "    said('msg_a', 'claude-test', usage)\n" +
+    "    said('msg_a', 'claude-test', usage)\n" +
     "    out({ type: 'system', subtype: 'task_started', tool_use_id: 'toolu_1', description: 'Look around', subagent_type: 'general-purpose' })\n" +
-    "    out({ type: 'system', subtype: 'task_notification', tool_use_id: 'toolu_1', status: 'completed', usage: { total_tokens: 5000, tool_uses: 2, duration_ms: 1500 } })\n" +
-    "    out({ type: 'result', subtype: 'success', usage, modelUsage: { 'claude-test': { inputTokens: 4, outputTokens: 310, cacheReadInputTokens: 1000, cacheCreationInputTokens: 5090, contextWindow: 200000 } } })\n" +
+    "    said('msg_s', 'claude-haiku-test', { input_tokens: 2, cache_read_input_tokens: 0, cache_creation_input_tokens: 4000, output_tokens: 1 }, { parent_tool_use_id: 'toolu_1' })\n" +
+    "    out({ type: 'system', subtype: 'task_notification', tool_use_id: 'toolu_1', status: 'completed', usage: { total_tokens: 4064, tool_uses: 2, duration_ms: 1500 } })\n" +
+    `    out({ type: 'result', subtype: 'success', usage: { input_tokens: 4, output_tokens: 310, cache_read_input_tokens: 1000, cache_creation_input_tokens: 1090 }, modelUsage: { 'claude-test': ${opus(4, 310, 1000, 1090)}, 'claude-haiku-test': ${haiku} } })\n` +
+    '  } else if (turn === 2) {\n' +
+    "    said('msg_b', 'claude-test', { input_tokens: 1, cache_read_input_tokens: 1100, cache_creation_input_tokens: 20, output_tokens: 1 })\n" +
+    `    out({ type: 'result', subtype: 'success', modelUsage: { 'claude-test': ${opus(5, 350, 2100, 1110)}, 'claude-haiku-test': ${haiku} } })\n` +
+    '  } else if (turn === 3) {\n' +
+    "    said('msg_c', 'claude-test', { input_tokens: 1, cache_read_input_tokens: 1200, cache_creation_input_tokens: 10, output_tokens: 1 })\n" +
+    "    out({ type: 'result', subtype: 'success', usage: { input_tokens: 1, cache_read_input_tokens: 1200, cache_creation_input_tokens: 10, output_tokens: 50 } })\n" +
     '  } else {\n' +
-    "    out({ type: 'assistant', message: { id: 'msg_b', model: 'claude-test', usage: { input_tokens: 1, cache_read_input_tokens: 1100, cache_creation_input_tokens: 20, output_tokens: 1 }, content: [{ type: 'text', text: 'ok' }] } })\n" +
-    "    out({ type: 'result', subtype: 'success', modelUsage: { 'claude-test': { inputTokens: 5, outputTokens: 350, cacheReadInputTokens: 2100, cacheCreationInputTokens: 5110, contextWindow: 200000 } } })\n" +
+    "    said('msg_d', 'claude-test', { input_tokens: 1, cache_read_input_tokens: 1300, cache_creation_input_tokens: 5, output_tokens: 1 })\n" +
+    `    out({ type: 'result', subtype: 'success', modelUsage: { 'claude-test': ${opus(7, 450, 4600, 1125)}, 'claude-haiku-test': ${haiku} } })\n` +
     '  }\n' +
     '})\n' +
     'setInterval(() => {}, 1 << 30)\n',
@@ -1262,22 +1272,38 @@ test('persistent Claude ledgers each response once and closes a turn with modelU
   })
   assert.ok(session)
   liveSessions.push(session)
+  const row = (h: EngineHopReport) => [h.model, h.repeat ?? false, h.sub ?? null, h.rest ? 'rest' : 'call']
 
   const first = await session.send('wake')
-  assert.deepEqual(hops.map((h) => h.repeat ?? false), [false, true, false], 'the second block of msg_a is a repeat, then the rest')
-  assert.deepEqual(first.usage, { input_tokens: 4, output_tokens: 310, cache_read_input_tokens: 1000, cache_creation_input_tokens: 5090 },
-    "the turn is modelUsage's growth, the subagent included")
-  const rest = hops[2]
-  assert.deepEqual(rest.usage, { input_tokens: 2, output_tokens: 307, cache_read_input_tokens: 0, cache_creation_input_tokens: 4990 },
-    'the rest is the turn minus the one ledgered response')
-  assert.deepEqual(rest.rest?.subs, [{ id: 'toolu_1', description: 'Look around', type: 'general-purpose', tokens: 5000, toolUses: 2, durationMs: 1500 }])
-  assert.equal(rest.window, 200000)
+  assert.deepEqual(hops.map(row), [
+    ['claude-test', false, null, 'call'],
+    ['claude-test', true, null, 'call'],
+    ['claude-haiku-test', false, 'toolu_1', 'call'],
+    ['claude-test', false, null, 'rest'],
+    ['claude-haiku-test', false, null, 'rest'],
+  ], 'the second block of msg_a is a repeat, then a rest per model')
+  assert.deepEqual(hops[3].usage, { input_tokens: 2, output_tokens: 307, cache_read_input_tokens: 0, cache_creation_input_tokens: 990 })
+  assert.deepEqual(hops[3].rest?.subs, [{ id: 'toolu_1', description: 'Look around', type: 'general-purpose', tokens: 4064, toolUses: 2, durationMs: 1500 }])
+  assert.equal(hops[3].window, 200000)
+  assert.deepEqual(hops[4].usage, { input_tokens: 2, output_tokens: 59, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+    "the subagent's rest keeps its own model, so it keeps its own price")
+  assert.deepEqual(first.usage, { input_tokens: 4, output_tokens: 310, cache_read_input_tokens: 1000, cache_creation_input_tokens: 1090 },
+    "the turn's usage is the main model's growth, priced on the turn's model")
+  assert.equal(first.model, 'claude-test', 'a subagent call does not change the turn model')
 
+  hops.length = 0
   const second = await session.send('again')
-  assert.deepEqual(second.usage, { input_tokens: 1, output_tokens: 40, cache_read_input_tokens: 1100, cache_creation_input_tokens: 20 },
-    'a later turn counts only what the totals grew by')
-  assert.equal(hops[3].window, 200000, 'calls after the first result carry the context window')
-  assert.deepEqual(hops[4].usage, { input_tokens: 0, output_tokens: 39, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 })
+  assert.deepEqual(second.usage, { input_tokens: 1, output_tokens: 40, cache_read_input_tokens: 1100, cache_creation_input_tokens: 20 })
+  assert.equal(hops[0].window, 200000, 'calls after the first result carry the context window')
+  assert.deepEqual(hops.slice(1).map((h) => [h.model, h.usage.output_tokens]), [['claude-test', 39]], 'a model that did not move gets no rest')
+
+  hops.length = 0
+  const third = await session.send('no totals')
+  assert.equal(third.usage?.output_tokens, 50, 'without modelUsage the turn keeps the result usage')
+  assert.equal(hops.filter((h) => h.rest).length, 0)
+  await session.send('totals again')
+  assert.deepEqual(hops.filter((h) => h.rest).map((h) => h.usage), [{ input_tokens: 0, output_tokens: 98, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }],
+    'the next totals cover both turns, and both turns\' calls are subtracted')
 })
 
 async function codexUsageTurn(resumeUpdate: boolean) {
@@ -1347,5 +1373,7 @@ for (const resumeUpdate of [false, true]) {
     assert.deepEqual(result.usage, { input_tokens: 100, cache_read_input_tokens: 200, cache_creation_input_tokens: 0, output_tokens: 30 },
       'the turn is its two calls, reasoning counted once')
     assert.ok(hops.every((h) => h.exact), 'the daemon marks these rows for the token figures')
+    assert.deepEqual(hops.map((h) => h.hopIndex), [1, 2])
+    assert.ok(hops.every((h) => typeof h.latencyMs === 'number'), 'the ledger keeps a latency per call')
   })
 }

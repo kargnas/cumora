@@ -814,9 +814,10 @@ export interface EngineWakeProbeResult {
   skipped?: boolean
 }
 
-/** One LLM round-trip the engine just made — fired by ClaudeSession /
- *  CodexSession (and the one-shot adapter.run paths) on every assistant /
- *  turn-completed event. This is the per-HOP granularity the daemon needs to
+/** One LLM round-trip the engine just made — fired by ClaudeSession on each
+ *  assistant event (a repeat for the later blocks of one response, then a
+ *  `rest` per model at the turn's end), by CodexSession on each thread token
+ *  update, and by the one-shot adapter.run paths. This is the per-HOP granularity the daemon needs to
  *  build a trajectory ledger: one row per outbound model call, not just one
  *  row per turn total.
  *
@@ -881,9 +882,9 @@ export interface EngineSessionArgs {
    *  session actually carried it is reported by EngineSession.carriesStandingPrompt. */
   standingPrompt?: string | null
   onLog: (line: string) => void
-  /** Fire-and-forget per-hop trajectory report. Called once per assistant
-   *  message (Claude) / per turn-completed event (Codex) with that hop's own
-   *  model + usage breakdown. The daemon buffers these into batched llm_calls
+  /** Fire-and-forget per-hop trajectory report. Called for each model call
+   *  (Claude: per assistant event, repeats flagged; Codex: per thread token
+   *  update) with that hop's own model + usage breakdown. The daemon buffers these into batched llm_calls
    *  inserts upstream so the universal ledger sees BYOA trajectory at the same
    *  granularity it sees cloud trajectory. Omit to disable. */
   onHopUsage?: (report: EngineHopReport) => void
@@ -1427,9 +1428,9 @@ class ClaudeSession implements EngineSession {
    *  this to answer "of the N hops in turn X, which one burned the tokens?"
    *  without having to JOIN siblings by created_at. */
   private hopIndex = 0
-  /** Responses this turn has reported to the ledger, and the usage they carried. */
+  /** Responses this turn has reported to the ledger, and the usage they carried per model. */
   private reported = new Set<string>()
-  private hopsUsage = zeroUsage()
+  private hopsUsage = new Map<string, Required<EngineUsage>>()
   /** The last result's `modelUsage`: Claude Code's running totals per model for
    *  this process (subagents and side calls included), so a turn is the difference. */
   private modelTotals = new Map<string, Required<EngineUsage>>()
@@ -1580,14 +1581,15 @@ class ClaudeSession implements EngineSession {
           }
         }
       }
-      // Capture the real model id (assistant events carry message.model) for pricing.
+      // Capture the real model id (assistant events carry message.model) for
+      // pricing: the main conversation's, since a subagent may run another model.
       const evModel = typeof ev.message?.model === 'string' ? ev.message.model : (typeof ev.model === 'string' ? ev.model : null)
-      if (evModel) this.curModel = evModel
+      if (evModel && typeof ev.parent_tool_use_id !== 'string') this.curModel = evModel
       // Per-hop trajectory: every `{type:'assistant', message:{model, usage}}` is
-      // ONE outbound model call this turn. Fire onHopUsage so the daemon can
-      // ledger it (see EngineHopReport). The terminating `type:'result'` event
-      // carries the SUM across hops (already used for the turn's final cost), so
-      // we deliberately do NOT also emit it as a hop — that'd double-count.
+      // one content block of an outbound model call. Fire onHopUsage so the
+      // daemon can ledger the call once (see EngineHopReport). The `result`
+      // event then closes the turn with the `rest` its hops did not carry
+      // (closeTurnUsage), never with a second copy of them.
       if (ev.type === 'assistant' && ev.message?.usage && evModel) {
         const startedAt = this.hopStartedAt
         this.hopStartedAt = null
@@ -1596,7 +1598,7 @@ class ClaudeSession implements EngineSession {
         if (!repeat) {
           if (id !== null) this.reported.add(id)
           this.hopIndex += 1
-          this.hopsUsage = sumUsage(this.hopsUsage, ev.message.usage)
+          this.hopsUsage.set(evModel, sumUsage(this.hopsUsage.get(evModel) ?? zeroUsage(), ev.message.usage))
         }
         // Inspect the assistant's content array to count tool calls + total
         // text length. These two numbers explain a lot of why a hop is
@@ -1645,7 +1647,7 @@ class ClaudeSession implements EngineSession {
       if (ev.type === 'result') {
         this.hopStartedAt = null // turn boundary — drop any half-set hop timer
         this.hopIndex = 0        // reset the per-turn hop counter
-        const usage = addUsage(this.carried?.usage, this.closeTurnUsage(ev.modelUsage))
+        const usage = addUsage(this.carried?.usage, this.closeTurnUsage(ev.modelUsage, ev.usage))
         if (this.interrupting) {
           this.resumePending = false
           this.settle({ exitCode: 0, sessionId: this.sid, usage, model: this.curModel, interrupted: true })
@@ -1683,21 +1685,22 @@ class ClaudeSession implements EngineSession {
     }
   }
 
-  /** The finished turn's exact usage: how far Claude Code's per-model running
-   *  totals (`result.modelUsage`) moved since the last result. A result's own
-   *  `usage` covers the main conversation only, without subagents. What the
-   *  turn's hops did not carry goes to the ledger as one `rest` hop. */
-  private closeTurnUsage(modelUsage: unknown): EngineUsage | undefined {
-    const hops = this.hopsUsage
-    const subs = [...this.subs.values()]
+  /** Closes a turn's ledger from Claude Code's per-model running totals
+   *  (`result.modelUsage`, subagents and side calls included): for each model,
+   *  what the totals grew by minus what that model's hops carried goes out as
+   *  one `rest` hop, so every row keeps its own model's price. The turn's
+   *  usage is the main model's growth, priced on the turn's model; a result's
+   *  own `usage` covers the main conversation only. */
+  private closeTurnUsage(modelUsage: unknown, mainUsage: EngineUsage | undefined): EngineUsage | undefined {
     this.reported.clear()
-    this.hopsUsage = zeroUsage()
-    this.subs.clear()
     if (!modelUsage || typeof modelUsage !== 'object') {
-      this.onLog('[claude] result without modelUsage: this turn records no usage')
-      return undefined
+      // The hops stay counted: the next result's growth covers them too.
+      this.onLog('[claude] result without modelUsage: the next result closes this turn too')
+      return mainUsage
     }
-    let turn = zeroUsage()
+    const subs = [...this.subs.values()]
+    this.subs.clear()
+    let main: EngineUsage | undefined = mainUsage
     for (const [model, raw] of Object.entries(modelUsage as Record<string, Record<string, unknown>>)) {
       const now: Required<EngineUsage> = {
         input_tokens: count(raw.inputTokens),
@@ -1709,16 +1712,17 @@ class ClaudeSession implements EngineSession {
       const before = this.modelTotals.get(model)
       this.modelTotals.set(model, now)
       // Totals start at 0 in each process and drop on /clear: then all of it is this turn's.
-      const reset = !before || USAGE_KEYS.some((k) => now[k] < before[k])
-      turn = sumUsage(turn, reset ? now : sumUsage(now, before, -1))
-    }
-    const rest = sumUsage(turn, hops, -1)
-    if (this.curModel && (USAGE_KEYS.some((k) => rest[k] > 0) || subs.length > 0)) {
+      const grew = !before || USAGE_KEYS.some((k) => now[k] < before[k]) ? now : sumUsage(now, before, -1)
+      if (model === this.curModel) main = grew
+      const rest = sumUsage(grew, this.hopsUsage.get(model) ?? zeroUsage(), -1)
+      const own = model === this.curModel
+      if (!USAGE_KEYS.some((k) => rest[k] > 0) && !(own && subs.length > 0)) continue
       try {
-        this.onHopUsage?.({ model: this.curModel, usage: rest, window: this.windows.get(this.curModel), rest: { subs }, exact: true })
+        this.onHopUsage?.({ model, usage: rest, window: this.windows.get(model), rest: { subs: own ? subs : [] }, exact: true })
       } catch { /* ledger best-effort, never break the stream */ }
     }
-    return turn
+    this.hopsUsage.clear()
+    return main
   }
 
   private onStderr(buf: Buffer): void {
@@ -2226,27 +2230,19 @@ function codexSecureExecArgs(args: { home: string; env: NodeJS.ProcessEnv }, rea
   return [...codexSecureConfigOverrides(args, readOnly), '-a', 'never', 'exec', '--ignore-user-config', '--ignore-rules']
 }
 
-/** A Codex thread's running token totals. `input` counts every prompt token,
- *  read from cache or written to it included; `output` already counts reasoning. */
-interface CodexTotals { input: number; cached: number; cacheWrite: number; output: number }
-
-function codexTotals(v: unknown): CodexTotals | null {
+/** A Codex token breakdown in the ledger's shape. Codex's `inputTokens` counts
+ *  every prompt token, cache reads and writes included, and `outputTokens`
+ *  already counts reasoning. Linear in the totals, so differences stay exact. */
+function codexUsage(v: unknown): Required<EngineUsage> | null {
   if (!v || typeof v !== 'object') return null
   const t = v as Record<string, unknown>
-  return { input: count(t.inputTokens), cached: count(t.cachedInputTokens), cacheWrite: count(t.cacheWriteInputTokens), output: count(t.outputTokens) }
-}
-
-function codexMinus(a: CodexTotals, b: CodexTotals): CodexTotals {
-  return { input: Math.max(0, a.input - b.input), cached: Math.max(0, a.cached - b.cached), cacheWrite: Math.max(0, a.cacheWrite - b.cacheWrite), output: Math.max(0, a.output - b.output) }
-}
-
-/** Claude-shaped usage: `input_tokens` is the part neither read from nor written to the cache. */
-function codexUsage(t: CodexTotals): EngineUsage {
+  const read = count(t.cachedInputTokens)
+  const write = count(t.cacheWriteInputTokens)
   return {
-    input_tokens: Math.max(0, t.input - t.cached - t.cacheWrite),
-    cache_read_input_tokens: t.cached,
-    cache_creation_input_tokens: t.cacheWrite,
-    output_tokens: t.output,
+    input_tokens: Math.max(0, count(t.inputTokens) - read - write),
+    cache_read_input_tokens: read,
+    cache_creation_input_tokens: write,
+    output_tokens: count(t.outputTokens),
   }
 }
 
@@ -2300,9 +2296,13 @@ class CodexSession implements EngineSession {
   // Codex reports the thread's running token totals; each change is one model
   // call, and a turn's usage is how far they moved. Null until this process
   // has seen its first update.
-  private cum: CodexTotals | null = null
-  private turnStart: CodexTotals | null = null
+  private cum: Required<EngineUsage> | null = null
+  private turnStart: Required<EngineUsage> | null = null
   private window: number | undefined
+  /** When the call the next update reports began (the turn's start or the last
+   *  update), and its place in the turn: the ledger's latency and hop index. */
+  private callStartedAt = 0
+  private callIndex = 0
 
   constructor(bin: string, spawnArgs: string[], home: string, env: NodeJS.ProcessEnv, opts: EngineSessionArgs) {
     this.authHome = env.CODEX_HOME!
@@ -2414,6 +2414,8 @@ class CodexSession implements EngineSession {
   }
   private startTurn(prompt: string): void {
     if (this.threadId) {
+      this.callStartedAt = Date.now()
+      this.callIndex = 0
       this.groupsAtTurnStart = descendantGroups(this.child)
       this.req('turn/start', { threadId: this.threadId, input: [{ type: 'text', text: stripLoneSurrogates(prompt) }] })
     }
@@ -2536,28 +2538,32 @@ class CodexSession implements EngineSession {
    *  that call's own usage (`last`) and the model's context window. */
   private updateUsage(tokenUsage: unknown): void {
     const u = tokenUsage as { total?: unknown; last?: unknown; modelContextWindow?: unknown } | undefined
-    const total = codexTotals(u?.total)
+    const total = codexUsage(u?.total)
     if (!total) return
     if (count(u?.modelContextWindow) > 0) this.window = count(u?.modelContextWindow)
     // The first update this process sees carries a resumed thread's whole
     // life: before a turn runs it is all history, and inside one, history
     // ends before this update's call.
     if (!this.cum) {
-      this.cum = this.activeTurnId ? codexMinus(total, codexTotals(u?.last) ?? total) : total
+      this.cum = this.activeTurnId ? sumUsage(total, codexUsage(u?.last) ?? total, -1) : total
       this.turnStart ??= this.cum
       if (!this.activeTurnId) return
     }
-    const call = codexMinus(total, this.cum)
+    const call = sumUsage(total, this.cum, -1)
     // The app-server repeats an update without a new call; a stale one would regress.
-    if (call.input + call.output === 0) return
-    const cum = this.cum
-    this.cum = { input: Math.max(cum.input, total.input), cached: Math.max(cum.cached, total.cached), cacheWrite: Math.max(cum.cacheWrite, total.cacheWrite), output: Math.max(cum.output, total.output) }
+    if (USAGE_KEYS.every((k) => call[k] === 0)) return
+    this.cum = total
+    const startedAt = this.callStartedAt
+    this.callStartedAt = Date.now()
+    this.callIndex += 1
     if (!this.onHopUsage || !this.model) return
-    try { this.onHopUsage({ model: this.model, usage: codexUsage(call), window: this.window, exact: true }) } catch { /* never break the stream */ }
+    try {
+      this.onHopUsage({ model: this.model, usage: call, latencyMs: Date.now() - startedAt, hopIndex: this.callIndex, window: this.window, exact: true })
+    } catch { /* never break the stream */ }
   }
 
   private turnUsage(): EngineUsage {
-    return codexUsage(this.cum && this.turnStart ? codexMinus(this.cum, this.turnStart) : { input: 0, cached: 0, cacheWrite: 0, output: 0 })
+    return this.cum && this.turnStart ? sumUsage(this.cum, this.turnStart, -1) : zeroUsage()
   }
 
   private markSteerDelivered(content: unknown): void {

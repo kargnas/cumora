@@ -10,6 +10,7 @@ import { answerChoice, listCards, sendSecret, startCardSweeper } from './cards.j
 import { computerPurges, purgeAgent } from './purge.js'
 import { agentScreen, agentScreenInput } from './screen.js'
 import { roomTokens } from './tokens.js'
+import { isPrivileged } from './roles.js'
 import { PROFILE_RE, REPO_RE, listProfiles, pollErrorOf, runNow, startTriggerPoller } from './triggers.js'
 
 type CompanyContext = { userId: string; companyId: string }
@@ -54,7 +55,7 @@ async function requireAgentEditor(companyId: string, userId: string, participant
     [participantId, companyId, userId],
   )
   const role = rows[0]?.role
-  if (role !== 'owner' && role !== 'admin') throw new ForkError(403, 'this action requires an owner or admin of the workspace')
+  if (!isPrivileged(role)) throw new ForkError(403, 'this action requires an owner or admin of the workspace')
   if (rows[0]?.kind !== 'agent') throw new ForkError(404, 'agent not found')
 }
 

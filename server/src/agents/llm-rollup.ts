@@ -54,10 +54,11 @@ export async function refreshLlmRollup(sinceHours: number): Promise<number> {
        input_tokens, cached_input_tokens, cache_creation_tokens, output_tokens, reasoning_tokens,
        cost_usd, cost_estimated)
      SELECT date_trunc('hour', created_at), company_id, agent_id, purpose, model, source, daemon_version,
-            COUNT(*),
-            COUNT(*) FILTER (WHERE status = 'ok'),
-            COUNT(*) FILTER (WHERE status != 'ok'),
-            COUNT(*) FILTER (WHERE status = 'rate_limited'),
+            -- A BYOA Claude turn's rest row (extras.rest) carries usage its calls left out; it is no call.
+            COUNT(*) FILTER (WHERE NOT COALESCE(extras ? 'rest', false)),
+            COUNT(*) FILTER (WHERE NOT COALESCE(extras ? 'rest', false) AND status = 'ok'),
+            COUNT(*) FILTER (WHERE NOT COALESCE(extras ? 'rest', false) AND status != 'ok'),
+            COUNT(*) FILTER (WHERE NOT COALESCE(extras ? 'rest', false) AND status = 'rate_limited'),
             COALESCE(SUM(input_tokens), 0),
             COALESCE(SUM(cached_input_tokens), 0),
             COALESCE(SUM(cache_creation_tokens), 0),

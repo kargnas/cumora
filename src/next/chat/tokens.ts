@@ -7,25 +7,27 @@
  * GET /api/fork/rooms/:id/tokens (server/src/fork/tokens.ts), and
  * tokenSpans.ts places them.
  */
-import { useEffect } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { create } from 'zustand'
 import { ApiError, http } from '@/api/client'
 import { useDevtools } from '@/stores/devtools'
 import type { Item } from './model'
-import { type AgendaCard, type Call, type Figures, place } from './tokenSpans'
+import { type AgendaCard, type Call, type Figures, type Mark, place } from './tokenSpans'
 
 const POLL_MS = 10_000
 
+interface Loaded { calls: Call[]; agenda: Call[]; cut: string | null }
+
 interface TokensState {
-  calls: Record<string, Call[]>
-  agenda: Record<string, Call[]>
+  /** The server's last answer per room. */
+  rooms: Record<string, Loaded>
   byMessage: Record<string, Figures>
   cardsAfter: Record<string, AgendaCard[]>
   /** What the details dialog shows. */
   open: { title: string; figures: Figures } | null
 }
 
-export const useTokens = create<TokensState>(() => ({ calls: {}, agenda: {}, byMessage: {}, cardsAfter: {}, open: null }))
+export const useTokens = create<TokensState>(() => ({ rooms: {}, byMessage: {}, cardsAfter: {}, open: null }))
 
 /** Keeps the previous object of an unchanged entry, so only rows whose figures changed re-render. */
 function keep<T>(prev: Record<string, T>, next: Record<string, T>): Record<string, T> {
@@ -48,11 +50,11 @@ export function useRoomTokens(convoId: string, items: Item[]): void {
     if (!enabled || !since) return
     let cancelled = false
     let denied = false
-    const load = () => http<{ calls: Call[]; agenda: Call[] }>(
+    const load = () => http<Loaded>(
       `/fork/rooms/${encodeURIComponent(convoId)}/tokens?since=${encodeURIComponent(since)}`,
     ).then(
       (r) => {
-        if (!cancelled) useTokens.setState((s) => ({ calls: { ...s.calls, [convoId]: r.calls }, agenda: { ...s.agenda, [convoId]: r.agenda } }))
+        if (!cancelled) useTokens.setState((s) => ({ rooms: { ...s.rooms, [convoId]: r } }))
       },
       (e: unknown) => {
         // The answer to a viewer who may not read them does not change on its own.
@@ -68,10 +70,15 @@ export function useRoomTokens(convoId: string, items: Item[]): void {
     }
   }, [enabled, convoId, since])
 
-  const calls = useTokens((s) => s.calls[convoId])
-  const agenda = useTokens((s) => s.agenda[convoId])
+  const loaded = useTokens((s) => s.rooms[convoId])
+  const marks = useMemo(() => items.flatMap((it): Mark[] => (it.type === 'msg' ? [{ id: it.msg.id, at: it.at.toISOString(), mine: it.mine }] : [])), [items])
+  // A streamed reply or a reaction changes the items without moving a
+  // message; place again only when a message comes, goes or changes time.
+  const key = marks.map((m) => `${m.id}@${m.at}${m.mine ? '*' : ''}`).join(' ')
+  const marksRef = useRef(marks)
+  marksRef.current = marks
   useEffect(() => {
-    const next = enabled && calls ? place(items, calls, agenda ?? []) : { byMessage: {}, cardsAfter: {} }
+    const next = enabled && loaded ? place(marksRef.current, loaded.calls, loaded.agenda, loaded.cut) : { byMessage: {}, cardsAfter: {} }
     useTokens.setState((s) => ({ byMessage: keep(s.byMessage, next.byMessage), cardsAfter: keep(s.cardsAfter, next.cardsAfter) }))
-  }, [enabled, items, calls, agenda])
+  }, [enabled, key, loaded])
 }

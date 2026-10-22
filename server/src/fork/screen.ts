@@ -11,6 +11,7 @@ import http from 'node:http'
 import type { Request, Response } from 'express'
 import WebSocket from 'ws'
 import type { AuthedRequest } from '../auth.js'
+import { isPrivileged } from './roles.js'
 
 // The dashboard listens on the computer's loopback, and computer/start.sh in
 // the deploy repo relays it to port 4849 on the compose network. It skips its
@@ -270,7 +271,7 @@ async function gate(requireCompany: Requirer, req: Request & AuthedRequest, res:
     [companyId, userId, agentId],
   )
   const role = rows[0]?.role
-  if (role !== 'owner' && role !== 'admin') {
+  if (!isPrivileged(role)) {
     res.status(403).json({ error: 'only workspace owners and admins can see an agent’s browser' })
     return null
   }

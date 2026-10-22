@@ -59,6 +59,7 @@ import { CODEX_LOGIN_COMMAND, CODEX_MIGRATE_COMMAND, CODEX_SESSION_SCOPE, codexR
 import { migrateCodexSession, migrateCodexSessions } from './codex-session-migration.js'
 import { runWithSessionRecovery } from './session-recovery.js'
 import { toolKindOf, type ToolKind } from '../../fork/toolKind.js'
+import { AGENDA_MARK, TOKEN_ACCT } from '../../fork/tokenRows.js'
 import { CARDS_PROMPT } from '../../fork/cardsPrompt.js'
 
 export { conversationHeader }
@@ -2028,7 +2029,7 @@ export class AgentRunner {
     // own event, so its text and thinking blocks arrive as hops without tools
     // between tool calls; switching back to thinking on those would flip the
     // status on every block. Clients animate the agent's avatar from this.
-    // Codex reports one hop per turn without a tool count and stays thinking.
+    // Codex reports a hop per model call without a tool count and stays thinking.
     const token = this.turnStatusToken
     if (token && (report.toolUses ?? 0) > 0) {
       // Which kind of tool runs (read, write, ...), so the avatar can act it out.
@@ -2040,10 +2041,10 @@ export class AgentRunner {
     }
     if (report.repeat) return
     try {
-      // `acct: 2` marks rows whose usage matches the engine's own records (one
-      // row per model call, then the turn's `rest`); the chat's developer token
-      // figures read only these (server/src/fork/tokens.ts).
-      const extras: Record<string, unknown> = report.exact ? { acct: 2 } : {}
+      // `acct` marks rows whose usage matches the engine's own records (one
+      // row per model call, then the turn's `rest` per model); the chat's
+      // developer token figures read only these (fork/tokenRows.ts).
+      const extras: Record<string, unknown> = report.exact ? { acct: TOKEN_ACCT } : {}
       if (typeof report.hopIndex === 'number') extras.hopIndex = report.hopIndex
       if (typeof report.toolUses === 'number') extras.toolUses = report.toolUses
       if (typeof report.textChars === 'number') extras.textChars = report.textChars
@@ -2051,7 +2052,7 @@ export class AgentRunner {
       if (report.sub) extras.sub = report.sub
       if (report.rest) extras.rest = report.rest
       // Agenda turns answer no room, even when a wake landed while they ran.
-      if (this.agendaTurn) extras.agenda = true
+      if (this.agendaTurn) extras[AGENDA_MARK] = true
       this.reporter.push({
         source: byoaSourceOf(this.adapter.id),
         purpose,

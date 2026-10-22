@@ -35,6 +35,7 @@ import { join, resolve } from 'node:path'
 import type { Request, Response } from 'express'
 import type { AuthedRequest } from '../auth.js'
 import { redact } from './redact.js'
+import { isPrivileged } from './roles.js'
 import { codingWakeKey, getForkStore, type CodingThread, type NewCodingThread } from './store.js'
 
 // The poller asks this often whether a T3 server is hot (two small queries)
@@ -389,7 +390,7 @@ export async function agentCoding(requireCompany: Requirer, req: Request & Authe
     [companyId, userId, agentId],
   )
   const role = gate.rows[0]?.role
-  if (role !== 'owner' && role !== 'admin') {
+  if (!isPrivileged(role)) {
     res.status(403).json({ error: 'only workspace owners and admins can read what agents code' })
     return
   }
