@@ -14,7 +14,7 @@ import { initPushNotifications } from '@/lib/push'
 import { bindPressHaptics } from './haptics'
 import { useBloubLooks } from './bloub/looks'
 import { useNativeChrome, useNextDocument } from './document'
-import { writeDesignPref } from './designPref'
+import { switchToClassic } from './designPref'
 import { bindLegacyWrites, goBack, href, linkClick, navigate, projectRoute, useRoute, type Route, type Section } from './router'
 import { useLayout, type Layout } from './layout'
 import { useNT, type NKey } from './i18n'
@@ -104,7 +104,7 @@ function WorkspaceButton() {
             onSelect: () => { if (c.id !== activeId) setActive(c.id) },
           })),
           'sep',
-          { key: 'classic', label: nt('nav.classic'), onSelect: () => { writeDesignPref('classic'); location.href = '/' } },
+          { key: 'classic', label: nt('nav.classic'), onSelect: switchToClassic },
         ]}
       />
     </>

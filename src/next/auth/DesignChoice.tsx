@@ -5,6 +5,7 @@
  * instead).
  */
 import { WindowDragStrip } from '@/components/WindowDragStrip'
+import { useAppearanceStore } from '@/lib/theme'
 import { writeDesignPref } from '../designPref'
 import { useNT } from '../i18n'
 import { useNativeChrome, useNextDocument } from '../document'
@@ -21,9 +22,17 @@ export default function DesignChoice({ onUnsavedClassic }: { onUnsavedClassic: (
   }
   const pickClassic = () => {
     // A reload boots the classic shell with its own chrome colors. Without a
-    // stored pick it would ask again, so then leave the choice without one.
+    // stored pick it would ask again, so then leave the choice without one,
+    // and once this screen is gone let the classic theme repaint the browser
+    // and status bar colors the redesign painted.
     if (writeDesignPref('classic')) location.reload()
-    else onUnsavedClassic()
+    else {
+      onUnsavedClassic()
+      window.setTimeout(() => {
+        const appearance = useAppearanceStore.getState()
+        appearance.setAppearance(appearance.appearance)
+      })
+    }
   }
   return (
     <main className="nx-signin">
