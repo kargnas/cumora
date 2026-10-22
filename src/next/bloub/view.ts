@@ -30,9 +30,10 @@ const NS = 'http://www.w3.org/2000/svg'
 export const VIEW_HALF = 120
 export const VIEW_BOX = `${-VIEW_HALF} ${-VIEW_HALF} ${VIEW_HALF * 2} ${VIEW_HALF * 2}`
 /** Ears reach about 150 above the centre: a bloub that wears them draws in a
- *  taller box, moved up, so they stay inside the avatar instead of over the
- *  row above it. The body is a little smaller for it. */
-export const VIEW_BOX_EARS = '-132 -150 264 264'
+ *  box a tenth larger and moved up by 18, so they stay inside the avatar
+ *  instead of over the row above it. The body sits a little smaller and lower. */
+const EARS_HALF = (VIEW_HALF * 11) / 10
+export const VIEW_BOX_EARS = `${-EARS_HALF} ${-EARS_HALF - 18} ${EARS_HALF * 2} ${EARS_HALF * 2}`
 /** Mask regions cover everything an engine frame can draw, rings included. */
 const AREA = { x: -200, y: -200, width: 400, height: 400 }
 /** In viewBox units: a 2px line on a 96px avatar, still a faint line at 28px. */

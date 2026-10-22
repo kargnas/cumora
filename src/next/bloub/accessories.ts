@@ -16,7 +16,7 @@
  */
 import type { BotEngine, BotFrame } from './engine/engine'
 import type { ExpressionId } from './engine/expressions'
-import { TAU, clamp, easings, lerp, r2 } from './engine/math'
+import { TAU, clamp, createRng, easings, lerp, r2 } from './engine/math'
 import { PROFILE_SAMPLES } from './engine/profiles'
 import type { Point } from './engine/shape'
 import type { StateId } from './engine/states'
@@ -115,22 +115,18 @@ function unit(x: number, y: number): Point {
   return { x: x / length, y: y / length }
 }
 
-/** A repeatable 0 to 1 for an integer. */
-function rand(n: number): number {
-  const x = Math.sin(n * 12.9898 + 78.233) * 43758.5453
-  return x - Math.floor(x)
-}
-
 /** One ear flicks twice now and then, like a cat hearing something: degrees
- *  of splay for the [left, right] ear at time t. */
+ *  of splay for the [left, right] ear at time t. Each period draws from its
+ *  own repeatable sequence, so a frame read again shows the same ears. */
 function flick(t: number, seed: number): [number, number] {
   const PERIOD = 4.7
   const n = Math.floor(t / PERIOD)
-  if (rand(n * 31 + seed) < 0.3) return [0, 0]
-  const dt = t - (n * PERIOD + 0.6 + rand(n * 7919 + seed) * (PERIOD - 1.6))
+  const rand = createRng(n * 7919 + seed)
+  if (rand() < 0.3) return [0, 0]
+  const dt = t - (n * PERIOD + 0.6 + rand() * (PERIOD - 1.6))
   if (dt < 0 || dt > 0.45) return [0, 0]
   const k = dt < 0.2 ? Math.sin((Math.PI * dt) / 0.2) : dt > 0.24 && dt < 0.42 ? 0.55 * Math.sin((Math.PI * (dt - 0.24)) / 0.18) : 0
-  return rand(n * 104729 + seed) < 0.5 ? [28 * k, 0] : [0, 28 * k]
+  return rand() < 0.5 ? [28 * k, 0] : [0, 28 * k]
 }
 
 export interface AccessoryFrame {
@@ -171,14 +167,16 @@ export class AccessoryRig {
   }
 
   /** `outline` is the engine's outline for `frame` (outlineOf). `motion`
-   *  false (reduced motion) keeps the ears from flicking. */
+   *  false (reduced motion) keeps the ears from flicking. Null for a look
+   *  that wears nothing, which then costs nothing. */
   update(
     frame: BotFrame,
     outline: readonly Point[],
     now: number,
     look: { shape: string; accessories: readonly string[] },
     motion: boolean,
-  ): AccessoryFrame {
+  ): AccessoryFrame | null {
+    if (look.accessories.length === 0) return null
     const n = outline.length
     let cx = 0
     let cy = 0

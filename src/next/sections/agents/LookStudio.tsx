@@ -121,8 +121,9 @@ function LookStudio({ agent, portrait, draft, setDraft }: {
   [byId, looks, agent?.id])
   const taken = useMemo(() => new Set(others.flatMap((p) => (looks[p.id] ? [looks[p.id].color] : []))), [others, looks])
   const twin = animated && pick ? others.find((p) => looks[p.id]?.color === pick.color) : undefined
-  // Accessories tell two bloubs of one shape and colour apart.
-  const worn = (accessories: readonly string[]) => [...accessories].sort().join(' ')
+  // Accessories tell two bloubs of one shape and colour apart; one this build
+  // does not draw does not.
+  const worn = (accessories: readonly string[]) => accessories.filter((id) => (ACCESSORIES as readonly string[]).includes(id)).sort().join(' ')
   const same = twin && pick && looks[twin.id].shape === pick.shape && worn(looks[twin.id].accessories) === worn(pick.accessories)
   const warning = twin ? nt(same ? 'agents.lookSame' : 'agents.lookSameColor', { name: twin.name }) : null
 

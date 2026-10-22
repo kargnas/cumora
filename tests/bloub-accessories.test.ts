@@ -46,7 +46,7 @@ test('ears sit on the top of the body, one either side, on every shape', () => {
     const { engine, rig } = bot(id)
     const frame = engine.sample(1)
     const outline = outlineOf(engine)
-    const { ears } = rig.update(frame, outline, 1, { shape: id, accessories: ['ears'] }, false)
+    const { ears } = rig.update(frame, outline, 1, { shape: id, accessories: ['ears'] }, false) ?? assert.fail('no frame')
     const middle = outline.reduce((sum, p) => sum + p.y, 0) / outline.length
     const [left, right] = ears.map((ear) => translation(ear ?? assert.fail(`${id}: an ear is missing`)))
     for (const [x, y] of [left!, right!]) {
@@ -61,7 +61,8 @@ test('ears sit on the top of the body, one either side, on every shape', () => {
 test('a body that shrinks to a dot takes its accessories in, and only those asked for are drawn', () => {
   const { engine, rig } = bot('galet')
   const at = (t: number, accessories: string[]) => rig.update(engine.sample(t), outlineOf(engine), t, { shape: 'galet', accessories }, false)
-  const ball = at(1, ['ears', 'whiskers'])
+  assert.equal(at(1, []), null, 'a look that wears nothing costs nothing')
+  const ball = at(1, ['ears', 'whiskers']) ?? assert.fail('no frame')
   assert.ok(ball.ears.every(Boolean))
   assert.equal(ball.whiskers.match(/M/g)?.length, 6)
   assert.ok(ball.whiskerAlpha > 0.9)
@@ -69,11 +70,11 @@ test('a body that shrinks to a dot takes its accessories in, and only those aske
   assert.deepEqual(at(1, ['halo']), { ears: [null, null], whiskers: '', whiskerAlpha: 0 })
 
   engine.setState('thinking', 1)
-  const dot = at(3, ['ears', 'whiskers'])
+  const dot = at(3, ['ears', 'whiskers']) ?? assert.fail('no frame')
   assert.deepEqual(dot.ears, [null, null])
   assert.equal(dot.whiskerAlpha, 0)
   engine.setState('idle', 4)
-  assert.ok(at(6, ['ears']).ears.every(Boolean), 'the ears come back with the ball')
+  assert.ok(at(6, ['ears'])?.ears.every(Boolean), 'the ears come back with the ball')
 })
 
 test('a pick without accessories keeps them, and a list is checked like a shape', () => {

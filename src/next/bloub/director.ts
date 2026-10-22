@@ -157,7 +157,7 @@ function frame() {
     }
     const sampled = still() ? at + 0.5 : at
     const f = engine.sample(sampled)
-    const gear = bot.look.accessories.length > 0 ? bot.rig.update(f, outlineOf(engine), sampled, bot.look, !still()) : null
+    const gear = bot.rig.update(f, outlineOf(engine), sampled, bot.look, !still())
     // The body leans aside as far as the props have come in.
     const lean = acts.reduce((most, act) => Math.max(most, act.presence), 0)
     for (const view of bot.views) {
@@ -342,12 +342,7 @@ export function drawStill(svg: SVGSVGElement, look: Pick<BloubLook, 'shape' | 'e
     const engine = new BotEngine(RAYON, 'idle', shapeOf(look), expressionOf(look))
     // 1 s in: before the first scheduled blink, with the gaze near its rest.
     const frame = engine.sample(1)
-    let gear = null
-    if (look.accessories.length > 0) {
-      const rig = new AccessoryRig(0, look.expression)
-      gear = rig.update(frame, outlineOf(engine), 1, look, false)
-    }
-    draw(frame, gear)
+    draw(frame, new AccessoryRig(0, look.expression).update(frame, outlineOf(engine), 1, look, false))
   })
   return () => { live = false }
 }
