@@ -37,9 +37,9 @@ function packagedRendererUrls(source: string): string[] {
     // Any string literal that names an index.html we hand to a BrowserWindow.
     if (!/index\.html/.test(line)) continue
     if (!/loadURL|return\s/.test(line)) continue
-    // The app:// handler returns an on-disk path for the SPA shell. That is
-    // how the scheme is served, not a window entry point.
-    if (!line.includes('://')) continue
+    // The app:// handler's SPA fallback is an on-disk path, not a window
+    // entry point. Any other scheme-less index.html path is still caught.
+    if (!line.includes('://') && line.includes('distRoot') && line.includes('existsSync')) continue
     out.push(line)
   }
   return out
@@ -92,4 +92,12 @@ test('the matcher ignores the isDev branch', () => {
 test('the matcher ignores the protocol handler filesystem fallback', () => {
   const fallback = "  if (!path.extname(rel) && !fs.existsSync(resolved)) return path.join(distRoot, 'index.html')"
   assert.deepEqual(packagedRendererUrls(fallback), [])
+})
+
+test('the matcher catches a scheme-less dist path.join', () => {
+  const bad = "  return path.join(__dirname,'..','dist','index.html')"
+  const found = packagedRendererUrls(bad)
+  assert.equal(found.length, 1)
+  assert.equal(found[0].includes('://'), false)
+  assert.doesNotMatch(found[0], /app:\/\/cumora\//)
 })
