@@ -11,7 +11,7 @@ import { computerPurges, purgeAgent } from './purge.js'
 import { agentScreen, agentScreenInput } from './screen.js'
 import { roomTokens } from './tokens.js'
 import { isPrivileged } from './roles.js'
-import { PROFILE_RE, REPO_RE, listProfiles, pollErrorOf, runNow, startTriggerPoller } from './triggers.js'
+import { LIMITS, checkTrigger, listProfiles, runNow, shownTrigger, startTriggerPoller } from './triggers.js'
 
 type CompanyContext = { userId: string; companyId: string }
 
@@ -220,7 +220,7 @@ export function createForkRouter(deps: ForkRouterDeps): Router {
     if (!conversationId) throw new ForkError(400, 'conversation is required')
     await requireRoom(companyId, userId, conversationId)
     const triggers = (await getForkStore()).triggers(companyId, conversationId)
-    res.json({ triggers: triggers.map((t) => ({ ...t, pollError: pollErrorOf(t) })) })
+    res.json({ triggers: triggers.map(shownTrigger) })
   })
 
   router.post('/triggers', async (req, res) => {
@@ -228,13 +228,11 @@ export function createForkRouter(deps: ForkRouterDeps): Router {
     const body = req.body ?? {}
     const conversationId = routeKey(text(body.conversationId, 'conversationId', 100), 'conversationId')
     const assigneeId = routeKey(text(body.assigneeId, 'assigneeId', 100), 'assigneeId')
-    const repo = text(body.repo, 'repo', 100)
-    if (!REPO_RE.test(repo)) throw new ForkError(400, 'repo must be owner/name')
-    const profile = text(body.profile, 'profile', 100)
-    if (!PROFILE_RE.test(profile) || !listProfiles().includes(profile)) throw new ForkError(400, 'profile is not signed in on the computer')
-    const input = { companyId, createdBy: userId, conversationId, assigneeId, repo, profile, title: text(body.title, 'title', 120), prompt: text(body.prompt, 'prompt', 4000) }
+    const fields = checkTrigger(body)
+    if (typeof fields === 'string') throw new ForkError(400, fields)
     await requireRoom(companyId, userId, conversationId, assigneeId)
-    res.status(201).json({ trigger: { ...(await getForkStore()).createTrigger(input), pollError: null } })
+    const trigger = (await getForkStore()).createTrigger({ companyId, createdBy: userId, conversationId, assigneeId, ...fields })
+    res.status(201).json({ trigger: shownTrigger(trigger) })
   })
 
   router.patch('/triggers/:id', async (req, res) => {
@@ -249,8 +247,8 @@ export function createForkRouter(deps: ForkRouterDeps): Router {
       if (body.status !== 'active' && body.status !== 'paused') throw new ForkError(400, 'status must be active or paused')
       patch.status = body.status
     }
-    if (body.title !== undefined) patch.title = text(body.title, 'title', 120)
-    if (body.prompt !== undefined) patch.prompt = text(body.prompt, 'prompt', 4000)
+    if (body.title !== undefined) patch.title = text(body.title, 'title', LIMITS.title)
+    if (body.prompt !== undefined) patch.prompt = text(body.prompt, 'prompt', LIMITS.prompt)
     store.updateTrigger(companyId, trigger.id, patch)
     res.json({ ok: true })
   })

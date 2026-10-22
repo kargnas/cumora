@@ -31,7 +31,6 @@ export function ensureSchemaOnce(): Promise<void> {
  *  keeps the intent visible + lets us spot-check leakage. */
 const TABLES_TO_WIPE: readonly string[] = [
   'workspace_cleanup_jobs',
-  'realtime_outbox',
   'audit_events',
   'llm_calls_rollup',
   'llm_calls',
@@ -87,6 +86,11 @@ const TABLES_TO_WIPE: readonly string[] = [
   'computers',
   'users',
   'companies',
+  // TRUNCATE locks tables in this order, and a transaction that broadcasts
+  // writes its row first and the outbox last (setStatus: participants, then
+  // realtime_outbox). Taking the outbox first deadlocked against a write a
+  // test's closing socket left in flight; taken last, the TRUNCATE waits.
+  'realtime_outbox',
 ]
 
 /** Wipe every test table. Call from beforeEach. The check at the top

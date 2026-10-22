@@ -205,6 +205,7 @@ export function NewTriggerDialog({ c, open, onClose, onCreated }: { c: Conversat
   const set = (key: keyof typeof form) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [key]: e.target.value }))
   // An empty pick means the room's first agent, so the form needs no effect on the agents.
   const assigneeId = form.assigneeId || agents[0]?.id || ''
+  // The repository pattern and the maxLengths below mirror checkTrigger (server/src/fork/triggers.ts).
   const ready = form.title.trim() && /^[\w.-]+\/[\w.-]+$/.test(form.repo.trim()) && form.profile && assigneeId && form.prompt.trim()
   const close = () => { if (!busy) onClose() }
   const submit = async (e: FormEvent) => {
