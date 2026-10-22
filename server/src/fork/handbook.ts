@@ -14,6 +14,7 @@ import type { Request, Response } from 'express'
 import type { AuthedRequest } from '../auth.js'
 import { commonPairs, diffWords, type Seg } from './diff.js'
 import { preview, redact, redactKeys } from './redact.js'
+import { isPrivileged } from './roles.js'
 import { AGENT_ID, SHARED, computerMounted } from './recorder.js'
 import { getForkStore, type FileVersion } from './store.js'
 
@@ -313,7 +314,6 @@ const GRACE = `INTERVAL '30 seconds'`
 // nothing for this long is not open any more, whatever its status says.
 const STALLED = `INTERVAL '5 minutes'`
 const INSTRUCTION_CHARS = 280
-const PRIVILEGED = new Set(['owner', 'admin'])
 
 type Pool = (typeof import('../db/pool.js'))['pool']
 
@@ -484,7 +484,7 @@ export async function agentHandbook(requireCompany: Requirer, req: Request & Aut
             (SELECT MIN(joined_at) FROM conversation_members WHERE company_id = $1 AND participant_id = $3) AS joined`,
     [companyId, userId, agentId],
   )
-  if (!PRIVILEGED.has(gate.rows[0]?.role ?? '')) {
+  if (!isPrivileged(gate.rows[0]?.role)) {
     res.status(403).json({ error: 'only workspace owners and admins can read a handbook' })
     return
   }

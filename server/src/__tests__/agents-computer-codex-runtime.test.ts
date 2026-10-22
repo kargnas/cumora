@@ -103,7 +103,9 @@ afterEach(async () => {
   for (const key of Object.keys(process.env)) if (!(key in original)) delete process.env[key]
   Object.assign(process.env, original)
   clearModelCatalogCache()
-  await rm(root, { recursive: true, force: true })
+  // A fake codex the daemon started can still append to calls.jsonl after the
+  // daemon's process exits; retry on ENOTEMPTY instead of failing the test.
+  await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 20 })
 })
 
 async function calls(): Promise<Array<Record<string, any>>> {

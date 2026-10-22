@@ -59,6 +59,7 @@ import { CODEX_LOGIN_COMMAND, CODEX_MIGRATE_COMMAND, CODEX_SESSION_SCOPE, codexR
 import { migrateCodexSession, migrateCodexSessions } from './codex-session-migration.js'
 import { runWithSessionRecovery } from './session-recovery.js'
 import { toolKindOf, type ToolKind } from '../../fork/toolKind.js'
+import { tokenMarks } from '../../fork/tokenRows.js'
 import { CARDS_PROMPT } from '../../fork/cardsPrompt.js'
 
 export { conversationHeader }
@@ -1975,6 +1976,8 @@ export class AgentRunner {
    *  during this turn carry it so the ledger can link them back to the run.
    *  Cleared at turn end. */
   private currentRunId: string | null = null
+  /** An agenda turn (proactive board work, no room) is running. */
+  private agendaTurn = false
 
   constructor(
     private readonly cfg: DaemonConfig,
@@ -2026,7 +2029,7 @@ export class AgentRunner {
     // own event, so its text and thinking blocks arrive as hops without tools
     // between tool calls; switching back to thinking on those would flip the
     // status on every block. Clients animate the agent's avatar from this.
-    // Codex reports one hop per turn without a tool count and stays thinking.
+    // Codex reports a hop per model call without a tool count and stays thinking.
     const token = this.turnStatusToken
     if (token && (report.toolUses ?? 0) > 0) {
       // Which kind of tool runs (read, write, ...), so the avatar can act it out.
@@ -2036,8 +2039,13 @@ export class AgentRunner {
       // posted and another `write` hop must not.
       if (this.requestedStatus !== 'working' || tool !== this.requestedTool) void this.postStatus(token, 'working', tool)
     }
+    if (report.repeat) return
     try {
-      const extras: Record<string, unknown> = {}
+      // Rows whose usage matches the engine's own records (one row per model
+      // call, then the turn's `rest` per model) are marked for the chat's
+      // developer token figures (fork/tokenRows.ts). Agenda turns answer no
+      // room, even when a wake landed while they ran.
+      const extras = tokenMarks(report, this.agendaTurn)
       if (typeof report.hopIndex === 'number') extras.hopIndex = report.hopIndex
       if (typeof report.toolUses === 'number') extras.toolUses = report.toolUses
       if (typeof report.textChars === 'number') extras.textChars = report.textChars
@@ -2476,8 +2484,9 @@ export class AgentRunner {
       resumeSessionId,
       standingPrompt: this.standingPrompt(),
       onLog: (line) => this.logEngineLine(line),
-      // Trajectory hook — every assistant hop (Claude) / turn-completed (Codex)
-      // shows up here and gets batched to the universal ledger. Purpose is
+      // Trajectory hook — every model call (Claude: each assistant event, repeats
+      // flagged, then a rest per model at the turn's end; Codex: each thread token
+      // update) shows up here and gets batched to the universal ledger. Purpose is
       // 'agent-turn' for ALL session-issued hops; triage / agenda / etc. ride
       // their own purpose-tagged paths (see recordTriageUsage etc.).
       onHopUsage: (r) => this.onEngineHop(r, 'agent-turn'),
@@ -3006,6 +3015,7 @@ export class AgentRunner {
     // hop emitted by the engine is linked back to the agent_runs row. Cleared
     // in finally below alongside the heartbeat stop.
     this.currentRunId = run?.runId ?? null
+    this.agendaTurn = true
     const stopRunBeat = this.beatRun(token, run?.runId)
     const stopStatusBeat = this.beatStatus(token)
     let exitCode = 0
@@ -3049,6 +3059,7 @@ export class AgentRunner {
       // instead of waiting for the 250ms timer. Fire-and-forget — the void
       // wraps because a slow flush must not block the chat path.
       this.currentRunId = null
+      this.agendaTurn = false
       void this.reporter.flush()
       await this.postStatus(token, 'avail')
       // Mirror chat path: release the concurrency slot regardless of outcome.
