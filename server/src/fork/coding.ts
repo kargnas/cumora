@@ -6,7 +6,8 @@
  * T3 keeps no record of which MCP client made a thread, so the computer marks
  * it: a PreToolUse hook in Claude Code and Codex (computer/t3-tag.mjs in the
  * deploy repo) puts `[@<agent id>] ` before the title of every
- * t3_thread_launch. The server reads every project of every T3 server for
+ * t3_thread_launch, or `[@<name> · <agent id>] ` once the agent's name stops
+ * matching its id. The server reads every project of every T3 server for
  * titles with that mark and copies them into the fork store, so a missed poll
  * or a restart loses nothing: T3 holds the record. A read lists every project
  * of a server, so it comes every few seconds only while T3 may be changing a
@@ -49,9 +50,12 @@ const T3_FILE = resolve(process.cwd(), 'server/computer/t3code.json')
 const TOKEN_DIR = resolve(process.cwd(), 'server/computer/t3code')
 const PROTOCOL = '2025-06-18'
 // What computer/t3-tag.mjs puts before a title: the agent id, a slug like
-// recorder.ts's AGENT_ID. T3's titleContains filter looks for its opening.
+// recorder.ts's AGENT_ID, made from the name the agent was created with. Once
+// the agent's name stops matching it, the name and ` · ` come before the id.
+// The id is the last part, since a name may hold ` · ` itself (the hook drops
+// `]` from it). T3's titleContains filter looks for the mark's opening.
 const MARK = '[@'
-const MARKED = /^\[@([a-z0-9][a-z0-9._-]{0,99})\] ?/i
+const MARKED = /^\[@(?:[^\]]* · )?([a-z0-9][a-z0-9._-]{0,99})\] ?/i
 // Where a thread rests until someone acts on it: T3's statuses, and 'question'
 // for a running thread that waits for an answer. T3's own `waiting` is not one:
 // T3 shows a run that just finished as waiting while it saves the checkpoint.

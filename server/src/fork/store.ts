@@ -64,7 +64,7 @@ export interface CodingThread {
   /** The room of the turn that launched it, found when its agent is first woken
    *  (./coding.ts launchRoom); null until then, or when that turn had no one room. */
   conversationId: string | null
-  /** Without the agent's `[@<id>] ` mark. */
+  /** Without the agent's `[@…] ` mark (./coding.ts parseMark). */
   title: string
   /** T3's thread status (running, completed, failed...), or 'question' while
    *  the thread waits for the answer to `requestId`. */

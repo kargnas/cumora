@@ -53,9 +53,12 @@ function fakeT3(t: TestContext, tool: (name: string, args: Record<string, unknow
 test('a leading mark names the agent, and the rest is the title', () => {
   assert.deepEqual(parseMark('[@credential-manager] 헤더 수정'), { agentId: 'credential-manager', title: '헤더 수정' })
   assert.deepEqual(parseMark('[@pr-summary-bot] [@other] x'), { agentId: 'pr-summary-bot', title: '[@other] x' }, 'the first mark wins')
+  assert.deepEqual(parseMark('[@Disagree · coroner] HeliBoard 빌드'), { agentId: 'coroner', title: 'HeliBoard 빌드' }, 'a renamed agent shows its name before its id')
+  assert.deepEqual(parseMark('[@A · B · coroner] x'), { agentId: 'coroner', title: 'x' }, 'the id is the last part')
   assert.equal(parseMark('헤더 [@bot] 수정'), null, 'a mark inside the title is not one')
   assert.equal(parseMark('[@] x'), null)
   assert.equal(parseMark('[@two words] x'), null)
+  assert.equal(parseMark('[@Disagree · two words] x'), null)
   assert.equal(parseMark('Fix the header'), null)
 })
 
