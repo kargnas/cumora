@@ -16,8 +16,7 @@ export default function DesignChoice({ onUnsavedClassic }: { onUnsavedClassic: (
   useNativeChrome()
   const nt = useNT()
   const pickModern = () => {
-    writeDesignPref('next')
-    // `/next` boots the redesign whether or not storage kept the pick.
+    // `/next` boots the redesign, and App.tsx stores the pick at boot.
     location.replace(`/next${location.search}${location.hash}`)
   }
   const pickClassic = () => {

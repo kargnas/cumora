@@ -7,13 +7,10 @@ const KEY = 'cumora.ui'
 
 export type DesignPref = 'next' | 'classic'
 
-/** Storage that cannot be read counts as Classic, so such a device is never
- *  asked; any other value (old, or written by hand) asks again. */
+/** Any other value (old, or written by hand) asks again. */
 export function readDesignPref(): DesignPref | null {
-  try {
-    const v = localStorage.getItem(KEY)
-    return v === 'next' || v === 'classic' ? v : null
-  } catch { return 'classic' }
+  const v = localStorage.getItem(KEY)
+  return v === 'next' || v === 'classic' ? v : null
 }
 
 /** False when storage refused the write (disabled, or full). */
