@@ -78,7 +78,7 @@ memory/, such as ~/.secrets/<name>, and never commit the file; a .md path is
 refused because the Handbook records .md files. Use it from the file: never
 print it or cat it.`
 
-function fail(text: string, exitCode = 1): CliResult {
+export function fail(text: string, exitCode = 1): CliResult {
   return { ok: false, text, exitCode }
 }
 
@@ -177,12 +177,7 @@ async function take(parsed: ParsedArgs, me: string): Promise<CliResult> {
   if (parsed.flags[SHIM_FILE] !== true || path !== undefined) {
     return fail("only the computer's cumora shim can take a secret, because it saves it into a file instead of printing it. On the computer, restart its daemon so the shim updates, then take it again")
   }
-  const { pool } = await import('../db/pool.js')
-  const { rows } = await pool.query<{ company_id: string }>(
-    "SELECT company_id FROM participants WHERE id = $1 AND kind = 'agent' AND departed_at IS NULL",
-    [me],
-  )
-  const companyId = rows[0]?.company_id
+  const companyId = await agentCompany(me)
   if (!companyId) return fail(`unknown agent ${me}`)
   const store = await getForkStore()
   const asked = store.card(companyId, messageId)
@@ -227,6 +222,16 @@ export function startCardSweeper(): void {
 
 class CardError extends Error {
   constructor(public status: number, message: string) { super(message) }
+}
+
+/** The company of an agent that has not left, or null. */
+export async function agentCompany(agentId: string): Promise<string | null> {
+  const { pool } = await import('../db/pool.js')
+  const { rows } = await pool.query<{ company_id: string }>(
+    "SELECT company_id FROM participants WHERE id = $1 AND kind = 'agent' AND departed_at IS NULL",
+    [agentId],
+  )
+  return rows[0]?.company_id ?? null
 }
 
 /** Whether a participant of that kind is in the room now. */
