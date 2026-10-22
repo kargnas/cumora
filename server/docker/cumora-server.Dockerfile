@@ -25,7 +25,7 @@
 # OrbStack auto-loads into its K8s.
 
 # ─── stage 1: install runtime node deps (prod only) ─────────────────
-FROM node:20-bookworm-slim AS deps
+FROM node:24.22.1-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 # `--omit=dev` skips devDependencies — that's electron, vite,
@@ -45,7 +45,7 @@ RUN npm ci --omit=dev --no-audit --no-fund --prefer-offline
 # as api.cumora.ai), so relative URLs (`/api/...`) work without any
 # baked origin. Builders pointing the SPA at a remote API (e.g. for a
 # separate Cloudflare Pages deploy) should override via --build-arg.
-FROM node:20-bookworm-slim AS spa-build
+FROM node:24.22.1-bookworm-slim AS spa-build
 WORKDIR /app
 ARG VITE_CUMORA_API_BASE=""
 ARG VITE_PUBLIC_POSTHOG_KEY=""
@@ -81,7 +81,7 @@ RUN apt-get update \
   && chmod +x /out-kubectl
 
 # ─── stage 4: runtime ───────────────────────────────────────────────
-FROM node:20-bookworm-slim
+FROM node:24.22.1-bookworm-slim
 
 RUN apt-get update \
   && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \

@@ -37,6 +37,9 @@ function packagedRendererUrls(source: string): string[] {
     // Any string literal that names an index.html we hand to a BrowserWindow.
     if (!/index\.html/.test(line)) continue
     if (!/loadURL|return\s/.test(line)) continue
+    // The app:// handler also returns the SPA shell as a filesystem path
+    // (`path.join(distRoot, 'index.html')`). That is not a BrowserWindow URL.
+    if (!/(?:app|file|https?):\/\//.test(line)) continue
     out.push(line)
   }
   return out

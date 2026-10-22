@@ -60,7 +60,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.22.1'
           cache: 'npm'
       - run: npm ci
       - name: Bundle agent CLI
@@ -96,7 +96,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.22.1'
       - name: No unnecessary big-brain use
         run: node scripts/guard-big-brain.mjs
 
@@ -113,7 +113,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.22.1'
       - name: Every sub2api call tracked in llm_calls
         run: node scripts/guard-llm-tracked.mjs
 
@@ -129,7 +129,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.22.1'
       - name: Every engine wired into all of its lists
         run: node scripts/guard-engine-registry.mjs
 
@@ -141,7 +141,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.22.1'
           cache: 'npm'
       - run: npm ci
       - name: Biome lint
@@ -155,7 +155,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.22.1'
           cache: 'npm'
       - run: npm ci
       - name: tsc (client)
@@ -220,7 +220,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.22.1'
           cache: 'npm'
       - run: npm ci
       # `npm test` runs workers/**/*.test.ts too, and the email-gate
@@ -291,7 +291,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.22.1'
           cache: 'npm'
       - run: npm ci
       # Install pgvector extension into the test DB. `pgvector/pgvector`

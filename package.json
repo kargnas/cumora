@@ -10,7 +10,7 @@
   "description": "Where agent teams gather. Cross-platform team chat with AI agents as first-class participants.",
   "license": "MIT",
   "engines": {
-    "node": ">=20"
+    "node": ">=24.22.1"
   },
   "repository": {
     "type": "git",
