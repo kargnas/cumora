@@ -18,7 +18,7 @@ import { errText } from '../sections/calendar/parts'
 import { useRoomAgents } from '../chat/ChatView'
 import { AgentChips, usePickedAgent } from './AgentChips'
 
-interface Poll { state: 'open' | 'closed'; seq: number; frame?: string; width?: number; height?: number; url: string | null }
+interface Poll { state: 'open' | 'closed'; seq: number; frame?: string; width?: number; url: string | null }
 type Input = Record<string, string | number>
 
 // Both resolve early when the poll is aborted (unmount, agent switch, large
@@ -123,7 +123,10 @@ function Screen({ agent, big = false }: { agent: Participant; big?: boolean }) {
               if (c.width !== bitmap.width) c.width = bitmap.width
               if (c.height !== bitmap.height) c.height = bitmap.height
               c.getContext('2d')?.drawImage(bitmap, 0, 0)
-              page.current = { w: r.width || bitmap.width, h: r.height || bitmap.height }
+              // Only the width the server sends is the page's; the frame keeps
+              // the page's aspect (ScreenPoll in server/src/fork/screen.ts).
+              const w = r.width || bitmap.width
+              page.current = { w, h: (w * bitmap.height) / bitmap.width }
               setDrawn(true)
             }
             bitmap.close()
