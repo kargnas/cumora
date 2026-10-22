@@ -2484,8 +2484,9 @@ export class AgentRunner {
       resumeSessionId,
       standingPrompt: this.standingPrompt(),
       onLog: (line) => this.logEngineLine(line),
-      // Trajectory hook — every assistant hop (Claude) / turn-completed (Codex)
-      // shows up here and gets batched to the universal ledger. Purpose is
+      // Trajectory hook — every model call (Claude: each assistant event, repeats
+      // flagged, then a rest per model at the turn's end; Codex: each thread token
+      // update) shows up here and gets batched to the universal ledger. Purpose is
       // 'agent-turn' for ALL session-issued hops; triage / agenda / etc. ride
       // their own purpose-tagged paths (see recordTriageUsage etc.).
       onHopUsage: (r) => this.onEngineHop(r, 'agent-turn'),

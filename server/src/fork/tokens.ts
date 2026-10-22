@@ -55,19 +55,14 @@ export class TokenAccessError extends Error {
 
 export async function readRoomTokens(companyId: string, userId: string, conversationId: string, since: Date): Promise<RoomTokens> {
   const { pool } = await import('../db/pool.js')
-  const gate = await pool.query<{ role: string | null; member: boolean; agents: string[]; dm_agent: string | null }>(
+  const gate = await pool.query<{ role: string | null; member: boolean; agents: string[]; kind: string | null }>(
     `SELECT (SELECT role FROM company_members WHERE company_id = $1 AND user_id = $2) AS role,
             EXISTS (SELECT 1 FROM conversation_members WHERE conversation_id = $3 AND company_id = $1 AND participant_id = $2) AS member,
             ARRAY(SELECT m.participant_id
                     FROM conversation_members m
                     JOIN participants p ON p.id = m.participant_id AND p.company_id = $1 AND p.kind = 'agent'
                    WHERE m.conversation_id = $3 AND m.company_id = $1) AS agents,
-            (SELECT m.participant_id
-               FROM conversations c
-               JOIN conversation_members m ON m.conversation_id = c.id AND m.company_id = $1
-               JOIN participants p ON p.id = m.participant_id AND p.company_id = $1 AND p.kind = 'agent'
-              WHERE c.id = $3 AND c.company_id = $1 AND c.kind = 'direct'
-              LIMIT 1) AS dm_agent`,
+            (SELECT kind FROM conversations WHERE id = $3 AND company_id = $1) AS kind`,
     [companyId, userId, conversationId],
   )
   const room = gate.rows[0]
@@ -87,7 +82,8 @@ export async function readRoomTokens(companyId: string, userId: string, conversa
           OR ($7::text IS NOT NULL AND agent_id = $7 AND extras->>$6 = 'true'))
       ORDER BY created_at DESC
       LIMIT ${MAX_ROWS}`,
-    [companyId, room.agents, since, String(TOKEN_ACCT), conversationId, AGENDA_MARK, room.dm_agent],
+    // A 1:1 room with an agent also shows that agent's agenda turns.
+    [companyId, room.agents, since, String(TOKEN_ACCT), conversationId, AGENDA_MARK, room.kind === 'direct' ? room.agents[0] ?? null : null],
   )
   const out: RoomTokens = { calls: [], agenda: [], cut: rows.length === MAX_ROWS ? rows[rows.length - 1].created_at.toISOString() : null }
   // Newest first so a cut drops the oldest; the client wants time order.

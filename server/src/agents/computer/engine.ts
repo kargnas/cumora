@@ -622,19 +622,16 @@ export interface EngineUsage {
   cache_creation_input_tokens?: number
 }
 
-/** Sum two turns' usage: one send() can span the turn a steer starts. */
+const USAGE_KEYS = ['input_tokens', 'output_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens'] as const
+
+/** Sum two turns' usage: one send() can span the turn a steer starts. A field
+ *  neither turn reported stays absent. */
 function addUsage(a: EngineUsage | undefined, b: EngineUsage | undefined): EngineUsage | undefined {
   if (!a || !b) return b ?? a
-  const sum = (x?: number, y?: number) => (x === undefined && y === undefined ? undefined : (x ?? 0) + (y ?? 0))
-  return {
-    input_tokens: sum(a.input_tokens, b.input_tokens),
-    output_tokens: sum(a.output_tokens, b.output_tokens),
-    cache_read_input_tokens: sum(a.cache_read_input_tokens, b.cache_read_input_tokens),
-    cache_creation_input_tokens: sum(a.cache_creation_input_tokens, b.cache_creation_input_tokens),
-  }
+  const out: EngineUsage = {}
+  for (const k of USAGE_KEYS) if (a[k] !== undefined || b[k] !== undefined) out[k] = (a[k] ?? 0) + (b[k] ?? 0)
+  return out
 }
-
-const USAGE_KEYS = ['input_tokens', 'output_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens'] as const
 
 function zeroUsage(): Required<EngineUsage> {
   return { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
@@ -1435,6 +1432,9 @@ class ClaudeSession implements EngineSession {
    *  this process (subagents and side calls included), so a turn is the difference. */
   private modelTotals = new Map<string, Required<EngineUsage>>()
   private windows = new Map<string, number>()
+  /** Main-conversation usage already handed to a turn whose result came
+   *  without modelUsage; the next totals cover it again. */
+  private mainCarried = zeroUsage()
   /** Subagents of the running turn, by the Agent tool call that started them. */
   private subs = new Map<string, SubagentRun>()
   private exited = false
@@ -1694,8 +1694,9 @@ class ClaudeSession implements EngineSession {
   private closeTurnUsage(modelUsage: unknown, mainUsage: EngineUsage | undefined): EngineUsage | undefined {
     this.reported.clear()
     if (!modelUsage || typeof modelUsage !== 'object') {
-      // The hops stay counted: the next result's growth covers them too.
+      // The hops and this usage stay counted: the next result's growth covers them too.
       this.onLog('[claude] result without modelUsage: the next result closes this turn too')
+      this.mainCarried = sumUsage(this.mainCarried, mainUsage ?? {})
       return mainUsage
     }
     const subs = [...this.subs.values()]
@@ -1713,7 +1714,7 @@ class ClaudeSession implements EngineSession {
       this.modelTotals.set(model, now)
       // Totals start at 0 in each process and drop on /clear: then all of it is this turn's.
       const grew = !before || USAGE_KEYS.some((k) => now[k] < before[k]) ? now : sumUsage(now, before, -1)
-      if (model === this.curModel) main = grew
+      if (model === this.curModel) main = sumUsage(grew, this.mainCarried, -1)
       const rest = sumUsage(grew, this.hopsUsage.get(model) ?? zeroUsage(), -1)
       const own = model === this.curModel
       if (!USAGE_KEYS.some((k) => rest[k] > 0) && !(own && subs.length > 0)) continue
@@ -1722,6 +1723,7 @@ class ClaudeSession implements EngineSession {
       } catch { /* ledger best-effort, never break the stream */ }
     }
     this.hopsUsage.clear()
+    this.mainCarried = zeroUsage()
     return main
   }
 
@@ -2545,9 +2547,12 @@ class CodexSession implements EngineSession {
     // life: before a turn runs it is all history, and inside one, history
     // ends before this update's call.
     if (!this.cum) {
-      this.cum = this.activeTurnId ? sumUsage(total, codexUsage(u?.last) ?? total, -1) : total
+      // Without `last` this call cannot be told from the history: it is dropped
+      // with it rather than charging the thread's whole life to one call.
+      const last = codexUsage(u?.last)
+      this.cum = this.activeTurnId && last ? sumUsage(total, last, -1) : total
       this.turnStart ??= this.cum
-      if (!this.activeTurnId) return
+      if (!this.activeTurnId || !last) return
     }
     const call = sumUsage(total, this.cum, -1)
     // The app-server repeats an update without a new call; a stale one would regress.

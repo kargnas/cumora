@@ -1301,12 +1301,14 @@ test('persistent Claude ledgers each response once and closes a turn per model w
   const third = await session.send('no totals')
   assert.equal(third.usage?.output_tokens, 50, 'without modelUsage the turn keeps the result usage')
   assert.equal(hops.filter((h) => h.rest).length, 0)
-  await session.send('totals again')
+  const fourth = await session.send('totals again')
   assert.deepEqual(hops.filter((h) => h.rest).map((h) => h.usage), [{ input_tokens: 0, output_tokens: 98, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }],
     'the next totals cover both turns, and both turns\' calls are subtracted')
+  assert.deepEqual(fourth.usage, { input_tokens: 1, output_tokens: 50, cache_read_input_tokens: 1300, cache_creation_input_tokens: 5 },
+    'and the turn before, already counted from its result, is not counted again')
 })
 
-async function codexUsageTurn(resumeUpdate: boolean) {
+async function codexUsageTurn(resumeUpdate: boolean, firstWithoutLast = false) {
   process.env.CUMORA_BYOA_ALLOW_UNSANDBOXED = '1'
   const root = await mkdtemp(join(tmpdir(), 'cumora-codex-usage-'))
   tempDirs.push(root)
@@ -1336,7 +1338,7 @@ async function codexUsageTurn(resumeUpdate: boolean) {
     "    }\n" +
     "    else if (msg.method === 'turn/start') {\n" +
     "      send({ id: msg.id, result: { turn: { id: 'u1' } } })\n" +
-    '      usage(t(1000100, 900050, 5010, 1000), t(100, 50, 10, 4))\n' +
+    (firstWithoutLast ? '      usage(t(1000100, 900050, 5010, 1000))\n' : '      usage(t(1000100, 900050, 5010, 1000), t(100, 50, 10, 4))\n') +
     '      usage(t(1000100, 900050, 5010, 1000), t(100, 50, 10, 4))\n' +
     '      usage(t(1000300, 900200, 5030, 1008), t(200, 150, 20, 8))\n' +
     "      send({ method: 'turn/completed', params: { turn: { id: 'u1', status: 'completed' } } })\n" +
@@ -1377,3 +1379,10 @@ for (const resumeUpdate of [false, true]) {
     assert.ok(hops.every((h) => typeof h.latencyMs === 'number'), 'the ledger keeps a latency per call')
   })
 }
+
+test('a Codex update without its call\'s own usage starts the count after it, never at 0', { skip: IS_WIN }, async () => {
+  const { result, hops } = await codexUsageTurn(false, true)
+  assert.deepEqual(hops.map((h) => h.usage), [{ input_tokens: 50, cache_read_input_tokens: 150, cache_creation_input_tokens: 0, output_tokens: 20 }],
+    'the call that cannot be told from the history is dropped with it')
+  assert.deepEqual(result.usage, { input_tokens: 50, cache_read_input_tokens: 150, cache_creation_input_tokens: 0, output_tokens: 20 })
+})

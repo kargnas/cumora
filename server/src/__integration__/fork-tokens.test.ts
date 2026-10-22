@@ -11,6 +11,7 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { pool } from '../db/pool.js'
 import { MAX_ROWS, readRoomTokens, TokenAccessError } from '../fork/tokens.js'
+import { refreshLlmRollup } from '../agents/llm-rollup.js'
 import { ensureSchemaOnce, resetAllTables, seedCompanyWithAgent, seedUserMembership, teardownAll } from './_helpers.js'
 
 before(async () => { await ensureSchemaOnce() })
@@ -83,4 +84,16 @@ test('an answer cut at MAX_ROWS keeps the newest rows and says where it was cut'
   assert.equal(dm.calls.length, MAX_ROWS)
   assert.equal(dm.calls[0].at, '2026-10-22T10:00:02.000Z', 'the oldest row is the one dropped')
   assert.equal(dm.cut, '2026-10-22T10:00:02.000Z')
+})
+
+test('the rollup counts a rest row\'s tokens but not as a call', async () => {
+  const { companyId, agentId } = await seedCompanyWithAgent()
+  const now = new Date().toISOString()
+  await call(companyId, agentId, 'dm', { acct: 2 }, now)
+  await call(companyId, agentId, 'dm', { acct: 2, rest: { subs: [] } }, now)
+  await refreshLlmRollup(2)
+  const { rows } = await pool.query<{ calls: string; ok_calls: string; input_tokens: string }>(
+    `SELECT calls, ok_calls, input_tokens FROM llm_calls_rollup WHERE company_id = $1`, [companyId],
+  )
+  assert.deepEqual(rows.map((r) => [Number(r.calls), Number(r.ok_calls), Number(r.input_tokens)]), [[1, 1, 2]])
 })
