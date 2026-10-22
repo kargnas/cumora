@@ -116,7 +116,9 @@ test('claude steer is written at once and reports delivery when its lifecycle st
   const result = await turn
   assert.equal(result.exitCode, 0)
   assert.equal(delivered, true)
-  assert.ok(logs.includes('STEER ping'))
+  // The fake writes STEER to stderr and the result to stdout; the two pipes
+  // can arrive in either order, so the line may land after the turn settles.
+  await waitForLog(logs, /^STEER ping$/)
 })
 
 test('claude turn absorbs the follow-up turn a queued steer starts', { skip: IS_WIN }, async () => {
@@ -147,7 +149,8 @@ test('claude interrupt sends cancel_queued and settles the turn as interrupted',
   assert.equal(result.interrupted, true)
   assert.equal(result.error, undefined)
   assert.equal(delivered, false)
-  assert.ok(logs.some((l) => l.startsWith('INTERRUPT') && l.includes('"cancel_queued":true')))
+  // stderr, like STEER above: it may land after the turn settles.
+  await waitForLog(logs, /^INTERRUPT .*"cancel_queued":true/)
 })
 
 test('claude steer without msg_lifecycle_v1 writes nothing', { skip: IS_WIN }, async () => {
@@ -250,6 +253,18 @@ function alive(pid: number): boolean {
   try { process.kill(pid, 0); return true } catch { return false }
 }
 
+/** A turn settles right after its command gets SIGKILL, and kill(pid, 0) finds
+ *  the command until its parent reaps it, which can take a moment on a busy
+ *  runner. 500 ms stays well under terminateTurnGroups' 1 s SIGTERM grace, so a
+ *  turn that settled before the SIGKILL still fails here. */
+async function gone(pid: number): Promise<boolean> {
+  for (let i = 0; i < 50; i += 1) {
+    if (!alive(pid)) return true
+    await delay(10)
+  }
+  return false
+}
+
 async function pidFromLog(logs: string[], tag: 'CMD_PID' | 'MCP_PID'): Promise<number> {
   await waitForLog(logs, new RegExp(`^${tag} \\d+`))
   return Number(logs.find((l) => l.startsWith(tag))!.split(' ')[1])
@@ -291,7 +306,7 @@ test('codex interrupt ends the turn and kills the command it started, not the MC
   assert.equal(result.exitCode, 0)
   assert.equal(result.interrupted, true)
   // Settled only once the command is gone, so a rerun cannot overlap it.
-  assert.equal(alive(pid), false, 'the command Codex left running must be dead when the turn settles')
+  assert.equal(await gone(pid), true, 'the command Codex left running must be dead when the turn settles')
   assert.equal(alive(mcp), true, 'a process group from before the turn must survive')
 })
 
@@ -304,7 +319,7 @@ test('a codex stop that comes before turn/start answers still stops the turn', {
   const result = await turn
   assert.equal(result.interrupted, true)
   const started = logs.find((l) => l.startsWith('CMD_PID'))
-  if (started) assert.equal(alive(Number(started.split(' ')[1])), false)
+  if (started) assert.equal(await gone(Number(started.split(' ')[1])), true)
 })
 
 // ── Daemon rules ──────────────────────────────────────────────────────────
