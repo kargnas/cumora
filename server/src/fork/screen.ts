@@ -31,9 +31,13 @@ export interface ScreenPoll {
   seq: number
   /** Base64 JPEG, only when a frame newer than `after` arrived. */
   frame?: string
-  /** The page's size in CSS pixels, the space clicks are given in. */
+  /** The page's width in CSS pixels, the space clicks are given in. Its
+   *  height follows from the frame's aspect: agent-browser reports the size
+   *  of the window it opened Chrome at, and headless Chrome keeps a hidden
+   *  toolbar inside that window, so the page is shorter than the reported
+   *  height (1280×633 in a 1280×720 window) and clicks scaled to it landed
+   *  lower the further down they were (vercel-labs/agent-browser#1613). */
   width?: number
-  height?: number
   url: string | null
 }
 
@@ -62,7 +66,7 @@ function dashboardSessions(): Promise<Array<{ session: string; port: number }>> 
 class Screen {
   state: ScreenPoll['state'] = 'closed'
   seq = 0
-  private frame: { data: string; width: number; height: number; seq: number } | null = null
+  private frame: { data: string; width: number; seq: number } | null = null
   private url: string | null = null
   private ws: WebSocket | null = null
   private retry: NodeJS.Timeout | null = null
@@ -124,10 +128,10 @@ class Screen {
   }
 
   private receive(raw: string): void {
-    let msg: { type?: string; data?: string; metadata?: { deviceWidth?: number; deviceHeight?: number }; url?: string; tabs?: Array<{ active?: boolean; url?: string }> }
+    let msg: { type?: string; data?: string; metadata?: { deviceWidth?: number }; url?: string; tabs?: Array<{ active?: boolean; url?: string }> }
     try { msg = JSON.parse(raw) } catch { return }
     if (msg.type === 'frame' && typeof msg.data === 'string') {
-      this.frame = { data: msg.data, width: msg.metadata?.deviceWidth ?? 0, height: msg.metadata?.deviceHeight ?? 0, seq: this.seq + 1 }
+      this.frame = { data: msg.data, width: msg.metadata?.deviceWidth ?? 0, seq: this.seq + 1 }
       this.bump()
       return
     }
@@ -158,7 +162,7 @@ class Screen {
 
   private snapshot(after: number): ScreenPoll {
     const frame = this.frame && this.frame.seq > after
-      ? { frame: this.frame.data, width: this.frame.width, height: this.frame.height }
+      ? { frame: this.frame.data, width: this.frame.width }
       : {}
     return { state: this.state, seq: this.seq, url: this.url, ...frame }
   }
