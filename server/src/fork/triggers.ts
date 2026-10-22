@@ -283,7 +283,13 @@ through --file <path> or --stdin instead of --prompt, so the shell leaves it as
 written. Never put a secret in a prompt: the people in the room can read the
 message a fire posts. Name the file that holds it instead, such as
 ~/.secrets/<name>. \`list\` shows the triggers of the rooms you are in, which
-people see and pause in the room's Routines tab.`
+people see and pause in the room's Routines tab. A trigger a person paused stays
+theirs: you can neither delete it nor add another for its repository and
+assignee.`
+
+// Only a person pauses a trigger, in the Routines tab, so what happens to a
+// paused one is theirs to decide.
+const PAUSED = "ask a person in the room to resume or delete it in the room's Routines tab"
 
 function describe(trigger: Trigger): string {
   const t = shownTrigger(trigger)
@@ -337,9 +343,13 @@ export async function runTriggerCli(parsed: ParsedArgs, me: string): Promise<Cli
     if (!(await inRoom(companyId, assigneeId, convoId, 'agent'))) return fail(`${assigneeId} is not an agent in ${convoId}`)
     // Fires are claimed per trigger, so a second one (a retried command, two
     // agents answering one request) would wake the assignee twice per merge.
-    // GitHub names are case-insensitive. A paused one counts too: a person paused it.
+    // GitHub names are case-insensitive. A paused one counts too: only a person
+    // pauses a trigger (in the tab), and that decision stays theirs.
     const same = store.triggers(companyId, convoId).find((x) => x.assigneeId === assigneeId && x.repo.toLowerCase() === fields.repo.toLowerCase())
-    if (same) return fail(`${same.id} (${same.status}) already wakes @${assigneeId} in ${convoId} for merges in ${same.repo}; delete it first to replace it`)
+    if (same) {
+      const already = `${same.id} already wakes @${assigneeId} in ${convoId} for merges in ${same.repo}`
+      return fail(same.status === 'paused' ? `${already}, and a person paused it: ${PAUSED}` : `${already}; delete it first to replace it`)
+    }
     const t = store.createTrigger({ companyId, createdBy: me, conversationId: convoId, assigneeId, ...fields })
     return { ok: true, text: `created ${t.id}: from now on, each pull request merged in ${t.repo} wakes @${assigneeId} in ${convoId}`, exitCode: 0 }
   }
@@ -349,8 +359,10 @@ export async function runTriggerCli(parsed: ParsedArgs, me: string): Promise<Cli
     if (!t || !(await inRoom(companyId, me, t.conversationId, 'agent'))) {
       return fail(`no trigger ${args[0] ?? ''} in your rooms; cumora trigger list shows them`)
     }
+    // After the room check, so a room's paused triggers stay unknown outside it.
+    if (t.status === 'paused') return fail(`${t.id} was paused by a person: ${PAUSED}`)
     store.deleteTrigger(companyId, t.id)
-    return { ok: true, text: `deleted ${t.id} ("${shownTrigger(t).title}")`, exitCode: 0 }
+    return { ok: true, text: `deleted ${t.id} ("${redact(t.title)}")`, exitCode: 0 }
   }
 
   return fail(USAGE)

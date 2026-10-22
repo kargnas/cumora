@@ -89,9 +89,15 @@ test('[integration] an agent makes, sees and deletes triggers only in its own ro
   // One trigger per room, repository and assignee, whatever the case of the name.
   const again = await cli('atlas', 'create', 'room-team', 'Again', '--repo', 'Kargnas/HeliBoard', '--profile', PROFILE, '--prompt', 'Install')
   assert.match(again.text, /already wakes @atlas in room-team/)
-  // A trigger a person paused still counts, so an agent cannot route around the pause.
-  store.updateTrigger(companyId, store.triggers(companyId, 'room-team')[0].id, { status: 'paused' })
-  assert.match((await create('atlas', 'room-team')).text, /\(paused\) already wakes @atlas/)
+  // A trigger a person paused stays theirs: the agent can neither add a second
+  // one beside it nor delete it and make it again, active.
+  const paused = store.triggers(companyId, 'room-team')[0].id
+  store.updateTrigger(companyId, paused, { status: 'paused' })
+  const beside = await create('atlas', 'room-team')
+  assert.match(beside.text, /already wakes @atlas .*, and a person paused it: ask a person/)
+  assert.doesNotMatch(beside.text, /delete it first/)
+  assert.match((await cli('atlas', 'delete', paused)).text, /was paused by a person/)
+  assert.equal(store.trigger(companyId, paused)?.status, 'paused')
   assert.equal(count(), 1)
   // Words that would be dropped without a word are refused: an unquoted title,
   // or a prompt given both as --prompt and after `--`.
