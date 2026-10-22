@@ -37,7 +37,7 @@ export const zhCN: Partial<Record<keyof typeof en, string>> = {
   'design.title': '选择界面',
   'design.subtitle': '选择 Cumora 在这台设备上的样子。',
   'design.modern': '现代',
-  'design.modernSub': '重新设计的界面，用起来像原生应用。',
+  'design.modernSub': 'OP.GG Edited',
   'design.classic': '经典',
   'design.classicSub': 'Cumora 原来的界面。',
 

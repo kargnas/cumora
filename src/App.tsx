@@ -19,6 +19,7 @@ import { NotificationToasts } from '@/components/NotificationToasts'
 import { NotificationWindow } from '@/components/NotificationWindow'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { isNotificationWindow, isWebAppHost } from '@/lib/runtime'
+import { readDesignPref, writeDesignPref } from '@/next/designPref'
 import { WebShell } from '@/web/WebShell'
 import {
   InviteAcceptScreen, consumeInviteFromUrl,
@@ -33,21 +34,19 @@ import { WorkspaceSessionBridge } from '@/components/WorkspaceSessionBridge'
 import '@/admin/admin.css'
 
 /** The Next redesign lives under `/next` and replaces only the Desktop/Mobile
- *  shells; auth, stores and WebSocket boot below are shared. `cumora.ui`
- *  remembers the device's choice ('next' | 'classic'); without one, `/` (where
- *  the native apps always open) shows the design choice before sign-in, so the
+ *  shells; auth, stores and WebSocket boot below are shared. The device's
+ *  design choice (`next/designPref`) routes `/`; without one, `/` (where the
+ *  native apps always open) shows the design choice before sign-in, so the
  *  sign-in screen already wears the picked design. */
 const atRoot = typeof location !== 'undefined' && (location.pathname === '/' || location.pathname === '/index.html')
-const designPref = (() => {
-  try { return localStorage.getItem('cumora.ui') } catch { return 'classic' } // storage disabled: stay on the classic shell
-})()
+const designPref = readDesignPref()
 // The Electron notification panel loads index.html#notifications; leave it be.
 if (designPref === 'next' && atRoot && location.hash !== '#notifications') {
   history.replaceState(history.state, '', `/next${location.search}${location.hash}`)
 }
 const isNextMode = typeof location !== 'undefined' && (location.pathname === '/next' || location.pathname.startsWith('/next/'))
 // Opening a `/next` link (a shared room, a notification) picks the redesign too.
-if (isNextMode) try { localStorage.setItem('cumora.ui', 'next') } catch { /* storage disabled */ }
+if (isNextMode) writeDesignPref('next')
 const needsDesignChoice = designPref === null && atRoot
 // Start fetching the chunk during auth instead of after it.
 const nextChunk = isNextMode ? import('@/next/NextApp') : null
@@ -274,6 +273,9 @@ function MainApp() {
     }
     return getPendingInvite()
   })
+  // A Classic pick that storage refused leaves the choice through this state;
+  // a reload would only ask again.
+  const [choosingDesign, setChoosingDesign] = useState(needsDesignChoice)
 
   if (waitlist) {
     return <WaitlistConfirmedScreen email={waitlist.email} />
@@ -322,8 +324,8 @@ function MainApp() {
     )
   }
 
-  if (needsDesignChoice) {
-    return <Suspense fallback={null}><DesignChoice /></Suspense>
+  if (choosingDesign) {
+    return <Suspense fallback={null}><DesignChoice onUnsavedClassic={() => setChoosingDesign(false)} /></Suspense>
   }
 
   return (

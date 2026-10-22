@@ -1,6 +1,7 @@
 /**
  * Sign-in screen of the redesign. AuthGate shows it in place of the classic
- * AuthScreen when the app runs in Next mode (the native apps by default).
+ * AuthScreen when the app runs in Next mode (the device picked Modern, or
+ * opened a `/next` link).
  * The provider flows (browser redirect, Electron loopback + nonce, native
  * OAuth tab, Sign in with Apple) are the classic ones from useSignIn.
  */

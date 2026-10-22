@@ -27,7 +27,7 @@ const core = {
   'design.title': 'Choose a design',
   'design.subtitle': 'Pick how Cumora looks on this device.',
   'design.modern': 'Modern',
-  'design.modernSub': 'The redesign, made to feel like a native app.',
+  'design.modernSub': 'OP.GG Edited',
   'design.classic': 'Classic',
   'design.classicSub': 'The original Cumora interface.',
 

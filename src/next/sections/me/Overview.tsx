@@ -10,6 +10,7 @@ import { useComputers } from '@/stores/computers'
 import { useDevtools } from '@/stores/devtools'
 import { useLocaleStore } from '@/lib/i18n'
 import { useAppearanceStore } from '@/lib/theme'
+import { writeDesignPref } from '../../designPref'
 import { useNT } from '../../i18n'
 import { goBack, href, linkClick } from '../../router'
 import { Avatar } from '../../ui/Avatar'
@@ -110,7 +111,7 @@ export function Overview({ active, stack }: { active: GroupKey | null; stack: bo
                 <button
                   type="button"
                   className="nx-me-item"
-                  onClick={() => { localStorage.setItem('cumora.ui', 'classic'); location.href = '/' }}
+                  onClick={() => { writeDesignPref('classic'); location.href = '/' }}
                 >
                   <ISwap />
                   <span className="nx-me-item__label">{nt('nav.classic')}</span>

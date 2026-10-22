@@ -1,24 +1,30 @@
 /**
  * First screen on a device that has not picked a design: App.tsx shows it at
- * `/` while `localStorage['cumora.ui']` is unset, before sign-in, on the web
- * and in the native apps alike.
+ * `/` while the choice (`designPref.ts`) is unset, before sign-in, on the web
+ * and in the native apps alike (the public `app.*` host shows its WebShell
+ * instead).
  */
 import { WindowDragStrip } from '@/components/WindowDragStrip'
+import { writeDesignPref } from '../designPref'
 import { useNT } from '../i18n'
 import { useNativeChrome, useNextDocument } from '../document'
 import '../styles/shell.css'
 
-function pick(ui: 'next' | 'classic'): void {
-  try { localStorage.setItem('cumora.ui', ui) } catch { /* storage disabled */ }
-  // App.tsx reads the choice once, at boot, and moves `/` to `/next` itself,
-  // so reloading `/` routes the pick in the native apps too.
-  location.reload()
-}
-
-export default function DesignChoice() {
+export default function DesignChoice({ onUnsavedClassic }: { onUnsavedClassic: () => void }) {
   useNextDocument()
   useNativeChrome()
   const nt = useNT()
+  const pickModern = () => {
+    writeDesignPref('next')
+    // `/next` boots the redesign whether or not storage kept the pick.
+    location.replace(`/next${location.search}${location.hash}`)
+  }
+  const pickClassic = () => {
+    // A reload boots the classic shell with its own chrome colors. Without a
+    // stored pick it would ask again, so then leave the choice without one.
+    if (writeDesignPref('classic')) location.reload()
+    else onUnsavedClassic()
+  }
   return (
     <main className="nx-signin">
       <WindowDragStrip />
@@ -27,11 +33,11 @@ export default function DesignChoice() {
         <h1>{nt('design.title')}</h1>
         <p className="nx-signin__sub">{nt('design.subtitle')}</p>
         <div className="nx-signin__providers">
-          <button type="button" className="nx-design__option" onClick={() => pick('next')}>
+          <button type="button" className="nx-signin__provider nx-design__option" onClick={pickModern}>
             {nt('design.modern')}
             <span>{nt('design.modernSub')}</span>
           </button>
-          <button type="button" className="nx-design__option" onClick={() => pick('classic')}>
+          <button type="button" className="nx-signin__provider nx-design__option" onClick={pickClassic}>
             {nt('design.classic')}
             <span>{nt('design.classicSub')}</span>
           </button>
