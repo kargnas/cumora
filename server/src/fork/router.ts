@@ -11,7 +11,7 @@ import { computerPurges, purgeAgent } from './purge.js'
 import { agentScreen, agentScreenInput } from './screen.js'
 import { roomTokens } from './tokens.js'
 import { isPrivileged } from './roles.js'
-import { MAX_PROMPT, MAX_TITLE, checkTrigger, listProfiles, pollErrorOf, runNow, startTriggerPoller } from './triggers.js'
+import { LIMITS, checkTrigger, listProfiles, runNow, shownTrigger, startTriggerPoller } from './triggers.js'
 
 type CompanyContext = { userId: string; companyId: string }
 
@@ -220,7 +220,7 @@ export function createForkRouter(deps: ForkRouterDeps): Router {
     if (!conversationId) throw new ForkError(400, 'conversation is required')
     await requireRoom(companyId, userId, conversationId)
     const triggers = (await getForkStore()).triggers(companyId, conversationId)
-    res.json({ triggers: triggers.map((t) => ({ ...t, pollError: pollErrorOf(t) })) })
+    res.json({ triggers: triggers.map(shownTrigger) })
   })
 
   router.post('/triggers', async (req, res) => {
@@ -232,7 +232,7 @@ export function createForkRouter(deps: ForkRouterDeps): Router {
     if (typeof fields === 'string') throw new ForkError(400, fields)
     await requireRoom(companyId, userId, conversationId, assigneeId)
     const trigger = (await getForkStore()).createTrigger({ companyId, createdBy: userId, conversationId, assigneeId, ...fields })
-    res.status(201).json({ trigger: { ...trigger, pollError: null } })
+    res.status(201).json({ trigger: shownTrigger(trigger) })
   })
 
   router.patch('/triggers/:id', async (req, res) => {
@@ -247,8 +247,8 @@ export function createForkRouter(deps: ForkRouterDeps): Router {
       if (body.status !== 'active' && body.status !== 'paused') throw new ForkError(400, 'status must be active or paused')
       patch.status = body.status
     }
-    if (body.title !== undefined) patch.title = text(body.title, 'title', MAX_TITLE)
-    if (body.prompt !== undefined) patch.prompt = text(body.prompt, 'prompt', MAX_PROMPT)
+    if (body.title !== undefined) patch.title = text(body.title, 'title', LIMITS.title)
+    if (body.prompt !== undefined) patch.prompt = text(body.prompt, 'prompt', LIMITS.prompt)
     store.updateTrigger(companyId, trigger.id, patch)
     res.json({ ok: true })
   })

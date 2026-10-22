@@ -28,6 +28,7 @@ import { join, resolve } from 'node:path'
 import { type ParsedArgs, unescapeChat } from '../agents/cli-parse.js'
 import type { CliResult } from '../agents/cli-result.js'
 import { agentCompany, fail, inRoom } from './cards.js'
+import { redact } from './redact.js'
 import { getForkStore, type Trigger } from './store.js'
 
 const POLL_MS = 60_000
@@ -37,10 +38,8 @@ export const GH_DIR = resolve(process.cwd(), 'server/computer/gh')
 // The names gh-profile.mjs accepts.
 const PROFILE_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/
-export const MAX_TITLE = 120
-export const MAX_PROMPT = 4000
 // The Routines tab's form (src/next/panel/triggers.tsx) repeats these limits.
-const LIMITS = { title: MAX_TITLE, prompt: MAX_PROMPT, repo: 100, profile: 100 }
+export const LIMITS = { title: 120, prompt: 4000, repo: 100, profile: 100 }
 // ponytail: one page of the newest closed pull requests per poll; more than
 // this many merged within a minute lose the oldest. Page on if that happens.
 const PAGE = 30
@@ -199,6 +198,14 @@ export function pollErrorOf(t: Pick<Trigger, 'profile' | 'repo'>): string | null
   return pollErrors.get(`${t.profile} ${t.repo}`) ?? null
 }
 
+/** A trigger as it leaves the server, to the Routines tab or an agent. An
+ *  agent may have written its title and prompt, and that text can quote a
+ *  secret, so both go out redacted (src/next/AGENTS.md); the store keeps them
+ *  as written for the brief a fire posts. */
+export function shownTrigger(t: Trigger): Trigger & { pollError: string | null } {
+  return { ...t, title: redact(t.title), prompt: redact(t.prompt), pollError: pollErrorOf(t) }
+}
+
 async function poll(): Promise<void> {
   const store = await getForkStore()
   const byRepo = new Map<string, Trigger[]>()
@@ -267,18 +274,19 @@ once a minute as the gh profile you name (\`gh-profile --list\`), only for merge
 after the trigger was made, and fires each merge once. To wait for a single
 pull request, write a prompt that skips the other merges and deletes the
 trigger once that one has run. --assignee defaults to you and must be an agent
-in the room. Give a prompt with backticks, $(...) or quotes through --file
-<path> or --stdin instead of --prompt, so the shell leaves it as written.
-\`list\` shows the triggers of the rooms you are in, which people see and pause
-in the room's Routines tab.`
+in the room, and a room holds one trigger per repository and assignee. In a
+shell, give a prompt with backticks, $(...) or quotes through --file <path> or
+--stdin instead of --prompt, so the shell leaves it as written. \`list\` shows
+the triggers of the rooms you are in, which people see and pause in the room's
+Routines tab.`
 
-function describe(t: Trigger): string {
+function describe(trigger: Trigger): string {
+  const t = shownTrigger(trigger)
   const fired = t.lastFire
     ? `fired ${t.fires}x, last for ${t.lastFire.label} at ${t.lastFire.at}${t.lastFire.error ? `, which failed: ${t.lastFire.error}` : ''}`
     : 'not fired yet'
-  const pollError = pollErrorOf(t)
   return `${t.id} · ${t.status} · "${t.title}" · ${t.repo} as ${t.profile} · wakes @${t.assigneeId} in ${t.conversationId} · ${fired}` +
-    (pollError ? `\n  polling fails: ${pollError}` : '') +
+    (t.pollError ? `\n  polling fails: ${t.pollError}` : '') +
     `\n  prompt: ${t.prompt.replace(/\s+/g, ' ')}`
 }
 
@@ -319,6 +327,11 @@ export async function runTriggerCli(parsed: ParsedArgs, me: string): Promise<Cli
     if (typeof fields === 'string') return fail(fields)
     if (!(await inRoom(companyId, me, convoId, 'agent'))) return fail(`you are not in ${convoId}`)
     if (!(await inRoom(companyId, assigneeId, convoId, 'agent'))) return fail(`${assigneeId} is not an agent in ${convoId}`)
+    // Fires are claimed per trigger, so a second one (a retried command, two
+    // agents answering one request) would wake the assignee twice per merge.
+    // GitHub names are case-insensitive. A paused one counts too: a person paused it.
+    const same = store.triggers(companyId, convoId).find((x) => x.assigneeId === assigneeId && x.repo.toLowerCase() === fields.repo.toLowerCase())
+    if (same) return fail(`${same.id} (${same.status}) already wakes @${assigneeId} in ${convoId} for merges in ${same.repo}; delete it first to replace it`)
     const t = store.createTrigger({ companyId, createdBy: me, conversationId: convoId, assigneeId, ...fields })
     return { ok: true, text: `created ${t.id}: from now on, each pull request merged in ${t.repo} wakes @${assigneeId} in ${convoId}`, exitCode: 0 }
   }

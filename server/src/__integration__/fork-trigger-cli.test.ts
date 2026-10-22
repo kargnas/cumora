@@ -3,17 +3,18 @@
  * agent makes, sees and deletes triggers only in rooms it is in, for agents in
  * that room, under the Routines tab's rule, and a room or trigger it cannot see
  * answers like one that does not exist. A mistake here lets an agent wake
- * someone in a room it cannot see, remove another room's trigger, or learn
- * which rooms and triggers exist.
+ * someone in a room it cannot see, remove another room's trigger, learn which
+ * rooms and triggers exist, or show the room a secret its prompt quotes.
  */
 import { after, before, beforeEach, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { createServer, type Server } from 'node:http'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pool } from '../db/pool.js'
 import { parseArgs } from '../agents/cli-parse.js'
-import { ensureSchemaOnce, resetAllTables, seedCompanyWithAgent, teardownAll } from './_helpers.js'
+import { buildApiTestApp, ensureSchemaOnce, resetAllTables, seedCompanyWithAgent, seedUserMembership, teardownAll } from './_helpers.js'
 
 // The fork store and the gh profiles resolve from the server's cwd when their
 // modules load, so this test runs them in a directory of its own.
@@ -25,10 +26,18 @@ const { getForkStore } = await import('../fork/store.js')
 const { GH_DIR, runTriggerCli } = await import('../fork/triggers.js')
 
 const PROFILE = 'trigger-cli-test'
+// The person in the rooms, as the API test app signs every request in.
+const OWNER = 'u-owner'
+let server: Server
+let baseUrl = ''
 
 before(async () => {
   assert.ok(GH_DIR.startsWith(dir), 'the gh profiles must come from the test directory')
   await ensureSchemaOnce()
+  server = createServer(await buildApiTestApp(OWNER))
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  if (address && typeof address === 'object') baseUrl = `http://127.0.0.1:${address.port}`
   mkdirSync(join(GH_DIR, PROFILE), { recursive: true })
   writeFileSync(join(GH_DIR, PROFILE, 'hosts.yml'), 'github.com:\n    oauth_token: gho_test\n')
 })
@@ -36,7 +45,7 @@ beforeEach(async () => { await resetAllTables() })
 after(async () => {
   process.chdir(home)
   rmSync(dir, { recursive: true, force: true })
-  await teardownAll()
+  await teardownAll(server)
 })
 
 async function room(companyId: string, id: string, members: string[]): Promise<void> {
@@ -54,12 +63,8 @@ test('[integration] an agent makes, sees and deletes triggers only in its own ro
   const { companyId } = await seedCompanyWithAgent({ agentId: 'atlas' })
   await seedCompanyWithAgent({ companyId, agentId: 'nova' })
   await seedCompanyWithAgent({ companyId, agentId: 'iris' })
-  await pool.query(
-    `INSERT INTO participants (id, company_id, kind, name, role, initial, avatar_bg, status)
-     VALUES ('u-owner', $1, 'human', 'Owner', 'owner', 'O', '#abcdef', 'avail')`,
-    [companyId],
-  )
-  await room(companyId, 'room-team', ['u-owner', 'atlas', 'nova'])
+  await seedUserMembership(OWNER, companyId)
+  await room(companyId, 'room-team', [OWNER, 'atlas', 'nova'])
   await room(companyId, 'room-iris', ['iris'])
   const store = await getForkStore()
   const count = () => store.triggers(companyId, 'room-team').length + store.triggers(companyId, 'room-iris').length
@@ -70,12 +75,16 @@ test('[integration] an agent makes, sees and deletes triggers only in its own ro
   assert.equal(outside.text.replace('room-iris', '<room>'), (await create('atlas', 'room-gone')).text.replace('room-gone', '<room>'))
   // Only an agent of the room is woken, and a bare --assignee is not "me".
   assert.match((await create('atlas', 'room-team', '--assignee', 'iris')).text, /iris is not an agent in room-team/)
-  assert.match((await create('atlas', 'room-team', '--assignee', 'u-owner')).text, /u-owner is not an agent in room-team/)
+  assert.match((await create('atlas', 'room-team', '--assignee', OWNER)).text, new RegExp(`${OWNER} is not an agent in room-team`))
   assert.match((await create('atlas', 'room-team', '--assignee')).text, /^usage: /)
   assert.equal(count(), 0)
 
   assert.equal((await create('atlas', 'room-team')).ok, true)
   assert.equal(store.triggers(companyId, 'room-team')[0].assigneeId, 'atlas', 'the assignee defaults to the caller')
+  // One trigger per room, repository and assignee, whatever the case of the name.
+  const again = await cli('atlas', 'create', 'room-team', 'Again', '--repo', 'Kargnas/HeliBoard', '--profile', PROFILE, '--prompt', 'Install')
+  assert.match(again.text, /already wakes @atlas in room-team/)
+  assert.equal(count(), 1)
   const made = await create('atlas', 'room-team', '--assignee', 'nova')
   assert.equal(made.ok, true, made.text)
   const t = store.triggers(companyId, 'room-team').find((x) => x.assigneeId === 'nova')
@@ -106,4 +115,20 @@ test('[integration] a prompt from --file or --stdin is kept as written', async (
   const made = await cli('atlas', 'create', 'room-solo', 'Install', '--repo', 'kargnas/heliboard', '--profile', PROFILE, '--', prompt)
   assert.equal(made.ok, true, made.text)
   assert.equal((await getForkStore()).triggers(companyId, 'room-solo')[0].prompt, prompt.trim())
+})
+
+test('[integration] a secret in an agent\'s prompt reaches the fire, not the room', async () => {
+  const { companyId } = await seedCompanyWithAgent({ agentId: 'atlas' })
+  await seedUserMembership(OWNER, companyId)
+  await room(companyId, 'room-team', [OWNER, 'atlas'])
+  const token = `ghp_${'x1'.repeat(15)}`
+  const made = await cli('atlas', 'create', 'room-team', 'Install', '--repo', 'kargnas/heliboard', '--profile', PROFILE, '--prompt', `Install with GITHUB_TOKEN=${token}`)
+  assert.equal(made.ok, true, made.text)
+
+  const res = await fetch(`${baseUrl}/api/fork/triggers?conversation=room-team`, { headers: { 'x-company-id': companyId } })
+  assert.equal(res.status, 200)
+  const { triggers } = (await res.json()) as { triggers: Array<{ prompt: string }> }
+  assert.equal(triggers[0].prompt, 'Install with GITHUB_TOKEN=[redacted]', 'the Routines tab')
+  assert.ok(!(await cli('atlas', 'list')).text.includes(token), 'cumora trigger list')
+  assert.equal((await getForkStore()).triggers(companyId, 'room-team')[0].prompt, `Install with GITHUB_TOKEN=${token}`, 'the brief a fire posts')
 })
