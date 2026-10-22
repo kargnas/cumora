@@ -15,9 +15,9 @@ import { dirname, resolve } from 'node:path'
 export interface RoomCategory { id: string; name: string; position: number; hidden: boolean }
 
 /** An agent's bloub look: catalogue ids of the client's bloub engine. An owner
- *  picks the shape and colour; the expression is the face of the agent's latest
- *  message (./mood.ts). */
-export interface BloubLook { shape: string; color: string; expression: string }
+ *  picks the shape, the colour and any number of accessories; the expression is
+ *  the face of the agent's latest message (./mood.ts). */
+export interface BloubLook { shape: string; color: string; expression: string; accessories: string[] }
 
 /** One user's chat-list layout inside one company. */
 export interface RoomLayout {
@@ -336,6 +336,10 @@ const MIGRATIONS = [
      rev INTEGER NOT NULL DEFAULT 0
    );
    CREATE INDEX cards_room ON cards (company_id, conversation_id);`,
+
+  // What an owner puts on a bloub, any number at once (cat ears, whiskers): a
+  // JSON array of the client's catalogue ids (src/next/bloub/accessories.ts).
+  `ALTER TABLE bloub_avatars ADD COLUMN accessories TEXT NOT NULL DEFAULT '[]';`,
 ]
 
 export interface FileVersion {
@@ -602,18 +606,25 @@ export async function openForkStore(file: string) {
     /** Every agent in the company that has a bloub look, by participant id. */
     bloubAvatars(companyId: string): Record<string, BloubLook> {
       return Object.fromEntries(
-        rows('SELECT participant_id, shape, color, expression FROM bloub_avatars WHERE company_id = ?', [companyId])
-          .map(([id, shape, color, expression]) => [String(id), { shape: String(shape), color: String(color), expression: String(expression) }]),
+        rows('SELECT participant_id, shape, color, expression, accessories FROM bloub_avatars WHERE company_id = ?', [companyId])
+          .map(([id, shape, color, expression, accessories]) => [
+            String(id),
+            { shape: String(shape), color: String(color), expression: String(expression), accessories: JSON.parse(String(accessories)) as string[] },
+          ]),
       )
     },
 
-    /** A new look starts with the resting face; a changed one keeps the agent's current face. */
-    setBloubAvatar(companyId: string, participantId: string, look: Pick<BloubLook, 'shape' | 'color'>): void {
+    /** A new look starts with the resting face; a changed one keeps the agent's
+     *  current face. A pick without accessories keeps the ones the agent wears:
+     *  an app built before them sends only the shape and colour. */
+    setBloubAvatar(companyId: string, participantId: string, look: Pick<BloubLook, 'shape' | 'color'> & { accessories?: string[] }): void {
+      const accessories = look.accessories === undefined ? null : JSON.stringify(look.accessories)
       db.run(
-        `INSERT INTO bloub_avatars (company_id, participant_id, shape, color, expression)
-         VALUES (?, ?, ?, ?, 'neutre')
-         ON CONFLICT (company_id, participant_id) DO UPDATE SET shape = excluded.shape, color = excluded.color`,
-        [companyId, participantId, look.shape, look.color],
+        `INSERT INTO bloub_avatars (company_id, participant_id, shape, color, expression, accessories)
+         VALUES (?, ?, ?, ?, 'neutre', COALESCE(?, '[]'))
+         ON CONFLICT (company_id, participant_id) DO UPDATE SET shape = excluded.shape, color = excluded.color,
+           accessories = COALESCE(?, accessories)`,
+        [companyId, participantId, look.shape, look.color, accessories, accessories],
       )
       save()
     },
