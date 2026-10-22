@@ -4,9 +4,9 @@ A second UI for cumora, served at `/next` on the same origin. `App.tsx` mounts `
 
 ## Switching
 
-- The web opens it when `localStorage['cumora.ui']` is `next`: visiting `/next` once sets it, and `/` then redirects there.
-- The native apps (Capacitor, Electron) open it unless `localStorage['cumora.ui']` is `classic`.
-- "Switch to classic design" in the workspace menu sets `classic`.
+- A device that has not chosen opens `/` on a design choice, Modern or Classic, before sign-in (`auth/DesignChoice.tsx`), on the web and in the native apps alike; the public `app.*` host shows its WebShell instead. The pick is stored in `localStorage['cumora.ui']` (`next` or `classic`, `designPref.ts`), and `/` opens that design from then on. A device that never opened `/next` has no pick yet, so existing Classic web users see the choice once too.
+- Opening a `/next` link stores `next` too.
+- "Switch to classic design" in the workspace menu stores `classic`.
 
 ## Chat list
 

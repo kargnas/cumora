@@ -4,4 +4,5 @@ This is opgginc/cumora, OP.GG's fork of [yetone/cumora](https://github.com/yeton
 - A merged change reaches an instance only after a PR on opgginc/cumora-setup moves its pointer to the commit the merge made.
 - Bring upstream in with `git merge upstream/main` on a branch, never a rebase. Its review request names the files where conflicts were resolved, and its PR is merged with a merge commit, never squashed: the fork must keep upstream's commits as ancestors.
 - Data that only the fork needs goes into the fork's SQLite store (`server/src/fork`, file `server/data/fork.sqlite`), never into a new upstream Postgres table or migration.
+- Frontend changes go into the redesigned UI (Modern, `src/next`) only. The classic UI keeps upstream's code and is touched only at the seams `src/next/AGENTS.md` lists.
 - The redesigned UI (`src/next`) follows `DESIGN.md` and its own rules in `src/next/AGENTS.md`; read both before you build, change or review it. Its animations must stay perfectly smooth, with no dropped frames, on phones and the desktop app. Every layout and action must work on a phone, an unfolded foldable and a PC.
