@@ -4,9 +4,9 @@ A second UI for cumora, served at `/next` on the same origin. `App.tsx` mounts `
 
 ## Switching
 
-- The web opens it when `localStorage['cumora.ui']` is `next`: visiting `/next` once sets it, and `/` then redirects there.
-- The native apps (Capacitor, Electron) open it unless `localStorage['cumora.ui']` is `classic`.
-- "Switch to classic design" in the workspace menu sets `classic`.
+- A device that has not chosen opens `/` on a design choice, Modern or Classic, before sign-in (`auth/DesignChoice.tsx`), on the web and in the native apps alike; the public `app.*` host shows its WebShell instead. The pick is stored in `localStorage['cumora.ui']` (`next` or `classic`, `designPref.ts`), and `/` opens that design from then on. A device that never opened `/next` has no pick yet, so existing Classic web users see the choice once too.
+- Opening a `/next` link stores `next` too.
+- "Switch to classic design" in the workspace menu stores `classic`.
 
 ## Chat list
 
@@ -92,7 +92,7 @@ In the phone app, switching sections answers with a click when the finger lands.
 
 An agent can wear a live [bloub](https://github.com/jeremy-prt/bloub) instead of its portrait. Owners and admins choose it in the agent editor (Edit on the profile, or "Model, computer and avatar" in a room's Edit), whose Avatar section switches between Portrait and Animated. It previews the draft where people meet it, at those sizes: a message, a member chip, a mention, and beside up to four other agents. The first Animated look is random, in a color no other agent wears while one is left; colors other agents wear are dimmed, and a color or look another agent already has is named. "Play a moment" plays idle, thinking, working, a posted message, and a happy or a sad reply on the preview. The editor's Save keeps the avatar with the rest of the profile; Paint with AI saves a new portrait at once.
 
-People pick only the shape and the color. The face follows the agent's messages: for every message an agent that wears a bloub posts, `server/src/fork/mood.ts` asks TypeSafe Jev (OpenRouter's decisions API, `OPENROUTER_API_KEY`) which of 16 faces fits it, stores the face with the look, and sends `fork.agent.mood` to the workspace. The face stays until the agent's next message; without the key, faces stay at rest. The look belongs to the agent for the whole workspace and is stored in the fork's SQLite database (`GET/PUT/DELETE /api/fork/bloub-avatars/:participantId`), so the classic UI, push notifications and email keep showing the portrait. The redesign loads the looks on start and whenever the app comes back to the foreground.
+People pick the shape, the color and any number of accessories: cat ears and whiskers (`bloub/accessories.ts`). The ears sit on the body outline the engine draws each frame, so they breathe, squash, lean and spin with it, go in when the body shrinks to a dot and come back with the ball, follow the face (up when surprised, flat when angry, drooping when sad, one down when confused) and now and then flick. Whiskers follow the eyes. A bloub with ears draws in a taller box, so the ears stay inside the avatar. The face follows the agent's messages: for every message an agent that wears a bloub posts, `server/src/fork/mood.ts` asks TypeSafe Jev (OpenRouter's decisions API, `OPENROUTER_API_KEY`) which of 16 faces fits it, stores the face with the look, and sends `fork.agent.mood` to the workspace. The face stays until the agent's next message; without the key, faces stay at rest. The look belongs to the agent for the whole workspace and is stored in the fork's SQLite database (`GET/PUT/DELETE /api/fork/bloub-avatars/:participantId`; a PUT without `accessories` keeps the ones the agent wears, so an app built before them cannot take them off), so the classic UI, push notifications and email keep showing the portrait. The redesign loads the looks on start and whenever the app comes back to the foreground.
 
 Every avatar of the agent plays what it is doing (`bloub/program.ts`):
 
