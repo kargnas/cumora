@@ -10,7 +10,7 @@ import { after, before, beforeEach, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { pool } from '../db/pool.js'
-import { readRoomTokens, TokenAccessError } from '../fork/tokens.js'
+import { MAX_ROWS, readRoomTokens, TokenAccessError } from '../fork/tokens.js'
 import { ensureSchemaOnce, resetAllTables, seedCompanyWithAgent, seedUserMembership, teardownAll } from './_helpers.js'
 
 before(async () => { await ensureSchemaOnce() })
@@ -67,4 +67,20 @@ test('only owners and admins in the room read it, and only rows the daemon marke
   const grp = await readRoomTokens(companyId, 'u-admin', 'grp', SINCE)
   assert.equal(grp.calls.length, 1, 'an agenda row never counts in a room')
   assert.equal(grp.agenda.length, 0, 'a group room shows no agenda turns')
+})
+
+test('an answer cut at MAX_ROWS keeps the newest rows and says where it was cut', async () => {
+  const { companyId, agentId } = await seedCompanyWithAgent()
+  await seedUserMembership('u-admin', companyId)
+  await room(companyId, 'dm', 'direct', [agentId, 'u-admin'])
+  await pool.query(
+    `INSERT INTO llm_calls (id, company_id, agent_id, conversation_id, purpose, model, input_tokens, created_at, extras)
+     SELECT 'g-' || i, $1, $2, 'dm', 'agent-turn', 'm', 1, '2026-10-22T10:00:00Z'::timestamptz + i * interval '1 second', '{"acct": 2}'::jsonb
+       FROM generate_series(1, $3::int + 1) AS i`,
+    [companyId, agentId, MAX_ROWS],
+  )
+  const dm = await readRoomTokens(companyId, 'u-admin', 'dm', SINCE)
+  assert.equal(dm.calls.length, MAX_ROWS)
+  assert.equal(dm.calls[0].at, '2026-10-22T10:00:02.000Z', 'the oldest row is the one dropped')
+  assert.equal(dm.cut, '2026-10-22T10:00:02.000Z')
 })

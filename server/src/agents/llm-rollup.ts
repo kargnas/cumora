@@ -24,6 +24,10 @@
  * idempotent), but it avoids two replicas scanning llm_calls in lock-step.
  */
 import { pool } from '../db/pool.js'
+import { REST_MARK } from '../fork/tokenRows.js'
+
+/** A BYOA Claude turn's rest row carries usage its calls left out; it is no call. */
+const IS_CALL = `NOT COALESCE(extras ? '${REST_MARK}', false)`
 
 /** Interval between rollup refresh ticks. Default 120s; set 0 to disable. Read
  *  straight from process.env (not env.ts) to keep this self-contained. */
@@ -54,11 +58,10 @@ export async function refreshLlmRollup(sinceHours: number): Promise<number> {
        input_tokens, cached_input_tokens, cache_creation_tokens, output_tokens, reasoning_tokens,
        cost_usd, cost_estimated)
      SELECT date_trunc('hour', created_at), company_id, agent_id, purpose, model, source, daemon_version,
-            -- A BYOA Claude turn's rest row (extras.rest) carries usage its calls left out; it is no call.
-            COUNT(*) FILTER (WHERE NOT COALESCE(extras ? 'rest', false)),
-            COUNT(*) FILTER (WHERE NOT COALESCE(extras ? 'rest', false) AND status = 'ok'),
-            COUNT(*) FILTER (WHERE NOT COALESCE(extras ? 'rest', false) AND status != 'ok'),
-            COUNT(*) FILTER (WHERE NOT COALESCE(extras ? 'rest', false) AND status = 'rate_limited'),
+            COUNT(*) FILTER (WHERE ${IS_CALL}),
+            COUNT(*) FILTER (WHERE ${IS_CALL} AND status = 'ok'),
+            COUNT(*) FILTER (WHERE ${IS_CALL} AND status != 'ok'),
+            COUNT(*) FILTER (WHERE ${IS_CALL} AND status = 'rate_limited'),
             COALESCE(SUM(input_tokens), 0),
             COALESCE(SUM(cached_input_tokens), 0),
             COALESCE(SUM(cache_creation_tokens), 0),

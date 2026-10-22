@@ -1,7 +1,9 @@
 /**
  * Developer token figures (chat/tokens.ts): the line under my message, the
- * agenda turn cards, and the details dialog both open. Nothing renders unless
- * developer mode filled the store.
+ * agenda turn cards, and the details dialog they open. On a touch screen the
+ * line is too small to aim at, so the message's long-press sheet opens the
+ * same details (MessageList's Bubble). Nothing renders unless developer mode
+ * filled the store.
  */
 import { useCallback, useRef } from 'react'
 import { useLocale } from '@/lib/i18n'
@@ -10,13 +12,13 @@ import { useNT, type NT } from '../i18n'
 import { clock, exactTime } from '../format'
 import { Dialog } from '../ui/primitives'
 import type { AgentFigures, Figures } from './tokenSpans'
-import { useTokens } from './tokens'
+import { openFigures, useTokens } from './tokens'
 
 const COMPACT = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 })
 const FULL = new Intl.NumberFormat('en')
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`
 
-/** "ctx 347K/1M · cache 99.4%": what fits under a bubble. */
+/** "ctx 347K/1M · cache 99.4%": what fits under a bubble; empty without either. */
 function summary(f: Figures, nt: NT): string {
   const ctx = f.ctx === null ? null : f.window ? `${COMPACT.format(f.ctx)}/${COMPACT.format(f.window)}` : COMPACT.format(f.ctx)
   const parts = [ctx && nt('tokens.ctx', { ctx }), f.hit !== null && nt('tokens.cache', { hit: pct(f.hit) })]
@@ -24,13 +26,13 @@ function summary(f: Figures, nt: NT): string {
 }
 
 /** Under one of my messages: the agents' calls from it to my next message. */
-export function TokenLine({ msgId }: { msgId: string }) {
+export function TokenLine({ figures }: { figures: Figures }) {
   const nt = useNT()
-  const f = useTokens((s) => s.byMessage[msgId])
-  if (!f) return null
+  const text = summary(figures, nt)
+  if (!text) return null
   return (
-    <button type="button" className="nx-tokens nx-mono" onClick={() => useTokens.setState({ open: { title: nt('tokens.title'), figures: f } })}>
-      {summary(f, nt)}
+    <button type="button" className="nx-tokens nx-mono" onClick={() => openFigures(nt('tokens.title'), figures)}>
+      {text}
     </button>
   )
 }
@@ -48,9 +50,9 @@ export function AgendaCards({ msgId }: { msgId: string }) {
           <button
             type="button"
             className="nx-tokens nx-tokens--card nx-mono"
-            onClick={() => useTokens.setState({ open: { title: nt('tokens.agendaTitle'), figures: c.figures } })}
+            onClick={() => openFigures(nt('tokens.agendaTitle'), c.figures)}
           >
-            {nt('tokens.agenda', { time: clock(new Date(c.at), locale) })} · {summary(c.figures, nt)}
+            {[nt('tokens.agenda', { time: clock(new Date(c.at), locale) }), summary(c.figures, nt)].filter(Boolean).join(' · ')}
           </button>
         </div>
       ))}
@@ -85,7 +87,7 @@ function AgentBlock({ a }: { a: AgentFigures }) {
             {a.subs.map((s) => (
               <li key={s.id}>
                 <span>{s.description || s.type}</span>
-                <span className="nx-mono">{nt('tokens.sub', { tokens: FULL.format(s.tokens), tools: s.toolUses, secs: Math.round(s.durationMs / 1000) })}</span>
+                <span className="nx-mono">{nt('tokens.sub', { tokens: FULL.format(s.tokens), tools: s.toolUses === 1 ? nt('tokens.oneTool') : nt('tokens.tools', { n: s.toolUses }), secs: Math.round(s.durationMs / 1000) })}</span>
               </li>
             ))}
           </ul>

@@ -29,6 +29,10 @@ interface TokensState {
 
 export const useTokens = create<TokensState>(() => ({ rooms: {}, byMessage: {}, cardsAfter: {}, open: null }))
 
+export function openFigures(title: string, figures: Figures): void {
+  useTokens.setState({ open: { title, figures } })
+}
+
 /** Keeps the previous object of an unchanged entry, so only rows whose figures changed re-render. */
 function keep<T>(prev: Record<string, T>, next: Record<string, T>): Record<string, T> {
   let same = Object.keys(prev).length === Object.keys(next).length
@@ -69,6 +73,9 @@ export function useRoomTokens(convoId: string, items: Item[]): void {
       window.clearInterval(timer)
     }
   }, [enabled, convoId, since])
+
+  // The details belong to the room they were opened in.
+  useEffect(() => () => useTokens.setState({ open: null }), [convoId])
 
   const loaded = useTokens((s) => s.rooms[convoId])
   const marks = useMemo(() => items.flatMap((it): Mark[] => (it.type === 'msg' ? [{ id: it.msg.id, at: it.at.toISOString(), mine: it.mine }] : [])), [items])

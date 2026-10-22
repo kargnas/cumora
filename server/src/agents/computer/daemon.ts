@@ -59,7 +59,7 @@ import { CODEX_LOGIN_COMMAND, CODEX_MIGRATE_COMMAND, CODEX_SESSION_SCOPE, codexR
 import { migrateCodexSession, migrateCodexSessions } from './codex-session-migration.js'
 import { runWithSessionRecovery } from './session-recovery.js'
 import { toolKindOf, type ToolKind } from '../../fork/toolKind.js'
-import { AGENDA_MARK, TOKEN_ACCT } from '../../fork/tokenRows.js'
+import { tokenMarks } from '../../fork/tokenRows.js'
 import { CARDS_PROMPT } from '../../fork/cardsPrompt.js'
 
 export { conversationHeader }
@@ -2041,18 +2041,14 @@ export class AgentRunner {
     }
     if (report.repeat) return
     try {
-      // `acct` marks rows whose usage matches the engine's own records (one
-      // row per model call, then the turn's `rest` per model); the chat's
-      // developer token figures read only these (fork/tokenRows.ts).
-      const extras: Record<string, unknown> = report.exact ? { acct: TOKEN_ACCT } : {}
+      // Rows whose usage matches the engine's own records (one row per model
+      // call, then the turn's `rest` per model) are marked for the chat's
+      // developer token figures (fork/tokenRows.ts). Agenda turns answer no
+      // room, even when a wake landed while they ran.
+      const extras = tokenMarks(report, this.agendaTurn)
       if (typeof report.hopIndex === 'number') extras.hopIndex = report.hopIndex
       if (typeof report.toolUses === 'number') extras.toolUses = report.toolUses
       if (typeof report.textChars === 'number') extras.textChars = report.textChars
-      if (report.window) extras.window = report.window
-      if (report.sub) extras.sub = report.sub
-      if (report.rest) extras.rest = report.rest
-      // Agenda turns answer no room, even when a wake landed while they ran.
-      if (this.agendaTurn) extras[AGENDA_MARK] = true
       this.reporter.push({
         source: byoaSourceOf(this.adapter.id),
         purpose,

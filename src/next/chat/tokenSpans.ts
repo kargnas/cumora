@@ -6,7 +6,8 @@
  */
 export interface Sub { id: string; description: string; type: string; tokens: number; toolUses: number; durationMs: number }
 
-/** One model call, or a turn's `rest` (what its calls did not carry). `input` is the prompt part outside the cache. */
+/** One model call, or a turn's `rest` (what its calls did not carry). `input` is the prompt part outside the cache.
+ *  Mirrors TokenCall in server/src/fork/tokens.ts, like the other fork answers the redesign reads. */
 export interface Call {
   at: string
   agentId: string
@@ -103,7 +104,9 @@ export function place(marks: Mark[], calls: Call[], agenda: Call[], cut: string 
   const runs = new Map<string, Call[]>()
   for (const c of agenda) {
     const key = c.runId ?? c.at
-    runs.set(key, [...(runs.get(key) ?? []), c])
+    const run = runs.get(key)
+    if (run) run.push(c)
+    else runs.set(key, [c])
   }
   const cardsAfter: Record<string, AgendaCard[]> = {}
   for (const [runId, run] of runs) {

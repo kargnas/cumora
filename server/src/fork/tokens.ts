@@ -17,7 +17,7 @@ import type { AuthedRequest } from '../auth.js'
 import type { SubagentRun } from '../agents/computer/engine.js'
 import { redact } from './redact.js'
 import { isPrivileged } from './roles.js'
-import { AGENDA_MARK, TOKEN_ACCT } from './tokenRows.js'
+import { AGENDA_MARK, REST_MARK, TOKEN_ACCT } from './tokenRows.js'
 
 type Requirer = (req: Request & AuthedRequest) => Promise<{ userId: string; companyId: string }>
 
@@ -93,7 +93,7 @@ export async function readRoomTokens(companyId: string, userId: string, conversa
   // Newest first so a cut drops the oldest; the client wants time order.
   for (const r of rows.reverse()) {
     const x = r.extras ?? {}
-    const rest = x.rest as { subs?: SubagentRun[] } | undefined
+    const rest = x[REST_MARK] as { subs?: SubagentRun[] } | undefined
     const call: TokenCall = {
       at: r.created_at.toISOString(),
       agentId: r.agent_id,
