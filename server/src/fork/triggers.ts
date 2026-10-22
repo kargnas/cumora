@@ -201,7 +201,9 @@ export function pollErrorOf(t: Pick<Trigger, 'profile' | 'repo'>): string | null
 /** A trigger as it leaves the server, to the Routines tab or an agent. An
  *  agent may have written its title and prompt, and that text can quote a
  *  secret, so both go out redacted (src/next/AGENTS.md); the store keeps them
- *  as written for the brief a fire posts. */
+ *  as written for the brief a fire posts. That brief is a message in the
+ *  room, which its members can read, so --help tells agents to keep secrets out
+ *  of prompts. */
 export function shownTrigger(t: Trigger): Trigger & { pollError: string | null } {
   return { ...t, title: redact(t.title), prompt: redact(t.prompt), pollError: pollErrorOf(t) }
 }
@@ -277,8 +279,10 @@ trigger once that one has run. --assignee defaults to you and must be an agent
 in the room, and create refuses a second trigger for the same repository and
 assignee in a room. In a shell, give a prompt with backticks, $(...) or quotes
 through --file <path> or --stdin instead of --prompt, so the shell leaves it as
-written. \`list\` shows the triggers of the rooms you are in, which people see
-and pause in the room's Routines tab.`
+written. Never put a secret in a prompt: the people in the room can read the
+message a fire posts. Name the file that holds it instead, such as
+~/.secrets/<name>. \`list\` shows the triggers of the rooms you are in, which
+people see and pause in the room's Routines tab.`
 
 function describe(trigger: Trigger): string {
   const t = shownTrigger(trigger)
@@ -315,7 +319,10 @@ export async function runTriggerCli(parsed: ParsedArgs, me: string): Promise<Cli
     // Text after a POSIX `--` came from the shim's --file/--stdin and is the
     // prompt as written; a --prompt flag came through a shell (see cards.ts).
     const literal = parsed.literalFrom
-    const [convoId, title] = parsed.positional.slice(1, literal)
+    const rest = parsed.positional.slice(1, literal)
+    // An unquoted title, or a prompt given both ways, would lose words silently.
+    if (rest.length > 2 || (literal !== undefined && parsed.flags.prompt !== undefined)) return fail(USAGE)
+    const [convoId, title] = rest
     const prompt = literal !== undefined
       ? parsed.positional.slice(literal).join(' ')
       : typeof parsed.flags.prompt === 'string' ? unescapeChat(parsed.flags.prompt) : ''

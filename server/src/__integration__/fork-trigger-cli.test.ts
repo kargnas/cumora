@@ -4,7 +4,8 @@
  * that room, under the Routines tab's rule, and a room or trigger it cannot see
  * answers like one that does not exist. A mistake here lets an agent wake
  * someone in a room it cannot see, remove another room's trigger, learn which
- * rooms and triggers exist, or show the room a secret its prompt quotes.
+ * rooms and triggers exist, or show a secret its prompt quotes in the Routines
+ * tab or the CLI.
  */
 import { after, before, beforeEach, test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -84,6 +85,14 @@ test('[integration] an agent makes, sees and deletes triggers only in its own ro
   // One trigger per room, repository and assignee, whatever the case of the name.
   const again = await cli('atlas', 'create', 'room-team', 'Again', '--repo', 'Kargnas/HeliBoard', '--profile', PROFILE, '--prompt', 'Install')
   assert.match(again.text, /already wakes @atlas in room-team/)
+  // A trigger a person paused still counts, so an agent cannot route around the pause.
+  store.updateTrigger(companyId, store.triggers(companyId, 'room-team')[0].id, { status: 'paused' })
+  assert.match((await create('atlas', 'room-team')).text, /\(paused\) already wakes @atlas/)
+  assert.equal(count(), 1)
+  // Words that would be dropped without a word are refused: an unquoted title,
+  // or a prompt given both as --prompt and after `--`.
+  assert.match((await cli('atlas', 'create', 'room-team', 'Install', 'on', 'merge', '--repo', 'kargnas/x', '--profile', PROFILE, '--prompt', 'p')).text, /^usage: /)
+  assert.match((await cli('atlas', 'create', 'room-team', 'Install', '--repo', 'kargnas/x', '--profile', PROFILE, '--prompt', 'p', '--', 'q')).text, /^usage: /)
   assert.equal(count(), 1)
   const made = await create('atlas', 'room-team', '--assignee', 'nova')
   assert.equal(made.ok, true, made.text)
@@ -117,7 +126,7 @@ test('[integration] a prompt from --file or --stdin is kept as written', async (
   assert.equal((await getForkStore()).triggers(companyId, 'room-solo')[0].prompt, prompt.trim())
 })
 
-test('[integration] a secret in an agent\'s prompt reaches the fire, not the room', async () => {
+test('[integration] a secret in an agent\'s prompt is redacted in the tab and the CLI, and kept for the fire', async () => {
   const { companyId } = await seedCompanyWithAgent({ agentId: 'atlas' })
   await seedUserMembership(OWNER, companyId)
   await room(companyId, 'room-team', [OWNER, 'atlas'])
