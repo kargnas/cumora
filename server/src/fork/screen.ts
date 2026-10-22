@@ -31,12 +31,10 @@ export interface ScreenPoll {
   seq: number
   /** Base64 JPEG, only when a frame newer than `after` arrived. */
   frame?: string
-  /** The page's width in CSS pixels, the space clicks are given in. Its
-   *  height follows from the frame's aspect: agent-browser reports the size
-   *  of the window it opened Chrome at, and headless Chrome keeps a hidden
-   *  toolbar inside that window, so the page is shorter than the reported
-   *  height (1280×633 in a 1280×720 window) and clicks scaled to it landed
-   *  lower the further down they were (vercel-labs/agent-browser#1613). */
+  /** The page's width in CSS pixels, the space clicks are given in. No
+   *  height: agent-browser reports the window's, not the page's
+   *  (vercel-labs/agent-browser#1613), so clients take it from the frame's
+   *  aspect. */
   width?: number
   url: string | null
 }
