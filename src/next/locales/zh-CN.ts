@@ -34,6 +34,12 @@ export const zhCN: Partial<Record<keyof typeof en, string>> = {
   'auth.redirecting': '正在打开登录…',
   'auth.signingIn': '正在登录…',
   'auth.note': '登录服务只用来确认你的身份，Cumora 不会代你发布任何内容。',
+  'design.title': '选择界面',
+  'design.subtitle': '选择 Cumora 在这台设备上的样子。',
+  'design.modern': '现代',
+  'design.modernSub': '重新设计的界面，用起来像原生应用。',
+  'design.classic': '经典',
+  'design.classicSub': 'Cumora 原来的界面。',
 
   'nav.sections': '分区',
   'nav.chats': '聊天',

@@ -18,7 +18,7 @@ import { AuthGate } from '@/components/AuthGate'
 import { NotificationToasts } from '@/components/NotificationToasts'
 import { NotificationWindow } from '@/components/NotificationWindow'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
-import { isCapacitorNative, isElectron, isNotificationWindow, isWebAppHost } from '@/lib/runtime'
+import { isNotificationWindow, isWebAppHost } from '@/lib/runtime'
 import { WebShell } from '@/web/WebShell'
 import {
   InviteAcceptScreen, consumeInviteFromUrl,
@@ -34,25 +34,26 @@ import '@/admin/admin.css'
 
 /** The Next redesign lives under `/next` and replaces only the Desktop/Mobile
  *  shells; auth, stores and WebSocket boot below are shared. `cumora.ui`
- *  remembers the choice ('next' | 'classic'): the web defaults to classic,
- *  the native apps (which always open `/` or `/index.html`) to the redesign. */
-const isNextMode = (() => {
-  if (typeof location === 'undefined') return false
-  try {
-    const pref = localStorage.getItem('cumora.ui')
-    const wantsNext = pref === 'next' || (pref === null && (isElectron || isCapacitorNative))
-    const atRoot = location.pathname === '/' || location.pathname === '/index.html'
-    // The Electron notification panel loads index.html#notifications; leave it be.
-    if (wantsNext && atRoot && location.hash !== '#notifications') {
-      history.replaceState(history.state, '', `/next${location.search}${location.hash}`)
-    }
-  } catch { /* storage disabled: stay on the classic shell */ }
-  return location.pathname === '/next' || location.pathname.startsWith('/next/')
+ *  remembers the device's choice ('next' | 'classic'); without one, `/` (where
+ *  the native apps always open) shows the design choice before sign-in, so the
+ *  sign-in screen already wears the picked design. */
+const atRoot = typeof location !== 'undefined' && (location.pathname === '/' || location.pathname === '/index.html')
+const designPref = (() => {
+  try { return localStorage.getItem('cumora.ui') } catch { return 'classic' } // storage disabled: stay on the classic shell
 })()
+// The Electron notification panel loads index.html#notifications; leave it be.
+if (designPref === 'next' && atRoot && location.hash !== '#notifications') {
+  history.replaceState(history.state, '', `/next${location.search}${location.hash}`)
+}
+const isNextMode = typeof location !== 'undefined' && (location.pathname === '/next' || location.pathname.startsWith('/next/'))
+// Opening a `/next` link (a shared room, a notification) picks the redesign too.
+if (isNextMode) try { localStorage.setItem('cumora.ui', 'next') } catch { /* storage disabled */ }
+const needsDesignChoice = designPref === null && atRoot
 // Start fetching the chunk during auth instead of after it.
 const nextChunk = isNextMode ? import('@/next/NextApp') : null
 const NextApp = lazy(() => nextChunk ?? import('@/next/NextApp'))
 const NextSignIn = lazy(() => import('@/next/auth/SignIn'))
+const DesignChoice = lazy(() => import('@/next/auth/DesignChoice'))
 
 /** True iff this browser tab is for the admin panel. On prod the
  *  hostname is admin.cumora.ai; in localhost dev the path prefix
@@ -319,6 +320,10 @@ function MainApp() {
         <WebShell />
       </ErrorBoundary>
     )
+  }
+
+  if (needsDesignChoice) {
+    return <Suspense fallback={null}><DesignChoice /></Suspense>
   }
 
   return (

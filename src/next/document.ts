@@ -1,7 +1,7 @@
 /**
- * Page-level setup shared by every redesign entry point (the app shell and
- * the sign-in screen): the `html.nx` token scope, fonts, viewport and the
- * browser/OS chrome colors.
+ * Page-level setup shared by every redesign entry point (the app shell, the
+ * sign-in screen and the design choice): the `html.nx` token scope, fonts,
+ * viewport and the browser/OS chrome colors.
  */
 import { useEffect } from 'react'
 import { isNativePlatform, nativePlatform } from '@/lib/native'
@@ -14,7 +14,6 @@ export function useNextDocument(): void {
   useEffect(() => {
     const root = document.documentElement
     root.classList.add('nx')
-    try { localStorage.setItem('cumora.ui', 'next') } catch { /* storage disabled */ }
     // Chrome on Android: the soft keyboard resizes the layout viewport, so
     // the 100dvh shell shrinks around it instead of the page scrolling the
     // header away. The native app handles the keyboard itself (--kb-height).

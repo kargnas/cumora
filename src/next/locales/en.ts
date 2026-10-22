@@ -24,6 +24,12 @@ const core = {
   'auth.redirecting': 'Opening sign-in…',
   'auth.signingIn': 'Signing in…',
   'auth.note': 'Your provider only confirms who you are. Cumora never posts for you.',
+  'design.title': 'Choose a design',
+  'design.subtitle': 'Pick how Cumora looks on this device.',
+  'design.modern': 'Modern',
+  'design.modernSub': 'The redesign, made to feel like a native app.',
+  'design.classic': 'Classic',
+  'design.classicSub': 'The original Cumora interface.',
 
   'nav.sections': 'Sections',
   'nav.chats': 'Chats',
