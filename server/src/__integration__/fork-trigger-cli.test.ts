@@ -10,7 +10,7 @@
 import { after, before, beforeEach, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer, type Server } from 'node:http'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pool } from '../db/pool.js'
@@ -78,6 +78,10 @@ test('[integration] an agent makes, sees and deletes triggers only in its own ro
   assert.match((await create('atlas', 'room-team', '--assignee', 'iris')).text, /iris is not an agent in room-team/)
   assert.match((await create('atlas', 'room-team', '--assignee', OWNER)).text, new RegExp(`${OWNER} is not an agent in room-team`))
   assert.match((await create('atlas', 'room-team', '--assignee')).text, /^usage: /)
+  // With no gh profile signed in, the answer says so rather than listing none.
+  renameSync(join(GH_DIR, PROFILE), join(dir, 'parked'))
+  assert.equal((await create('atlas', 'room-team')).text, 'no gh profile is signed in on the computer')
+  renameSync(join(dir, 'parked'), join(GH_DIR, PROFILE))
   assert.equal(count(), 0)
 
   assert.equal((await create('atlas', 'room-team')).ok, true)

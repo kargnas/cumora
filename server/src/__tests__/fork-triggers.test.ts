@@ -40,5 +40,6 @@ test('a new trigger is refused for the same reasons from the tab and the agent C
   assert.equal(checkTrigger({ ...fields, prompt: 'x'.repeat(4001) }), 'prompt must be 1 to 4000 characters')
   assert.equal(checkTrigger({ ...fields, repo: 'heliboard' }), 'repo must be owner/name')
   assert.equal(checkTrigger({ ...fields, repo: `kargnas/${'x'.repeat(100)}` }), 'repo must be 1 to 100 characters')
-  assert.match(String(checkTrigger(fields)), /^profile must be a gh profile signed in on the computer: /)
+  // Which of the two depends on the profiles signed in where the test runs.
+  assert.match(String(checkTrigger(fields)), /^(no gh profile is signed in on the computer$|profile must be a gh profile signed in on the computer: )/)
 })

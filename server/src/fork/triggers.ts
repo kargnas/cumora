@@ -25,7 +25,7 @@
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { type ParsedArgs, unescapeChat } from '../agents/cli-parse.js'
+import { joinBodyArgs, type ParsedArgs, unescapeChat } from '../agents/cli-parse.js'
 import type { CliResult } from '../agents/cli-result.js'
 import { agentCompany, fail, inRoom } from './cards.js'
 import { redact } from './redact.js'
@@ -92,7 +92,8 @@ export function checkTrigger(input: Partial<Record<keyof typeof LIMITS, unknown>
   if (!REPO_RE.test(fields.repo)) return 'repo must be owner/name'
   // listProfiles holds only names PROFILE_RE accepts.
   const profiles = listProfiles()
-  if (!profiles.includes(fields.profile)) return `profile must be a gh profile signed in on the computer: ${profiles.join(', ') || 'none is'}`
+  if (!profiles.length) return 'no gh profile is signed in on the computer'
+  if (!profiles.includes(fields.profile)) return `profile must be a gh profile signed in on the computer: ${profiles.join(', ')}`
   return fields
 }
 
@@ -194,7 +195,7 @@ export async function runNow(t: Trigger): Promise<MergedPr | null> {
 // failure every minute is logged once.
 const pollErrors = new Map<string, string>()
 
-export function pollErrorOf(t: Pick<Trigger, 'profile' | 'repo'>): string | null {
+function pollErrorOf(t: Pick<Trigger, 'profile' | 'repo'>): string | null {
   return pollErrors.get(`${t.profile} ${t.repo}`) ?? null
 }
 
@@ -324,7 +325,7 @@ export async function runTriggerCli(parsed: ParsedArgs, me: string): Promise<Cli
     if (rest.length > 2 || (literal !== undefined && parsed.flags.prompt !== undefined)) return fail(USAGE)
     const [convoId, title] = rest
     const prompt = literal !== undefined
-      ? parsed.positional.slice(literal).join(' ')
+      ? joinBodyArgs(parsed, literal)
       : typeof parsed.flags.prompt === 'string' ? unescapeChat(parsed.flags.prompt) : ''
     // A bare --assignee is a typo, not a request to wake yourself.
     const assignee = parsed.flags.assignee
