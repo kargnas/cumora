@@ -123,8 +123,7 @@ function Screen({ agent, big = false }: { agent: Participant; big?: boolean }) {
               if (c.width !== bitmap.width) c.width = bitmap.width
               if (c.height !== bitmap.height) c.height = bitmap.height
               c.getContext('2d')?.drawImage(bitmap, 0, 0)
-              // Only the width the server sends is the page's; the frame keeps
-              // the page's aspect (ScreenPoll in server/src/fork/screen.ts).
+              // Height from the frame's aspect; see ScreenPoll.width in server/src/fork/screen.ts.
               const w = r.width || bitmap.width
               page.current = { w, h: (w * bitmap.height) / bitmap.width }
               setDrawn(true)
