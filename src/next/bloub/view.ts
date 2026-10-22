@@ -11,7 +11,13 @@
  * - Every ink fill is currentColor, so the colour (and its dark-mode swap)
  *   comes from CSS (`.nx-ink`), and the depth haze of the burst particles is
  *   opacity over that colour rather than a mix with a known page colour.
+ *
+ * Accessories (accessories.ts) join the body: the ears are drawn into both of
+ * its masks, so the colour fills them, the eyes still cut through, and what
+ * passes behind the body passes behind them. Whiskers are cut out of the body
+ * like the eyes, and drawn in its colour where they leave it.
  */
+import { EAR_D, type AccessoryFrame } from './accessories'
 import { NOTIF_BLUE } from './engine/decor'
 import type { BotFrame } from './engine/engine'
 import { RAYON } from './engine/repere'
@@ -23,8 +29,15 @@ const NS = 'http://www.w3.org/2000/svg'
  *  about 145, draw past the box (the svg's overflow is visible). */
 export const VIEW_HALF = 120
 export const VIEW_BOX = `${-VIEW_HALF} ${-VIEW_HALF} ${VIEW_HALF * 2} ${VIEW_HALF * 2}`
+/** Ears reach about 150 above the centre: a bloub that wears them draws in a
+ *  box a tenth larger and moved up by 18, so they stay inside the avatar
+ *  instead of over the row above it. The body sits a little smaller and lower. */
+const EARS_HALF = (VIEW_HALF * 11) / 10
+export const VIEW_BOX_EARS = `${-EARS_HALF} ${-EARS_HALF - 18} ${EARS_HALF * 2} ${EARS_HALF * 2}`
 /** Mask regions cover everything an engine frame can draw, rings included. */
 const AREA = { x: -200, y: -200, width: 400, height: 400 }
+/** In viewBox units: a 2px line on a 96px avatar, still a faint line at 28px. */
+const WHISKER_WIDTH = 5
 /** The ball at rest, shown until the engine has loaded. */
 const BALL = `M${-RAYON} 0a${RAYON} ${RAYON} 0 1 0 ${RAYON * 2} 0a${RAYON} ${RAYON} 0 1 0 ${-RAYON * 2} 0Z`
 
@@ -39,25 +52,34 @@ function el<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, 
 type Dot = BotFrame['dots'][number]
 interface Arc { grad: SVGLinearGradientElement; stops: SVGStopElement[]; back: SVGPathElement; front: SVGPathElement }
 
-/** Builds the layers inside `svg`: `draw` paints an engine frame, `props` the
- *  tool props (tools.ts), and `lean` moves the body aside for them (0 to 1). */
-export function createView(svg: SVGSVGElement): { draw: (frame: BotFrame) => void; props: ReturnType<typeof createProps>; lean: (amount: number) => void } {
+/** Builds the layers inside `svg`: `draw` paints an engine frame with its
+ *  accessories, `props` the tool props (tools.ts), and `lean` moves the body
+ *  aside for them (0 to 1). */
+export function createView(svg: SVGSVGElement): {
+  draw: (frame: BotFrame, gear: AccessoryFrame | null) => void
+  props: ReturnType<typeof createProps>
+  lean: (amount: number) => void
+} {
   const id = `nx-bloub-${seq++}`
   const defs = el('defs')
   const faceMask = el('mask', { id: `${id}-face`, maskUnits: 'userSpaceOnUse', ...AREA })
   const faceBody = el('path', { fill: '#fff', d: BALL })
+  const faceEars = [el('path', { fill: '#fff', d: EAR_D, display: 'none' }), el('path', { fill: '#fff', d: EAR_D, display: 'none' })]
   const eyes = [el('path', { fill: '#000', opacity: 0 }), el('path', { fill: '#000', opacity: 0 })]
   const notch = el('circle', { fill: '#000', r: 0 })
-  faceMask.append(faceBody, ...eyes, notch)
+  const whiskerCuts = el('path', { fill: 'none', stroke: '#000', 'stroke-width': WHISKER_WIDTH, 'stroke-linecap': 'round' })
+  faceMask.append(faceBody, ...faceEars, ...eyes, notch, whiskerCuts)
   const behindMask = el('mask', { id: `${id}-behind`, maskUnits: 'userSpaceOnUse', ...AREA })
   const behindBody = el('path', { fill: '#000', d: BALL })
-  behindMask.append(el('rect', { fill: '#fff', ...AREA }), behindBody)
+  const behindEars = [el('path', { fill: '#000', d: EAR_D, display: 'none' }), el('path', { fill: '#000', d: EAR_D, display: 'none' })]
+  behindMask.append(el('rect', { fill: '#fff', ...AREA }), behindBody, ...behindEars)
   defs.append(faceMask, behindMask)
 
   const behind = el('g', { mask: `url(#${id}-behind)` })
   const arcsBack = el('g', { fill: 'none', 'stroke-linecap': 'round' })
   const dotsBack = el('g')
-  behind.append(arcsBack, dotsBack)
+  const whiskers = el('path', { fill: 'none', stroke: 'currentColor', 'stroke-width': WHISKER_WIDTH, 'stroke-linecap': 'round' })
+  behind.append(arcsBack, dotsBack, whiskers)
   const body = el('g', { mask: `url(#${id}-face)` })
   body.append(el('rect', { fill: 'currentColor', ...AREA }))
   const dotsFront = el('g')
@@ -100,7 +122,10 @@ export function createView(svg: SVGSVGElement): { draw: (frame: BotFrame) => voi
     })
   }
 
-  const draw = (f: BotFrame) => {
+  // What the accessories last wrote, so an unchanged attribute is not set again.
+  const shown = { ears: [null, null] as Array<string | null>, whiskers: '', whiskerAlpha: '' }
+
+  const draw = (f: BotFrame, gear: AccessoryFrame | null) => {
     faceBody.setAttribute('d', f.bodyPath)
     behindBody.setAttribute('d', f.bodyPath)
     body.setAttribute('opacity', String(f.bodyAlpha))
@@ -113,6 +138,27 @@ export function createView(svg: SVGSVGElement): { draw: (frame: BotFrame) => voi
       eyes[i].setAttribute('d', eye.d)
       eyes[i].setAttribute('transform', eye.matrix)
       eyes[i].setAttribute('opacity', String(eye.alpha))
+    }
+    for (let i = 0; i < 2; i++) {
+      const ear = gear?.ears[i] ?? null
+      if (ear === shown.ears[i]) continue
+      shown.ears[i] = ear
+      for (const node of [faceEars[i], behindEars[i]]) {
+        if (ear) {
+          node.setAttribute('transform', ear)
+          node.removeAttribute('display')
+        } else node.setAttribute('display', 'none')
+      }
+    }
+    const path = gear?.whiskers ?? ''
+    const alpha = String(gear?.whiskerAlpha ?? 0)
+    if (path !== shown.whiskers || alpha !== shown.whiskerAlpha) {
+      shown.whiskers = path
+      shown.whiskerAlpha = alpha
+      for (const node of [whiskerCuts, whiskers]) {
+        node.setAttribute('d', path)
+        node.setAttribute('opacity', alpha)
+      }
     }
     for (const [node, at] of [[notch, f.notch], [notif, f.notif]] as const) {
       node.setAttribute('r', String(at?.r ?? 0))

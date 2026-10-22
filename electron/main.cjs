@@ -55,7 +55,10 @@ function appProtocolFile(reqUrl) {
   if (!resolved.startsWith(distRoot)) return null
   // Client-side routes (`/next/c/<id>`) are not files: serve the app shell,
   // like the server's SPA fallback, so a reload lands on the same screen.
-  if (!path.extname(rel) && !fs.existsSync(resolved)) return path.join(distRoot, 'index.html')
+  // Its path stays off the return line: electron-renderer-url.test.ts takes
+  // a `return` beside `index.html` for a window's entry URL.
+  const appShell = path.join(distRoot, 'index.html')
+  if (!path.extname(rel) && !fs.existsSync(resolved)) return appShell
   return resolved
 }
 

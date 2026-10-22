@@ -4,7 +4,8 @@
  * fork's SQLite store behind /api/fork/bloub-avatars, so upstream's
  * participants.avatar_url keeps the portrait the classic UI, push and email show.
  *
- * Owners pick the shape and colour in the agent editor (sections/agents/LookStudio.tsx).
+ * Owners pick the shape, the colour and any accessories in the agent editor
+ * (sections/agents/LookStudio.tsx).
  * The expression is not picked: the server gives it the face of the agent's
  * latest message (server/src/fork/mood.ts) and sends `fork.agent.mood`. A
  * changed pick has no realtime event: NextApp loads the looks on start and
@@ -17,10 +18,16 @@ import { loadEngine } from './director'
 import type { ExpressionId } from './engine/expressions'
 import type { ColorId, ShapeId } from './engine/skins'
 
-export interface BloubLook { shape: ShapeId; color: ColorId; expression: ExpressionId }
+export interface BloubLook {
+  shape: ShapeId
+  color: ColorId
+  expression: ExpressionId
+  /** Catalogue ids of accessories.ts. One this build does not know is kept and not drawn. */
+  accessories: string[]
+}
 
 /** The part of a look an owner picks. */
-export type BloubPick = Pick<BloubLook, 'shape' | 'color'>
+export type BloubPick = Pick<BloubLook, 'shape' | 'color' | 'accessories'>
 
 interface State {
   byId: Record<string, BloubLook>
@@ -90,8 +97,12 @@ export const useBloubLooks = create<State>((set, get) => {
     async load() {
       const since = writes
       try {
-        const { avatars } = await enqueue(() => http<{ avatars: Record<string, BloubLook> }>('/fork/bloub-avatars'))
+        const { avatars: sent } = await enqueue(() =>
+          http<{ avatars: Record<string, Omit<BloubLook, 'accessories'> & { accessories?: string[] }> }>('/fork/bloub-avatars'))
         if (writes !== since) return
+        // A server from before accessories sends looks without them. The apps
+        // carry their own web build, so a newer app meets such a server.
+        const avatars = Object.fromEntries(Object.entries(sent).map(([id, look]) => [id, { ...look, accessories: look.accessories ?? [] }]))
         if (Object.keys(avatars).length > 0) preloadEngine()
         // Most foreground returns bring back the same looks; keeping the old
         // object keeps every avatar from re-rendering for nothing.

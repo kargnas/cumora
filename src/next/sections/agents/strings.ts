@@ -89,6 +89,9 @@ export const en = {
   'agents.bloub.color.violet': 'Purple',
   'agents.bloub.color.rose': 'Pink',
   'agents.bloub.color.gris': 'Gray',
+  'agents.bloubAccessories': 'Accessories',
+  'agents.bloub.accessory.ears': 'Cat ears',
+  'agents.bloub.accessory.whiskers': 'Whiskers',
 
   'agents.look': 'Avatar',
   'agents.lookPortrait': 'Portrait',
@@ -217,6 +220,9 @@ export const zhCN: Partial<Record<keyof typeof en, string>> = {
   'agents.bloub.color.violet': '紫色',
   'agents.bloub.color.rose': '粉色',
   'agents.bloub.color.gris': '灰色',
+  'agents.bloubAccessories': '配饰',
+  'agents.bloub.accessory.ears': '猫耳',
+  'agents.bloub.accessory.whiskers': '胡须',
 
   'agents.look': '头像',
   'agents.lookPortrait': '肖像',
