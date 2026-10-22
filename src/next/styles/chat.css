@@ -375,7 +375,7 @@
 .nx-msg__failed { display: flex; gap: 8px; align-items: center; font-size: var(--text-caption); color: var(--destructive); }
 .nx-msg__failed button { border: 0; padding: 0; background: none; color: inherit; font-weight: 600; text-decoration: underline; }
 
-/* Developer token figures (chat/TokenFigures.tsx): a muted last line in the
+/* Developer token figures (chat/TokenFigures.tsx): a muted line under the
    agents' reply bubble, an agenda turn card on a line of its own, and their details. */
 .nx-tokens {
   position: relative;
@@ -386,7 +386,6 @@
   font-size: var(--text-micro);
   transition: color var(--duration-quick);
 }
-.nx-bubble .nx-tokens { display: block; margin-top: 4px; padding: 0; text-align: left; }
 .nx-tokens--card { padding: 4px 12px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--border); }
 @media (pointer: coarse) {
   /* The card's row pads it by 8px; the hit area fills that row and no other. */

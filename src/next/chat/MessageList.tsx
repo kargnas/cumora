@@ -403,7 +403,6 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
             {hasText && <div className="nx-bubble__text"><RichBody body={msg.body} conversationId={msg.conversationId} /></div>}
             {msg.kind === 'poll' && <PollBubble msg={msg} />}
             {msg.attachment && <Attachment a={msg.attachment} />}
-            {figures && <TokenLine figures={figures} />}
           </div>
           <div className="nx-msg__tools" role="toolbar" aria-label={nt('msg.actions')}>
             {QUICK.slice(0, 3).map((e) => (
@@ -414,6 +413,7 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
             <IconButton small label={nt('msg.more')} onClick={(e) => menu.toggleFrom(e.currentTarget, mine ? 'end' : 'start')}><IMore /></IconButton>
           </div>
         </div>
+        {figures && <TokenLine figures={figures} />}
         {card && <AskCard card={card} showQuestion={!msg.body.trim().endsWith(card.question)} rise={cardLate.current} />}
         <Artifacts msg={msg} />
         <Reactions msg={msg} mine={mine} />

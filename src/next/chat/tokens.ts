@@ -1,6 +1,6 @@
 /**
  * Developer token figures in a room, shown while developer mode is on (owners
- * and admins). At the end of the agents' last reply after each of my messages:
+ * and admins). Under the agents' last reply after each of my messages:
  * the context of the latest agent call and the cache hit ratio of every agent
  * call from my message to my next one, or to now. A 1:1 room's agent's agenda turns, which answer no room, show as
  * cards after the message they followed. The calls come from
