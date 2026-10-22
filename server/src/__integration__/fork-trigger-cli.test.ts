@@ -122,13 +122,16 @@ test('[integration] a secret in an agent\'s prompt reaches the fire, not the roo
   await seedUserMembership(OWNER, companyId)
   await room(companyId, 'room-team', [OWNER, 'atlas'])
   const token = `ghp_${'x1'.repeat(15)}`
-  const made = await cli('atlas', 'create', 'room-team', 'Install', '--repo', 'kargnas/heliboard', '--profile', PROFILE, '--prompt', `Install with GITHUB_TOKEN=${token}`)
+  const made = await cli('atlas', 'create', 'room-team', `Install ${token}`, '--repo', 'kargnas/heliboard', '--profile', PROFILE, '--prompt', `Install with GITHUB_TOKEN=${token}`)
   assert.equal(made.ok, true, made.text)
 
   const res = await fetch(`${baseUrl}/api/fork/triggers?conversation=room-team`, { headers: { 'x-company-id': companyId } })
   assert.equal(res.status, 200)
   const { triggers } = (await res.json()) as { triggers: Array<{ prompt: string }> }
   assert.equal(triggers[0].prompt, 'Install with GITHUB_TOKEN=[redacted]', 'the Routines tab')
+  assert.ok(!JSON.stringify(triggers).includes(token), 'the Routines tab, title included')
   assert.ok(!(await cli('atlas', 'list')).text.includes(token), 'cumora trigger list')
   assert.equal((await getForkStore()).triggers(companyId, 'room-team')[0].prompt, `Install with GITHUB_TOKEN=${token}`, 'the brief a fire posts')
+  const [t] = (await getForkStore()).triggers(companyId, 'room-team')
+  assert.ok(!(await cli('atlas', 'delete', t.id)).text.includes(token), 'cumora trigger delete')
 })

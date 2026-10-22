@@ -274,11 +274,11 @@ once a minute as the gh profile you name (\`gh-profile --list\`), only for merge
 after the trigger was made, and fires each merge once. To wait for a single
 pull request, write a prompt that skips the other merges and deletes the
 trigger once that one has run. --assignee defaults to you and must be an agent
-in the room, and a room holds one trigger per repository and assignee. In a
-shell, give a prompt with backticks, $(...) or quotes through --file <path> or
---stdin instead of --prompt, so the shell leaves it as written. \`list\` shows
-the triggers of the rooms you are in, which people see and pause in the room's
-Routines tab.`
+in the room, and create refuses a second trigger for the same repository and
+assignee in a room. In a shell, give a prompt with backticks, $(...) or quotes
+through --file <path> or --stdin instead of --prompt, so the shell leaves it as
+written. \`list\` shows the triggers of the rooms you are in, which people see
+and pause in the room's Routines tab.`
 
 function describe(trigger: Trigger): string {
   const t = shownTrigger(trigger)
@@ -315,7 +315,7 @@ export async function runTriggerCli(parsed: ParsedArgs, me: string): Promise<Cli
     // Text after a POSIX `--` came from the shim's --file/--stdin and is the
     // prompt as written; a --prompt flag came through a shell (see cards.ts).
     const literal = parsed.literalFrom
-    const [convoId, title] = literal === undefined ? args : parsed.positional.slice(1, literal)
+    const [convoId, title] = parsed.positional.slice(1, literal)
     const prompt = literal !== undefined
       ? parsed.positional.slice(literal).join(' ')
       : typeof parsed.flags.prompt === 'string' ? unescapeChat(parsed.flags.prompt) : ''
@@ -342,7 +342,7 @@ export async function runTriggerCli(parsed: ParsedArgs, me: string): Promise<Cli
       return fail(`no trigger ${args[0] ?? ''} in your rooms; cumora trigger list shows them`)
     }
     store.deleteTrigger(companyId, t.id)
-    return { ok: true, text: `deleted ${t.id} ("${t.title}")`, exitCode: 0 }
+    return { ok: true, text: `deleted ${t.id} ("${shownTrigger(t).title}")`, exitCode: 0 }
   }
 
   return fail(USAGE)
