@@ -31,8 +31,9 @@ export interface ScreenPoll {
   seq: number
   /** Base64 JPEG, only when a frame newer than `after` arrived. */
   frame?: string
-  /** The page's width in CSS pixels, the space clicks are given in. No
-   *  height: agent-browser reports the window's, not the page's
+  /** The page's width in CSS pixels, the space clicks are given in, or 0 when
+   *  agent-browser sent none (then the frame's width stands in). No height:
+   *  agent-browser reports the window's, not the page's
    *  (vercel-labs/agent-browser#1613), so clients take it from the frame's
    *  aspect. */
   width?: number
