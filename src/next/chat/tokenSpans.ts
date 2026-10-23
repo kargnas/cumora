@@ -49,8 +49,9 @@ export interface Figures {
   hit: number | null
 }
 
-/** The agenda turns that followed one message: how many, and the figures of all their calls. */
-export interface AgendaCard { turns: number; figures: Figures }
+/** The agenda turns that followed one message: how many, when the latest one
+ *  started, and the figures of all their calls. */
+export interface AgendaCard { turns: number; last: string; figures: Figures }
 
 /** A message as the figures see it: its id, time (ISO), and whether I or an agent wrote it. */
 export interface Mark { id: string; at: string; mine: boolean; agent: boolean }
@@ -118,7 +119,7 @@ export function place(marks: Mark[], calls: Call[], agenda: Call[], cut: string 
   // agent, a turn comes every two or three minutes (AGENDA_QUIET_MS and
   // AGENDA_CHECK_MS in the computer daemon). An agent's turns run one after
   // another, so a card's calls stay in time order.
-  const after = new Map<string, { turns: number; calls: Call[] }>()
+  const after = new Map<string, Call[][]>()
   for (const run of runs.values()) {
     const at = run[0].at
     if (cut !== null && at <= cut) continue
@@ -126,13 +127,15 @@ export function place(marks: Mark[], calls: Call[], agenda: Call[], cut: string 
     let host: string | null = null
     for (const m of marks) { if (m.at <= at) host = m.id; else break }
     if (!host) continue
-    const card = after.get(host)
-    if (card) { card.turns += 1; card.calls.push(...run) }
-    else after.set(host, { turns: 1, calls: [...run] })
+    const turns = after.get(host)
+    if (turns) turns.push(run)
+    else after.set(host, [run])
   }
   const cardAfter: Record<string, AgendaCard> = {}
-  for (const [host, { turns, calls: all }] of after) {
-    cardAfter[host] = { turns, figures: figuresOf(all, all[0].at, all[all.length - 1].at)! }
+  for (const [host, turns] of after) {
+    // Every run holds at least the call that opened it, so there are figures.
+    const all = turns.flat()
+    cardAfter[host] = { turns: turns.length, last: turns[turns.length - 1][0].at, figures: figuresOf(all, all[0].at, all[all.length - 1].at)! }
   }
   return { byMessage, cardAfter }
 }

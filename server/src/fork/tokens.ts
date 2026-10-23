@@ -7,7 +7,8 @@
  * response's end, subagents, side calls). Only rows marked by the daemon for
  * the persistent Claude and Codex sessions count (fork/tokenRows.ts); older
  * rows double-count some calls. A 1:1 room with an agent also gets that
- * agent's agenda turns, which answer no room and so appear as their own cards.
+ * agent's agenda turns, which answer no room and so appear apart from the
+ * replies, on one card after the message they followed.
  *
  * Workspace owners and admins only, like upstream's developer tools, and only
  * members of the room. A subagent's description is agent text, so it is redacted.

@@ -3,8 +3,8 @@
  * catching: a call landing in the wrong reply, a subagent's call taking the
  * place of the agent's own context, a turn's rest counting as a call, an
  * agenda turn landing on any card but the one after the message it followed,
- * that card showing an older turn's context, and figures drawn from a
- * stretch the server cut short.
+ * that card showing an older turn's context or one turn's cache hit, and
+ * figures drawn from a stretch the server cut short.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -56,12 +56,18 @@ test('the agenda turns after a message share one card', () => {
     call('2026-10-22T10:05:00.000Z', { runId: 'run-2', read: 100 }),
     call('2026-10-22T10:05:30.000Z', { runId: 'run-2' }),
     call('2026-10-22T10:07:00.000Z', { runId: 'run-3', read: 1200 }),
+    call('2026-10-22T10:07:30.000Z', { runId: 'run-3', input: 0, read: 0, write: 0, output: 50, rest: { subs: [] } }),
     call('2026-10-22T10:11:00.000Z', { runId: 'run-4' }),
   ]
   const { cardAfter } = place(items, [], agenda, null)
   assert.deepEqual([cardAfter.a.turns, cardAfter.a.figures.agents[0].calls], [2, 3])
-  assert.deepEqual([cardAfter.a.figures.from, cardAfter.a.figures.to], ['2026-10-22T10:05:00.000Z', '2026-10-22T10:07:00.000Z'])
+  assert.deepEqual(
+    [cardAfter.a.figures.from, cardAfter.a.last, cardAfter.a.figures.to],
+    ['2026-10-22T10:05:00.000Z', '2026-10-22T10:07:00.000Z', '2026-10-22T10:07:30.000Z'],
+    'the card names the latest turn by its start, the details run to its end',
+  )
   assert.equal(cardAfter.a.figures.ctx, 1302, 'the context is the latest turn\'s')
+  assert.equal(cardAfter.a.figures.hit, 2200 / 2506, 'the cache hit is over every merged turn')
   assert.equal(cardAfter.b.turns, 1)
   assert.equal(Object.keys(cardAfter).length, 2, 'a turn before the loaded history waits for older messages')
 })

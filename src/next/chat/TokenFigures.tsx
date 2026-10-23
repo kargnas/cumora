@@ -45,11 +45,11 @@ export function AgendaTurns({ msgId }: { msgId: string }) {
   const locale = useLocale()
   const card = useTokens((s) => s.cardAfter[msgId])
   if (!card) return null
-  const { turns, figures } = card
+  const { turns, last, figures } = card
   const from = new Date(figures.from)
   const label = turns === 1
     ? nt('tokens.agenda', { time: clock(from, locale) })
-    : nt('tokens.agendaTurns', { n: turns, time: clockRange(from, new Date(figures.to!), locale) })
+    : nt('tokens.agendaTurns', { n: turns, time: clockRange(from, new Date(last), locale) })
   return (
     <div className="nx-line">
       <button
