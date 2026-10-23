@@ -2,8 +2,8 @@
  * Developer token figures in a room, shown while developer mode is on (owners
  * and admins). Under the agents' last reply after each of my messages:
  * the context of the latest agent call and the cache hit ratio of every agent
- * call from my message to my next one, or to now. A 1:1 room's agent's agenda turns, which answer no room, show on
- * one card after the message they followed. The calls come from
+ * call from my message to my next one, or to now. A 1:1 room's agent's agenda turns, which answer no room, show in
+ * one digest row after the message they followed. The calls come from
  * GET /api/fork/rooms/:id/tokens (server/src/fork/tokens.ts), and
  * tokenSpans.ts places them.
  */

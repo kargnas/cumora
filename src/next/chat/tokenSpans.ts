@@ -49,9 +49,9 @@ export interface Figures {
   hit: number | null
 }
 
-/** The agenda turns that followed one message: how many, when the latest one
- *  started, and the figures of all their calls. */
-export interface AgendaCard { turns: number; last: string; figures: Figures }
+/** The agenda turns that followed one message: each turn's figures in time
+ *  order, and the figures of all their calls together. */
+export interface AgendaCard { turns: Figures[]; figures: Figures }
 
 /** A message as the figures see it: its id, time (ISO), and whether I or an agent wrote it. */
 export interface Mark { id: string; at: string; mine: boolean; agent: boolean }
@@ -133,9 +133,12 @@ export function place(marks: Mark[], calls: Call[], agenda: Call[], cut: string 
   }
   const cardAfter: Record<string, AgendaCard> = {}
   for (const [host, turns] of after) {
-    // Every run holds at least the call that opened it, so there are figures.
+    // Every run holds at least the call that opened it, so each has figures.
     const all = turns.flat()
-    cardAfter[host] = { turns: turns.length, last: turns[turns.length - 1][0].at, figures: figuresOf(all, all[0].at, all[all.length - 1].at)! }
+    cardAfter[host] = {
+      turns: turns.map((run) => figuresOf(run, run[0].at, run[run.length - 1].at)!),
+      figures: figuresOf(all, all[0].at, all[all.length - 1].at)!,
+    }
   }
   return { byMessage, cardAfter }
 }

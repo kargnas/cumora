@@ -3,8 +3,9 @@
  * catching: a call landing in the wrong reply, a subagent's call taking the
  * place of the agent's own context, a turn's rest counting as a call, an
  * agenda turn landing on any card but the one after the message it followed,
- * that card showing an older turn's context or one turn's cache hit, and
- * figures drawn from a stretch the server cut short.
+ * that card showing an older turn's context or one turn's cache hit, its
+ * turns mixing their figures, and figures drawn from a stretch the server cut
+ * short.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -60,15 +61,18 @@ test('the agenda turns after a message share one card', () => {
     call('2026-10-22T10:11:00.000Z', { runId: 'run-4' }),
   ]
   const { cardAfter } = place(items, [], agenda, null)
-  assert.deepEqual([cardAfter.a.turns, cardAfter.a.figures.agents[0].calls], [2, 3])
   assert.deepEqual(
-    [cardAfter.a.figures.from, cardAfter.a.last, cardAfter.a.figures.to],
-    ['2026-10-22T10:05:00.000Z', '2026-10-22T10:07:00.000Z', '2026-10-22T10:07:30.000Z'],
-    'the card names the latest turn by its start, the details run to its end',
+    cardAfter.a.turns.map((t) => [t.from, t.to, t.ctx, t.hit]),
+    [
+      ['2026-10-22T10:05:00.000Z', '2026-10-22T10:05:30.000Z', 1002, 1000 / 1204],
+      ['2026-10-22T10:07:00.000Z', '2026-10-22T10:07:30.000Z', 1302, 1200 / 1302],
+    ],
+    'each turn keeps its own span, context and cache hit',
   )
+  assert.deepEqual([cardAfter.a.figures.from, cardAfter.a.figures.to, cardAfter.a.figures.agents[0].calls], ['2026-10-22T10:05:00.000Z', '2026-10-22T10:07:30.000Z', 3])
   assert.equal(cardAfter.a.figures.ctx, 1302, 'the context is the latest turn\'s')
   assert.equal(cardAfter.a.figures.hit, 2200 / 2506, 'the cache hit is over every merged turn')
-  assert.equal(cardAfter.b.turns, 1)
+  assert.equal(cardAfter.b.turns.length, 1)
   assert.equal(Object.keys(cardAfter).length, 2, 'a turn before the loaded history waits for older messages')
 })
 
@@ -79,5 +83,5 @@ test('a stretch that starts before the server\'s cut gets no figures', () => {
   const { byMessage, cardAfter } = place(items, calls, agenda, '2026-10-22T10:01:30.000Z')
   assert.equal(byMessage.b, undefined, 'its first calls were cut')
   assert.equal(byMessage.d.agents[0].calls, 1)
-  assert.deepEqual(Object.entries(cardAfter).map(([id, c]) => [id, c.turns]), [['d', 1]])
+  assert.deepEqual(Object.entries(cardAfter).map(([id, c]) => [id, c.turns.length]), [['d', 1]])
 })
