@@ -61,7 +61,7 @@ import { runWithSessionRecovery } from './session-recovery.js'
 import { toolKindOf, type ToolKind } from '../../fork/toolKind.js'
 import { tokenMarks } from '../../fork/tokenRows.js'
 import { CARDS_PROMPT } from '../../fork/cardsPrompt.js'
-import { digestHumanBody, humanLine, wholeInDigest } from '../../fork/messageBody.js'
+import { digestHumanBody, humanLine, isHumanText, wholeInDigest } from '../../fork/messageBody.js'
 
 export { conversationHeader }
 
@@ -2813,7 +2813,7 @@ export class AgentRunner {
       // Render a due calendar alarm readably (title — prompt) so the engine
       // knows WHY it woke; other system rows stay redacted as before.
       // Fork: a person's message up to BODY_CAP within the digest's budget (fork/messageBody.ts).
-      const body = row.kind !== 'system' && row.author_kind === 'human'
+      const body = isHumanText(row)
         ? digestHumanBody(row.body ?? '', whole.has(row.id), row.conversation_id, unread.get(row.conversation_id) ?? 1)
         : (row.kind === 'system'
           ? (alarm ? `[calendar:due] ${[alarm.title, alarm.agentPrompt].filter(Boolean).join(' — ') || 'scheduled alarm fired'}` : '[system]')
@@ -3220,7 +3220,7 @@ export class AgentRunner {
       this.lastSteeredMsgId = latest.id
       const who = latest.author_name ?? 'someone'
       // Fork: a person's message up to BODY_CAP (fork/messageBody.ts).
-      const body = latest.author_kind === 'human'
+      const body = isHumanText(latest)
         ? humanLine(latest.body ?? '')
         : (latest.body ?? '').replace(/\s+/g, ' ').slice(0, 300)
       let autoStop: ReturnType<typeof setTimeout> | null = null

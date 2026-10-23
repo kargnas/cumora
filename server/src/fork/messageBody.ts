@@ -19,6 +19,12 @@
 export const BODY_CAP = 4096
 export const TRUNCATED = '... [truncated]'
 
+/** Whether a row is a person's own text. A system row (a membership notice,
+ *  say) names the person who acted as its author, so it does not count. */
+export function isHumanText(row: { kind?: unknown; author_kind?: unknown }): boolean {
+  return row.kind !== 'system' && row.author_kind === 'human'
+}
+
 /** A person's message on one line: whole up to BODY_CAP, marked past it. */
 export function humanLine(body: string): string {
   const cut = body.length > BODY_CAP ? `${body.slice(0, BODY_CAP)}${TRUNCATED}` : body
@@ -52,7 +58,7 @@ export function wholeInDigest(
     const nth = (seen.get(r.conversation_id) ?? 0) + 1
     seen.set(r.conversation_id, nth)
     if (typeof r.conversation_id !== 'string' || nth > (keep.get(r.conversation_id) ?? 0)) continue
-    if (r.kind === 'system' || r.author_kind !== 'human' || typeof r.body !== 'string') continue
+    if (!isHumanText(r) || typeof r.body !== 'string') continue
     const cost = humanLine(r.body).length
     if (cost <= DIGEST_PREVIEW || cost > left) continue
     whole.add(r.id)

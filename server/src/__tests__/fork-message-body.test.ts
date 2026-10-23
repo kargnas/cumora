@@ -9,7 +9,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { digestKeep } from '../agents/computer/daemon.js'
 import {
-  BODY_CAP, DIGEST_HUMAN_CHARS, TRUNCATED, digestHumanBody, humanLine, wholeInDigest,
+  BODY_CAP, DIGEST_HUMAN_CHARS, TRUNCATED, digestHumanBody, humanLine, isHumanText, wholeInDigest,
 } from '../fork/messageBody.js'
 
 type Row = { id: string; conversation_id: string; kind: string; author_kind: string; body: string }
@@ -70,5 +70,7 @@ test('agent, system and short rows never spend the budget', () => {
     human('short', 'c', 'hi'),
   ]
   assert.equal(wholeInDigest(rows, keepAll(rows)).size, 0)
+  // A membership notice names the person who acted, but it is not their text.
+  assert.equal(isHumanText({ kind: 'system', author_kind: 'human' }), false)
   assert.equal(digestHumanBody('hi', false, 'c', 3), 'hi')
 })
