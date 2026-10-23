@@ -147,6 +147,8 @@ export const zhCN: Partial<Record<keyof typeof en, string>> = {
   'msg.reply': '回复',
   'msg.thread': '在话题中回复',
   'msg.copy': '复制文本',
+  'msg.copied': '已复制',
+  'msg.copyFailed': '复制失败，请手动选中文本复制。',
   'msg.more': '更多',
   'msg.actions': '消息操作',
   'msg.reactWith': '用 {emoji} 回应',

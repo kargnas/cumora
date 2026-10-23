@@ -138,6 +138,8 @@ const core = {
   'msg.reply': 'Reply',
   'msg.thread': 'Reply in thread',
   'msg.copy': 'Copy text',
+  'msg.copied': 'Copied',
+  'msg.copyFailed': 'Could not copy. Select the text and copy it yourself.',
   'msg.more': 'More',
   'msg.actions': 'Message actions',
   'msg.reactWith': 'React with {emoji}',

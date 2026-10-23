@@ -184,7 +184,7 @@
   white-space: nowrap;
   opacity: 0;
   visibility: hidden;
-  transition: opacity var(--duration-quick), visibility var(--duration-quick);
+  transition: opacity var(--duration-quick), visibility var(--duration-quick), translate var(--duration-quick) var(--ease-smooth-out);
 }
 .nx-stamp[data-shown],
 .nx-transcript[data-all-times] .nx-stamp { opacity: 1; visibility: visible; }
@@ -213,6 +213,41 @@
 }
 .nx-msg[data-mine] .nx-msg__row { flex-direction: row-reverse; }
 .nx-msg[data-mine] .nx-msg__tools { right: auto; left: -8px; }
+/* Copy, outside the bubble at its end on the free side: right of someone
+   else's bubble, left of mine (MessageList CopyText). A mouse reveals it with
+   the row, like the toolbar; touch copies from the long-press sheet. */
+.nx-copy {
+  position: absolute;
+  bottom: 0;
+  left: calc(100% + 4px);
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted-foreground);
+  opacity: 0;
+  transition: opacity var(--duration-quick), color var(--duration-quick), background-color var(--duration-quick);
+}
+.nx-msg[data-mine] .nx-copy { left: auto; right: calc(100% + 4px); }
+.nx-copy svg { width: 16px; height: 16px; }
+.nx-copy[data-done="failed"] { color: var(--destructive); }
+@media (hover: hover) and (pointer: fine) {
+  .nx-msg__row:hover > .nx-copy,
+  .nx-msg__row:focus-within > .nx-copy,
+  .nx-copy[data-done] { opacity: 1; }
+  .nx-copy:hover { background: var(--accent); color: var(--foreground); }
+  /* A time on the same side steps out by the button's width while it shows,
+     so a one-line bubble's time and button never overlap. */
+  .nx-msg[data-mine] .nx-msg__row:hover:has(> .nx-copy) > .nx-stamp { translate: -32px 0; }
+  .nx-chat[data-direct] .nx-msg:not([data-mine]) .nx-msg__row:hover:has(> .nx-copy) > .nx-stamp { translate: 32px 0; }
+}
+@media (pointer: coarse) {
+  .nx-copy { display: none; }
+}
 
 .nx-bubble {
   min-width: 0;

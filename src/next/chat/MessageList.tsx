@@ -42,6 +42,38 @@ import { AgendaCards, TokenDialog, TokenLine } from './TokenFigures'
 
 const EMPTY: Message[] = []
 const QUICK = ['👍', '❤️', '😂', '👀', '✅', '🔥']
+/** Read when a bubble builds its menu: whether the screen is touch first. */
+const COARSE = window.matchMedia('(pointer: coarse)')
+
+/**
+ * Copies a message's text from outside its bubble, at its end on the free
+ * side: right of someone else's bubble, left of mine (chat.css). A mouse
+ * reveals it with the row, like the hover toolbar; touch has no hover, so it
+ * stays hidden there and the long-press sheet keeps Copy. The icon turns into
+ * a check once the text is copied.
+ */
+function CopyText({ text }: { text: string }) {
+  const nt = useNT()
+  const [done, setDone] = useState<'copied' | 'failed' | null>(null)
+  useEffect(() => {
+    if (!done) return
+    const t = window.setTimeout(() => setDone(null), 1500)
+    return () => window.clearTimeout(t)
+  }, [done])
+  const label = done === 'copied' ? nt('msg.copied') : done === 'failed' ? nt('msg.copyFailed') : nt('msg.copy')
+  return (
+    <button
+      type="button"
+      className="nx-copy"
+      data-done={done ?? undefined}
+      aria-label={label}
+      title={label}
+      onClick={() => copyText(text).then(() => setDone('copied'), () => { haptic('error'); setDone('failed') })}
+    >
+      {done === 'copied' ? <ICheck aria-hidden /> : <ICopy aria-hidden />}
+    </button>
+  )
+}
 
 /** When each row was first shown, per conversation. A row animates only
  *  inside its first ENTRANCE_MS, so a re-render mid-animation keeps playing
@@ -366,7 +398,8 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
   const entries: MenuEntry[] = [
     { key: 'reply', label: nt('msg.reply'), icon: <IReply />, onSelect: reply },
     { key: 'thread', label: nt('msg.thread'), icon: <IThread />, onSelect: thread },
-    ...(hasText ? [{ key: 'copy', label: nt('msg.copy'), icon: <ICopy />, onSelect: () => void copyText(msg.body) }] : []),
+    // A mouse copies from the button beside the bubble (CopyText); touch has no hover, so the sheet keeps Copy.
+    ...(hasText && COARSE.matches ? [{ key: 'copy', label: nt('msg.copy'), icon: <ICopy />, onSelect: () => void copyText(msg.body) }] : []),
     // The line under the bubble is too small for a finger; the sheet opens the same details.
     ...(figures ? [{ key: 'tokens', label: nt('tokens.title'), icon: <ISpark />, onSelect: () => openFigures(nt('tokens.title'), figures) }] : []),
   ]
@@ -414,6 +447,7 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
             {msg.kind === 'poll' && <PollBubble msg={msg} />}
             {msg.attachment && <Attachment a={msg.attachment} />}
           </div>
+          {hasText && <CopyText text={msg.body} />}
           <div className="nx-msg__tools" role="toolbar" aria-label={nt('msg.actions')}>
             {QUICK.slice(0, 3).map((e) => (
               <button key={e} type="button" className="nx-msg__quick" onClick={() => react(e)} aria-label={nt('msg.reactWith', { emoji: e })}>{e}</button>
