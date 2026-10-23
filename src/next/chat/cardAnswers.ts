@@ -48,15 +48,25 @@ export function unsentAnswer(answeredBy: string, me: string | null, lost: string
   return lost ?? (draft.trim() || null)
 }
 
-/** The room's newest question nobody has answered: what its agent waits for.
- *  Left out are secret requests (one whose agent left the room can never be
- *  sent, so its pill would stay forever) and questions a person answered with
- *  a reply quoting them instead of through the card, from the classic UI, an
- *  older app or the composer: `quoted` holds what people's messages quote. */
+/** What the room's agents wait for: of each agent's newest question in the
+ *  room, the newest one nobody has answered. An agent that asked again has
+ *  moved past its older questions, so one the room talked past keeps its card
+ *  but no longer holds the pill. Left out are secret requests (one whose
+ *  agent left the room can never be sent, so its pill would stay forever) and
+ *  questions a person answered with a reply quoting them instead of through
+ *  the card, from the classic UI, an older app or the composer: `quoted`
+ *  holds what people's messages quote. */
 export function waitingQuestion(cards: Iterable<Card>, room: string, quoted: ReadonlySet<string>): Card | undefined {
-  let newest: Card | undefined
+  // Per agent, not per room: one agent asking says nothing about another's question.
+  const latest = new Map<string, Card>()
   for (const c of cards) {
-    if (c.conversationId !== room || c.kind !== 'choice' || c.answer || quoted.has(c.messageId)) continue
+    if (c.conversationId !== room || c.kind !== 'choice') continue
+    const seen = latest.get(c.agentId)
+    if (!seen || c.createdAt > seen.createdAt) latest.set(c.agentId, c)
+  }
+  let newest: Card | undefined
+  for (const c of latest.values()) {
+    if (c.answer || quoted.has(c.messageId)) continue
     if (!newest || c.createdAt > newest.createdAt) newest = c
   }
   return newest
