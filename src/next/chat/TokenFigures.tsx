@@ -19,10 +19,13 @@ const COMPACT = new Intl.NumberFormat('en', { notation: 'compact', maximumFracti
 const FULL = new Intl.NumberFormat('en')
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`
 
+/** "347K/1M": the latest own call's context, over its model's window when known. */
+const ctxText = (f: Figures) => (f.ctx === null ? null : f.window ? `${COMPACT.format(f.ctx)}/${COMPACT.format(f.window)}` : COMPACT.format(f.ctx))
+
 /** "ctx 347K/1M · cache 99.4%": what fits under a bubble; empty without either.
  *  `first`: an earlier context, shown as where it grew from ("ctx 393.7K → 406.1K/1M"). */
 function summary(f: Figures, nt: NT, first: number | null = null): string {
-  const now = f.ctx === null ? null : f.window ? `${COMPACT.format(f.ctx)}/${COMPACT.format(f.window)}` : COMPACT.format(f.ctx)
+  const now = ctxText(f)
   const ctx = now && first !== null ? `${COMPACT.format(first)} → ${now}` : now
   const parts = [ctx && nt('tokens.ctx', { ctx }), f.hit !== null && nt('tokens.cache', { hit: pct(f.hit) })]
   return parts.filter(Boolean).join(' · ')
@@ -31,11 +34,16 @@ function summary(f: Figures, nt: NT, first: number | null = null): string {
 /** A steady agenda turn reads about 99.7% of its prompt from the cache, so a
  *  turn under this one sent thousands of tokens around it at these context sizes. */
 const LOW_CACHE = 0.9
+const isLow = (f: Figures) => f.hit !== null && f.hit < LOW_CACHE
 /** The tallest bar: a turn whose context fills its model's window. */
 const BAR_PX = 64
 
 /** The prompt tokens of a turn that did not come from the cache: cache writes and the uncached rest. */
 const missed = (f: Figures) => f.agents.reduce((n, a) => n + a.input + a.write, 0)
+
+/** The digests the viewer opened, by message: the transcript unmounts rows
+ *  that scroll away, and one that comes back stays open. */
+const opened = new Set<string>()
 
 /** Under the agents' last reply after one of my messages: the agents' calls
  *  from my message to my next one. */
@@ -60,40 +68,50 @@ export function AgendaTurns({ msgId }: { msgId: string }) {
   const card = useTokens((s) => s.cardAfter[msgId])
   const agentId = card?.figures.agents[0]?.agentId
   const name = useParticipants((s) => (agentId ? s.byId[agentId]?.name ?? agentId : ''))
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(() => opened.has(msgId))
+  // Only a click plays the entrance; a row that comes back open is drawn at once.
+  const [clicked, setClicked] = useState(false)
   if (!card) return null
   const { turns, figures } = card
   const first = turns[0]
   const when = turns.length === 1
     ? clock(new Date(first.from), locale)
     : clockRange(new Date(first.from), new Date(turns[turns.length - 1].from), locale)
-  const low = turns.filter((t) => t.hit !== null && t.hit < LOW_CACHE)
+  const low = turns.filter(isLow)
   const lowest = low.reduce<Figures | null>((m, t) => (m && m.hit! <= t.hit! ? m : t), null)
   // Turns from rows without a window still get bars, scaled to the largest of them.
   const scale = figures.window ?? Math.max(...turns.map((t) => t.ctx ?? 0))
+  const toggle = () => {
+    if (open) opened.delete(msgId)
+    else opened.add(msgId)
+    setOpen(!open)
+    setClicked(true)
+  }
   return (
     <div className="nx-agenda">
       <div className="nx-agenda__box">
-        <button type="button" className="nx-agenda__digest" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <button type="button" className="nx-agenda__digest" aria-expanded={open} onClick={toggle}>
           <IRepeat aria-hidden />
           <span className="nx-agenda__head">
-            <b>{name}</b> · {turns.length === 1 ? nt('tokens.oneTurn') : nt('tokens.turns', { n: turns.length })} · {when}
+            <b>{name}</b> · {turns.length === 1 ? nt('tokens.oneTurn') : nt('tokens.turns', { n: turns.length })} · <span className="nx-mono">{when}</span>
           </span>
           <IChevronRight className="nx-agenda__chev" />
           <span className="nx-agenda__figs nx-mono">{summary(figures, nt, turns.length > 1 ? first.ctx : null)}</span>
         </button>
         {open && (
-          <div className="nx-agenda__more">
+          <div className="nx-agenda__more" data-fresh={clicked || undefined}>
             {/* The table below carries the same numbers for screen readers. */}
             <div className="nx-agenda__bars" aria-hidden>
               {turns.map((t) => {
                 const height = scale > 0 ? ((t.ctx ?? 0) / scale) * BAR_PX : 0
                 const read = height * (t.hit ?? 0)
+                const rest = height - read
                 return (
                   <span key={t.from} title={[clock(new Date(t.from), locale), summary(t, nt)].join(' · ')}>
                     <span className="nx-agenda__bar">
-                      {height - read >= 1 && <span data-rest style={{ height: height - read }} />}
-                      <span style={{ height: read }} />
+                      {rest >= 1 && <span data-rest style={{ height: rest }} />}
+                      {/* The 2px gap between the parts comes out of the read part, so the bar keeps its height. */}
+                      <span style={{ height: rest >= 1 ? Math.max(0, read - 2) : read }} />
                     </span>
                   </span>
                 )
@@ -109,8 +127,8 @@ export function AgendaTurns({ msgId }: { msgId: string }) {
                 {turns.map((t) => (
                   <tr key={t.from}>
                     <td>{clock(new Date(t.from), locale)}</td>
-                    <td>{t.ctx === null ? '—' : t.window ? `${COMPACT.format(t.ctx)}/${COMPACT.format(t.window)}` : COMPACT.format(t.ctx)}</td>
-                    <td data-low={(t.hit !== null && t.hit < LOW_CACHE) || undefined}>{t.hit === null ? '—' : pct(t.hit)}</td>
+                    <td>{ctxText(t) ?? '—'}</td>
+                    <td data-low={isLow(t) || undefined}>{t.hit === null ? '—' : pct(t.hit)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -119,7 +137,7 @@ export function AgendaTurns({ msgId }: { msgId: string }) {
         )}
       </div>
       {lowest && (
-        <p className="nx-agenda__low">
+        <p className="nx-agenda__low nx-mono">
           <IInfo />
           {low.length === 1
             ? nt('tokens.lowOne', { time: clock(new Date(lowest.from), locale), hit: pct(lowest.hit!), n: COMPACT.format(missed(lowest)) })
