@@ -42,6 +42,14 @@ export function clock(d: Date, locale: Locale): string {
   return fmt(locale, { hour: '2-digit', minute: '2-digit' }).format(d)
 }
 
+/** "9:07 – 9:28 PM": Intl writes the shared part once. Across midnight it would
+ *  add both dates, which overflow a one-line label, so the times stand alone
+ *  there ("11:58 PM – 12:30 AM"); the day chip above already gives the date. */
+export function clockRange(from: Date, to: Date, locale: Locale): string {
+  const f = fmt(locale, { hour: '2-digit', minute: '2-digit' })
+  return from.toDateString() === to.toDateString() ? f.formatRange(from, to) : `${f.format(from)} – ${f.format(to)}`
+}
+
 /** "Monday, October 19, 2026" */
 export function fullDate(d: Date, locale: Locale): string {
   return fmt(locale, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).format(d)

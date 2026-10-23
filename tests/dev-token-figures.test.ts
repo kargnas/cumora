@@ -2,8 +2,10 @@
  * Developer token figures (src/next/chat/tokenSpans.ts). The mistakes worth
  * catching: a call landing in the wrong reply, a subagent's call taking the
  * place of the agent's own context, a turn's rest counting as a call, an
- * agenda turn landing anywhere but after the message it followed, and figures
- * drawn from a stretch the server cut short.
+ * agenda turn landing on any card but the one after the message it followed,
+ * that card showing an older turn's context or one turn's cache hit, its
+ * turns mixing their figures, and figures drawn from a stretch the server cut
+ * short.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -48,26 +50,46 @@ test('the context is the agent\'s own latest call, and a rest adds tokens but no
   assert.equal(f.hit, 1000 / 6004)
 })
 
-test('an agenda turn is a card after the message it followed', () => {
+test('the agenda turns after a message share one card', () => {
   const items = [msg('a', '2026-10-22T10:00:00.000Z', true), msg('b', '2026-10-22T10:10:00.000Z', false)]
   const agenda = [
     call('2026-10-22T09:00:00.000Z', { runId: 'early' }),
-    call('2026-10-22T10:05:00.000Z', { runId: 'run-2' }),
+    call('2026-10-22T10:05:00.000Z', { runId: 'run-2', read: 100 }),
     call('2026-10-22T10:05:30.000Z', { runId: 'run-2' }),
-    call('2026-10-22T10:11:00.000Z', { runId: 'run-3' }),
+    call('2026-10-22T10:07:00.000Z', { runId: 'run-3', read: 1200 }),
+    call('2026-10-22T10:07:30.000Z', { runId: 'run-3', input: 0, read: 0, write: 0, output: 50, rest: { subs: [] } }),
+    call('2026-10-22T10:11:00.000Z', { runId: 'run-4' }),
   ]
-  const { cardsAfter } = place(items, [], agenda, null)
-  assert.deepEqual(cardsAfter.a.map((c) => [c.runId, c.figures.agents[0].calls]), [['run-2', 2]])
-  assert.deepEqual(cardsAfter.b.map((c) => c.runId), ['run-3'])
-  assert.equal(Object.values(cardsAfter).flat().some((c) => c.runId === 'early'), false, 'a turn before the loaded history waits for older messages')
+  const { cardAfter } = place(items, [], agenda, null)
+  assert.deepEqual(
+    cardAfter.a.turns.map((t) => [t.from, t.to, t.ctx, t.hit]),
+    [
+      ['2026-10-22T10:05:00.000Z', '2026-10-22T10:05:30.000Z', 1002, 1000 / 1204],
+      ['2026-10-22T10:07:00.000Z', '2026-10-22T10:07:30.000Z', 1302, 1200 / 1302],
+    ],
+    'each turn keeps its own span, context and cache hit',
+  )
+  assert.deepEqual([cardAfter.a.figures.from, cardAfter.a.figures.to, cardAfter.a.figures.agents[0].calls], ['2026-10-22T10:05:00.000Z', '2026-10-22T10:07:30.000Z', 3])
+  assert.equal(cardAfter.a.figures.ctx, 1302, 'the context is the latest turn\'s')
+  assert.equal(cardAfter.a.figures.hit, 2200 / 2506, 'the cache hit is over every merged turn')
+  assert.equal(cardAfter.b.turns.length, 1)
+  assert.equal(Object.keys(cardAfter).length, 2, 'a turn before the loaded history waits for older messages')
 })
 
 test('a stretch that starts before the server\'s cut gets no figures', () => {
   const items = [msg('a', '2026-10-22T10:00:00.000Z', true), msg('b', '2026-10-22T10:01:00.000Z', false), msg('c', '2026-10-22T10:02:00.000Z', true), msg('d', '2026-10-22T10:02:30.000Z', false)]
   const calls = [call('2026-10-22T10:01:30.000Z'), call('2026-10-22T10:03:00.000Z')]
-  const agenda = [call('2026-10-22T10:01:00.000Z', { runId: 'early' }), call('2026-10-22T10:04:00.000Z', { runId: 'late' })]
-  const { byMessage, cardsAfter } = place(items, calls, agenda, '2026-10-22T10:01:30.000Z')
+  const agenda = [
+    call('2026-10-22T10:01:00.000Z', { runId: 'early' }),
+    call('2026-10-22T10:01:45.000Z', { runId: 'after-cut' }),
+    call('2026-10-22T10:04:00.000Z', { runId: 'late' }),
+  ]
+  const { byMessage, cardAfter } = place(items, calls, agenda, '2026-10-22T10:01:30.000Z')
   assert.equal(byMessage.b, undefined, 'its first calls were cut')
   assert.equal(byMessage.d.agents[0].calls, 1)
-  assert.deepEqual(Object.values(cardsAfter).flat().map((c) => c.runId), ['late'])
+  assert.deepEqual(
+    Object.entries(cardAfter).map(([id, c]) => [id, c.turns.length]),
+    [['d', 1]],
+    'the turns after b would count only the part after the cut',
+  )
 })

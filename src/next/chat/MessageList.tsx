@@ -37,7 +37,7 @@ import { authorOf } from './deletedAuthor'
 import { answersCard, useCards, useHiddenAnswers } from './cards'
 import { AskCard } from './AskCard'
 import { openFigures, useRoomTokens, useTokens } from './tokens'
-import { AgendaCards, TokenDialog, TokenLine } from './TokenFigures'
+import { AgendaTurns, TokenDialog, TokenLine } from './TokenFigures'
 
 const EMPTY: Message[] = []
 const QUICK = ['👍', '❤️', '😂', '👀', '✅', '🔥']
@@ -809,7 +809,7 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
           swipe
           tokens
         />
-        <AgendaCards msgId={it.msg.id} />
+        <AgendaTurns msgId={it.msg.id} />
       </>
     )
   }, [byId, locale, nt, seen, currentHit, hitSet, float])
