@@ -39,7 +39,7 @@ import {
   CH_MESSAGE_NEW,
   CH_STATUS,
 } from '../redis.js'
-import { humanLine, isHumanText } from '../fork/messageBody.js'
+import { agentBody } from '../fork/messageBody.js'
 
 // Every CLI result flows through ok()/err(), so scrubbing lone UTF-16 surrogates
 // here means CLI output (read by agents as tool results) can never carry a split
@@ -778,9 +778,7 @@ async function cmdMessages(parsed: ParsedArgs): Promise<CliResult> {
   const lines = [header, '']
   for (const m of inOrder) {
     const t = new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    // Fork: a person's message up to BODY_CAP (fork/messageBody.ts).
-    const body = m.kind === 'tool' ? `[tool call]`
-      : isHumanText(m) ? humanLine(m.body) : m.body.slice(0, 280).replace(/\n/g, ' \\n ')
+    const body = m.kind === 'tool' ? `[tool call]` : agentBody(m, (b) => b.slice(0, 280).replace(/\n/g, ' \\n '))
     lines.push(`  [${m.id}] [${t}] ${m.author_id.padEnd(8)} #${String(m.sequence).padStart(3, ' ')}  ${body}`)
     if (m.quoted_message_id) {
       if (m.quoted) {
@@ -1137,9 +1135,7 @@ async function cmdInbox(parsed: ParsedArgs): Promise<CliResult> {
     if (head.conversation_topic) lines.push(`  Topic: ${head.conversation_topic}`)
     for (const m of msgs) {
       const t = new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      // Fork: a person's message up to BODY_CAP (fork/messageBody.ts).
-      const body = m.kind === 'tool' ? '[tool call]'
-        : isHumanText(m) ? humanLine(m.body) : m.body.slice(0, 240).replace(/\n/g, ' \\n ')
+      const body = m.kind === 'tool' ? '[tool call]' : agentBody(m, (b) => b.slice(0, 240).replace(/\n/g, ' \\n '))
       lines.push(`  [${m.id}]  ${t}  ${m.author_name}: ${body}`)
       // Inline the quoted-original (one line, indented) so you can see what
       // a reply is replying to without a second lookup. Pass `--quote <id>`
@@ -1254,8 +1250,7 @@ async function cmdGlance(parsed: ParsedArgs): Promise<CliResult> {
         ? '[tool call]'
         : m.kind === 'system'
           ? '[system]'
-          // Fork: a person's message up to BODY_CAP (fork/messageBody.ts).
-          : isHumanText(m) ? humanLine(m.body) : m.body.slice(0, 200).replace(/\n/g, ' \\n ')
+          : agentBody(m, (b) => b.slice(0, 200).replace(/\n/g, ' \\n '))
       lines.push(`  [${m.id}] ${tag} ${t}  ${m.author_name}: ${body}`)
     }
   }
@@ -1810,6 +1805,14 @@ async function cmdKick(parsed: ParsedArgs): Promise<CliResult> {
   }])
 }
 
+/** One line of a HELD envelope's newer messages. Fork: a person's message up
+ *  to BODY_CAP (fork/messageBody.ts). */
+function heldLine(r: {
+  sequence: number; author_id: string; author_name: string | null; author_kind: string | null; kind: string; body: string
+}): string {
+  return `  [seq=${r.sequence}] ${r.author_name || r.author_id}: ${agentBody(r, (b) => b.replace(/\s+/g, ' ').slice(0, 200))}`
+}
+
 async function cmdReply(parsed: ParsedArgs): Promise<CliResult> {
   const me = resolveAs(parsed)
   const convoId = parsed.positional[0]
@@ -2056,10 +2059,7 @@ async function cmdReply(parsed: ParsedArgs): Promise<CliResult> {
       // these same rows (the hold envelope itself advances the seen cursor).
       await recordSeen(me, convoId, maxHeldSeq)
       await recordHold(me, replyHoldScope, maxHeldSeq)
-      // Fork: a person's message up to BODY_CAP (fork/messageBody.ts).
-      const lines = newer.map((r) =>
-        `  [seq=${r.sequence}] ${r.author_name || r.author_id}: ${isHumanText(r) ? humanLine(r.body) : r.body.replace(/\s+/g, ' ').slice(0, 200)}`
-      ).join('\n')
+      const lines = newer.map(heldLine).join('\n')
       return err(
         `HELD — your reply NOT sent. Your --send-anyway acknowledged an EARLIER hold, but the room has moved since: ` +
         `${newer.length} newer message(s) in ${convoId} you have not been shown:\n${lines}\n\n` +
@@ -2117,10 +2117,7 @@ async function cmdReply(parsed: ParsedArgs): Promise<CliResult> {
         // post after this, the re-attempt holds again on the truly-new ones.
         const maxHeldSeq = newer[newer.length - 1].sequence
         await recordSeen(me, convoId, maxHeldSeq)
-        // Fork: a person's message up to BODY_CAP (fork/messageBody.ts).
-        const lines = newer.map((r) =>
-          `  [seq=${r.sequence}] ${r.author_name || r.author_id}: ${isHumanText(r) ? humanLine(r.body) : r.body.replace(/\s+/g, ' ').slice(0, 200)}`
-        ).join('\n')
+        const lines = newer.map(heldLine).join('\n')
         // Arm the hold token: NOW the agent has actually been shown the
         // held context, so a follow-up --send-anyway is a real
         // acknowledgement rather than a preemptive skip. Bound to the max

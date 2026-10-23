@@ -31,6 +31,16 @@ export function humanLine(body: string): string {
   return cut.replace(/[^\S\n]+/g, ' ').replace(/\s*\n\s*/g, ' \\n ').trim()
 }
 
+/** A row's body as a surface shows it: a person's text through humanLine,
+ *  anything else through the surface's own upstream preview. */
+export function agentBody(
+  row: { kind?: unknown; author_kind?: unknown; body?: unknown },
+  preview: (body: string) => string,
+): string {
+  const body = typeof row.body === 'string' ? row.body : ''
+  return isHumanText(row) ? humanLine(body) : preview(body)
+}
+
 /** The wake digest rides in the prompt, which some engines pass as one argv
  *  string (Claude's one-shot fallback, Grok, Cursor, pi; Linux caps one at
  *  128 KiB, and an E2BIG skips the ack so the same digest fails again). The
@@ -39,7 +49,8 @@ export function humanLine(body: string): string {
  *  the 40 lines of 600 upstream allows, plus the short hint on a line that
  *  falls back to its preview. */
 export const DIGEST_HUMAN_CHARS = 8000
-const DIGEST_PREVIEW = 600
+/** The digest's preview for every row, upstream's 600. */
+export const DIGEST_PREVIEW = 600
 
 /** Ids of the people's messages the digest shows whole. Rows are created_at
  *  ASC and `keep` is digestKeep's lines per conversation (daemon.ts), so the

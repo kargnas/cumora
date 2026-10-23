@@ -61,7 +61,7 @@ import { runWithSessionRecovery } from './session-recovery.js'
 import { toolKindOf, type ToolKind } from '../../fork/toolKind.js'
 import { tokenMarks } from '../../fork/tokenRows.js'
 import { CARDS_PROMPT } from '../../fork/cardsPrompt.js'
-import { digestHumanBody, humanLine, isHumanText, wholeInDigest } from '../../fork/messageBody.js'
+import { agentBody, DIGEST_PREVIEW, digestHumanBody, isHumanText, wholeInDigest } from '../../fork/messageBody.js'
 
 export { conversationHeader }
 
@@ -580,9 +580,10 @@ export function digestKeep(
 export function renderInboxDigest(
   byConvo: Map<string, { head: string; msgs: string[] }>,
   budget = DIGEST_MAX_MESSAGE_LINES,
+  // Fork: the caller passes the keep it spent the whole-body budget on (fork/messageBody.ts).
+  keep: ReadonlyMap<string, number> = digestKeep([...byConvo].map(([id, convo]) => [id, convo.msgs.length] as const), budget),
 ): string {
   if (byConvo.size === 0) return ''
-  const keep = digestKeep([...byConvo].map(([id, convo]) => [id, convo.msgs.length] as const), budget)
   const lines: string[] = []
   for (const [id, convo] of byConvo) {
     const shown = keep.get(id) ?? 0
@@ -2785,7 +2786,8 @@ export class AgentRunner {
         unread.set(row.conversation_id, (unread.get(row.conversation_id) ?? 0) + 1)
       }
     }
-    const whole = wholeInDigest(inbox?.rows ?? [], digestKeep([...unread]))
+    const keep = digestKeep([...unread])
+    const whole = wholeInDigest(inbox?.rows ?? [], keep)
     // rows are ordered created_at ASC, so the last row per conversation is its
     // newest unread message — exactly the cursor we want to advance to.
     for (const row of inbox?.rows ?? []) {
@@ -2814,10 +2816,10 @@ export class AgentRunner {
       // knows WHY it woke; other system rows stay redacted as before.
       // Fork: a person's message up to BODY_CAP within the digest's budget (fork/messageBody.ts).
       const body = isHumanText(row)
-        ? digestHumanBody(row.body ?? '', whole.has(row.id), row.conversation_id, unread.get(row.conversation_id) ?? 1)
+        ? digestHumanBody(row.body ?? '', whole.has(row.id), row.conversation_id, unread.get(row.conversation_id)!)
         : (row.kind === 'system'
           ? (alarm ? `[calendar:due] ${[alarm.title, alarm.agentPrompt].filter(Boolean).join(' — ') || 'scheduled alarm fired'}` : '[system]')
-          : (row.body ?? '')).replace(/\s+/g, ' ').slice(0, 600)
+          : (row.body ?? '')).replace(/\s+/g, ' ').slice(0, DIGEST_PREVIEW)
       // Keep the message id + convo id on each line (like the cloud agent's
       // context) so the engine can QUOTE the exact message: `cumora reply
       // <convo> '<body>' --quote <message_id>`.
@@ -2826,7 +2828,7 @@ export class AgentRunner {
     const projectIds = uniqueProjectIds(
       (inbox?.rows ?? []).map((r) => (typeof r.project_id === 'string' ? r.project_id : null)),
     )
-    return { seen, digest: renderInboxDigest(byConvo), hasReal, projectIds }
+    return { seen, digest: renderInboxDigest(byConvo, DIGEST_MAX_MESSAGE_LINES, keep), hasReal, projectIds }
   }
 
   /** Advance this agent's read cursor over the conversations it just saw, so a
@@ -3219,10 +3221,7 @@ export class AgentRunner {
       if (!latest.id || latest.id === this.lastSteeredMsgId) return // dedup repeated wakes for the same ping
       this.lastSteeredMsgId = latest.id
       const who = latest.author_name ?? 'someone'
-      // Fork: a person's message up to BODY_CAP (fork/messageBody.ts).
-      const body = isHumanText(latest)
-        ? humanLine(latest.body ?? '')
-        : (latest.body ?? '').replace(/\s+/g, ' ').slice(0, 300)
+      const body = agentBody(latest, (b) => b.replace(/\s+/g, ' ').slice(0, 300))
       let autoStop: ReturnType<typeof setTimeout> | null = null
       if (autoStopsTurn(latest, this.agent.id) && session.interrupt) {
         const seq = this.turnSeq

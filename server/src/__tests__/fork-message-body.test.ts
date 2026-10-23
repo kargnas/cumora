@@ -9,7 +9,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { digestKeep } from '../agents/computer/daemon.js'
 import {
-  BODY_CAP, DIGEST_HUMAN_CHARS, TRUNCATED, digestHumanBody, humanLine, isHumanText, wholeInDigest,
+  BODY_CAP, DIGEST_HUMAN_CHARS, TRUNCATED, agentBody, digestHumanBody, humanLine, isHumanText, wholeInDigest,
 } from '../fork/messageBody.js'
 
 type Row = { id: string; conversation_id: string; kind: string; author_kind: string; body: string }
@@ -73,4 +73,11 @@ test('agent, system and short rows never spend the budget', () => {
   // A membership notice names the person who acted, but it is not their text.
   assert.equal(isHumanText({ kind: 'system', author_kind: 'human' }), false)
   assert.equal(digestHumanBody('hi', false, 'c', 3), 'hi')
+})
+
+test('a surface shows a person\'s text whole and anything else through its own preview', () => {
+  const preview = (b: string) => b.slice(0, 3)
+  assert.equal(agentBody({ kind: 'text', author_kind: 'human', body: 'hello' }, preview), 'hello')
+  assert.equal(agentBody({ kind: 'text', author_kind: 'agent', body: 'hello' }, preview), 'hel')
+  assert.equal(agentBody({ kind: 'system', author_kind: 'human', body: 'hello' }, preview), 'hel')
 })

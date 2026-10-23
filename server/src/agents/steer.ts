@@ -196,8 +196,8 @@ export const MAX_BATCHES_PER_TURN = 8
  *  the original is still in the messages table so the agent can
  *  re-read it via a tool if needed. Without this, a 5MB pasted file
  *  in a chat message would blow the prompt budget on a single
- *  steer. Fork: the same cap and mark as a person's message elsewhere
- *  (fork/messageBody.ts). */
+ *  steer. Fork: BODY_CAP and TRUNCATED come from fork/messageBody.ts, which
+ *  gives a person's message the same cap and mark on the other agent surfaces. */
 export const MAX_BODY_BYTES = BODY_CAP
 
 /** Hard ceiling on queue length. Beyond this we FIFO-evict — the
