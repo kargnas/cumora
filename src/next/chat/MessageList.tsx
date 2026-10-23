@@ -30,7 +30,7 @@ import { href, navigate, getRoute, withRoute } from '../router'
 import { bytes, clock, dayLabel, exactTime, fullDate, pauseLength, relative, startOfDay } from '../format'
 import { HOLD_MS, useHold } from '../hooks'
 import { Avatar } from '../ui/Avatar'
-import { IconButton, INERT, Menu, Spinner, useMenu, type MenuEntry } from '../ui/primitives'
+import { IconButton, INERT, Menu, Spinner, useCoarse, useMenu, type MenuEntry } from '../ui/primitives'
 import { IArrowDown, IArrowUp, ICheck, ICopy, IDownload, IFile, IMore, IReply, ISpark, IThread, IWhisper } from '../ui/icons'
 import { buildItems, createdAt, floatingDay, type DayPill, type Item, type Pos, type Stamp } from './model'
 import { authorOf } from './deletedAuthor'
@@ -42,9 +42,6 @@ import { AgendaCards, TokenDialog, TokenLine } from './TokenFigures'
 
 const EMPTY: Message[] = []
 const QUICK = ['👍', '❤️', '😂', '👀', '✅', '🔥']
-/** Read when a bubble builds its menu: whether the screen is touch first. */
-const COARSE = window.matchMedia('(pointer: coarse)')
-
 /**
  * Copies a message's text from outside its bubble, at its end on the free
  * side: right of someone else's bubble, left of mine (chat.css). A mouse
@@ -361,9 +358,11 @@ interface BubbleProps {
   /** Developer token figures in an agent's reply: the room's transcript only,
    *  since they count from my message to my next one in the room. */
   tokens?: boolean
+  /** Touch first (useCoarse): the long-press sheet holds Copy, since there is no hover to show its button. */
+  coarse: boolean
 }
 
-export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fresh, at, hl, swipe, tokens }: BubbleProps) {
+export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fresh, at, hl, swipe, tokens, coarse }: BubbleProps) {
   const nt = useNT()
   const locale = useLocale()
   const menu = useMenu()
@@ -399,7 +398,7 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
     { key: 'reply', label: nt('msg.reply'), icon: <IReply />, onSelect: reply },
     { key: 'thread', label: nt('msg.thread'), icon: <IThread />, onSelect: thread },
     // A mouse copies from the button beside the bubble (CopyText); touch has no hover, so the sheet keeps Copy.
-    ...(hasText && COARSE.matches ? [{ key: 'copy', label: nt('msg.copy'), icon: <ICopy />, onSelect: () => void copyText(msg.body) }] : []),
+    ...(hasText && coarse ? [{ key: 'copy', label: nt('msg.copy'), icon: <ICopy />, onSelect: () => void copyText(msg.body) }] : []),
     // The line under the bubble is too small for a finger; the sheet opens the same details.
     ...(figures ? [{ key: 'tokens', label: nt('tokens.title'), icon: <ISpark />, onSelect: () => openFigures(nt('tokens.title'), figures) }] : []),
   ]
@@ -757,6 +756,7 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
   const hasMore = useMessages((s) => s.hasMoreOlder[convoId] ?? false)
   const loadingOlder = useMessages((s) => s.loadingOlder.has(convoId))
   const byId = useParticipants((s) => s.byId)
+  const coarse = useCoarse()
   const ref = useRef<VirtuosoHandle>(null)
   const [atBottom, setAtBottom] = useState(true)
   // The transcript waits for the room's cards on its first load (see the
@@ -936,11 +936,12 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
           hl={it.key === currentHit ? 'current' : hitSet.has(it.key) ? 'match' : undefined}
           swipe
           tokens
+          coarse={coarse}
         />
         <AgendaCards msgId={it.msg.id} />
       </>
     )
-  }, [byId, locale, nt, seen, currentHit, hitSet, float])
+  }, [byId, locale, nt, seen, currentHit, hitSet, float, coarse])
 
   if (items.length === 0) {
     if (error) return <div className="nx-center"><div className="nx-empty"><b>{nt('msg.loadFailed')}</b><button type="button" className="nx-btn nx-btn--outline" onClick={() => void useMessages.getState().retryLoad(convoId)}>{nt('msg.retry')}</button></div></div>

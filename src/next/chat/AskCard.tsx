@@ -5,9 +5,8 @@
  * options folded under it. The reply that carries the answer shows as a
  * one-line note where it was sent (AnswerLine in ./MessageList.tsx).
  */
-import { memo, useRef, useState, type KeyboardEvent } from 'react'
+import { memo, useRef, useState } from 'react'
 import { ApiError } from '@/api/client'
-import { isImeComposing } from '@/lib/keyboard'
 import { useLocale } from '@/lib/i18n'
 import { useMe } from '@/stores/auth'
 import { useParticipants } from '@/stores/participants'
@@ -19,6 +18,7 @@ import { Spinner, useCoarse } from '../ui/primitives'
 import { ICheck, IChevronDown, IEye, IEyeOff, ILock } from '../ui/icons'
 import { unsentAnswer } from './cardAnswers'
 import { useCards, type Card, type CardAnswer, type CardPick } from './cards'
+import { sendsOnEnter } from './Composer'
 import { MAX_ANSWER } from './limits'
 
 /** A 409 means someone answered first; their answer arrives as the card's update. */
@@ -26,13 +26,6 @@ function lostRace(e: unknown): boolean {
   return e instanceof ApiError && e.status === 409
 }
 
-/** As in the composer: Enter sends and Shift+Enter breaks a line, while on a
- *  phone Return breaks a line and the button sends. */
-function sendsOnEnter(e: KeyboardEvent<HTMLTextAreaElement>, coarse: boolean): boolean {
-  if (isImeComposing(e) || e.key !== 'Enter' || e.shiftKey || (coarse && !e.metaKey && !e.ctrlKey)) return false
-  e.preventDefault()
-  return true
-}
 
 /** `rise`: the card came after its message was on screen, so it fades in. */
 export const AskCard = memo(function AskCard({ card, showQuestion, rise }: { card: Card; showQuestion: boolean; rise: boolean }) {

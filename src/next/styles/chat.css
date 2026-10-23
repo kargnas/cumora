@@ -235,15 +235,22 @@
 .nx-msg[data-mine] .nx-copy { left: auto; right: calc(100% + 4px); }
 .nx-copy svg { width: 16px; height: 16px; }
 .nx-copy[data-done="failed"] { color: var(--destructive); }
+/* A time on the same side (my bubble, the other side's in a 1:1 room) steps
+   out by the button's width whenever the button shows, so a one-line bubble's
+   time and button never overlap. */
 @media (hover: hover) and (pointer: fine) {
-  .nx-msg__row:hover > .nx-copy,
-  .nx-msg__row:focus-within > .nx-copy,
+  .nx-msg__row:is(:hover, :focus-within) > .nx-copy,
   .nx-copy[data-done] { opacity: 1; }
   .nx-copy:hover { background: var(--accent); color: var(--foreground); }
-  /* A time on the same side steps out by the button's width while it shows,
-     so a one-line bubble's time and button never overlap. */
-  .nx-msg[data-mine] .nx-msg__row:hover:has(> .nx-copy) > .nx-stamp { translate: -32px 0; }
-  .nx-chat[data-direct] .nx-msg:not([data-mine]) .nx-msg__row:hover:has(> .nx-copy) > .nx-stamp { translate: 32px 0; }
+  .nx-msg[data-mine] .nx-msg__row:is(:hover, :focus-within, :has(> .nx-copy[data-done])):has(> .nx-copy) > .nx-stamp { translate: -32px 0; }
+  .nx-chat[data-direct] .nx-msg:not([data-mine]) .nx-msg__row:is(:hover, :focus-within, :has(> .nx-copy[data-done])):has(> .nx-copy) > .nx-stamp { translate: 32px 0; }
+}
+/* A fine pointer that cannot hover (a stylus) would never reveal it, and its
+   menu has no Copy, so the button stays shown there. */
+@media (hover: none) and (pointer: fine) {
+  .nx-copy { opacity: 1; }
+  .nx-msg[data-mine] .nx-msg__row:has(> .nx-copy) > .nx-stamp { translate: -32px 0; }
+  .nx-chat[data-direct] .nx-msg:not([data-mine]) .nx-msg__row:has(> .nx-copy) > .nx-stamp { translate: 32px 0; }
 }
 @media (pointer: coarse) {
   .nx-copy { display: none; }
