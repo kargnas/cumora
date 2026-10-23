@@ -184,7 +184,7 @@
   white-space: nowrap;
   opacity: 0;
   visibility: hidden;
-  transition: opacity var(--duration-quick), visibility var(--duration-quick);
+  transition: opacity var(--duration-quick), visibility var(--duration-quick), translate var(--duration-quick) var(--ease-smooth-out);
 }
 .nx-stamp[data-shown],
 .nx-transcript[data-all-times] .nx-stamp { opacity: 1; visibility: visible; }
@@ -213,6 +213,48 @@
 }
 .nx-msg[data-mine] .nx-msg__row { flex-direction: row-reverse; }
 .nx-msg[data-mine] .nx-msg__tools { right: auto; left: -8px; }
+/* Copy, outside the bubble at its end on the free side: right of someone
+   else's bubble, left of mine (MessageList CopyText). A mouse reveals it with
+   the row, like the toolbar; touch copies from the long-press sheet. */
+.nx-copy {
+  position: absolute;
+  bottom: 0;
+  left: calc(100% + 4px);
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted-foreground);
+  opacity: 0;
+  transition: opacity var(--duration-quick), color var(--duration-quick), background-color var(--duration-quick);
+}
+.nx-msg[data-mine] .nx-copy { left: auto; right: calc(100% + 4px); }
+.nx-copy svg { width: 16px; height: 16px; }
+.nx-copy[data-done="failed"] { color: var(--destructive); }
+/* A time on the same side (my bubble, the other side's in a 1:1 room) steps
+   out by the button's width whenever the button shows, so a one-line bubble's
+   time and button never overlap. */
+@media (hover: hover) and (pointer: fine) {
+  .nx-msg__row:is(:hover, :focus-within) > .nx-copy,
+  .nx-copy[data-done] { opacity: 1; }
+  .nx-copy:hover { background: var(--accent); color: var(--foreground); }
+  .nx-msg[data-mine] .nx-msg__row:is(:hover, :focus-within, :has(> .nx-copy[data-done])):has(> .nx-copy) > .nx-stamp { translate: -32px 0; }
+  .nx-chat[data-direct] .nx-msg:not([data-mine]) .nx-msg__row:is(:hover, :focus-within, :has(> .nx-copy[data-done])):has(> .nx-copy) > .nx-stamp { translate: 32px 0; }
+}
+/* A fine pointer that cannot hover (a stylus) would never reveal it, and its
+   menu has no Copy, so the button stays shown there. */
+@media (hover: none) and (pointer: fine) {
+  .nx-copy { opacity: 1; }
+  .nx-msg[data-mine] .nx-msg__row:has(> .nx-copy) > .nx-stamp { translate: -32px 0; }
+  .nx-chat[data-direct] .nx-msg:not([data-mine]) .nx-msg__row:has(> .nx-copy) > .nx-stamp { translate: 32px 0; }
+}
+@media (pointer: coarse) {
+  .nx-copy { display: none; }
+}
 
 .nx-bubble {
   min-width: 0;
@@ -482,29 +524,74 @@
   overflow-wrap: anywhere;
 }
 .nx-ask[data-rise],
+.nx-ask__sum[data-rise],
 .nx-ask__answer[data-rise] { animation: nx-rise var(--duration-fast) var(--ease-smooth-out) both; }
 .nx-ask__q { font-weight: 600; color: var(--muted-foreground); }
-.nx-ask__options { display: flex; flex-direction: column; gap: 4px; }
+.nx-ask__status { display: flex; align-items: center; gap: 6px; font-size: var(--text-caption); font-weight: 500; color: var(--muted-foreground); }
+.nx-ask__dot { flex: none; width: 8px; height: 8px; border-radius: 999px; background: var(--warn); }
+/* Options are chips that wrap; a long one wraps inside its chip, whose radius
+   is half a one-line chip, so it stays a pill until it takes two lines. */
+.nx-ask__options { display: flex; flex-wrap: wrap; gap: 4px; }
 .nx-ask__option {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
-  min-height: 36px;
-  padding: 8px 12px;
+  max-width: 100%;
+  min-height: 32px;
+  padding: 6px 12px;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: 16px;
   background: var(--muted);
-  font: 500 var(--text-title) / 1.4 var(--font-sans);
+  font: 500 var(--text-body) / 1.4 var(--font-sans);
   color: var(--foreground);
   text-align: left;
   transition: background-color var(--duration-quick), transform var(--duration-quick) var(--ease-smooth-out), opacity var(--duration-quick);
 }
 @media (hover: hover) {
-  .nx-ask__option:hover:not(:disabled) { background: var(--accent); }
+  .nx-ask__option:hover:not(:disabled) { background: color-mix(in oklch, var(--foreground) 8%, transparent); }
 }
 .nx-ask__option:active:not(:disabled) { transform: scale(0.98); }
 .nx-ask__option:disabled:not([aria-busy]) { opacity: 0.5; }
+/* The person's own words: one line like an input, growing as they type. */
+.nx-ask__own { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; }
+.nx-ask__own .nx-input { display: block; min-height: 32px; max-height: 160px; padding: 6px 12px; line-height: 20px; resize: none; field-sizing: content; }
+/* An answered question: the answer leads, the rest recedes. */
+.nx-ask__sum { display: flex; flex-direction: column; gap: 8px; }
+.nx-ask__result { display: flex; flex-direction: column; gap: 4px; }
+.nx-ask__picked { display: flex; align-items: flex-start; gap: 8px; font-weight: 500; white-space: pre-wrap; }
+.nx-ask__picked svg { flex: none; width: 16px; height: 16px; margin-top: 2px; color: var(--primary); }
+.nx-ask__by { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: var(--text-caption); color: var(--muted-foreground); }
+.nx-ask__more {
+  position: relative;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: 500 var(--text-caption) / 1.4 var(--font-sans);
+  color: var(--muted-foreground);
+  transition: color var(--duration-quick);
+}
+.nx-ask__more svg { width: 14px; height: 14px; transition: rotate var(--duration-quick) var(--ease-smooth-out); }
+.nx-ask__more[aria-expanded="true"] svg { rotate: 180deg; }
+@media (hover: hover) {
+  .nx-ask__more:hover { color: var(--foreground); }
+}
+.nx-ask__others {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-body);
+  color: var(--muted-foreground);
+  animation: nx-rise var(--duration-fast) var(--ease-smooth-out) both;
+}
+.nx-ask__unsent { display: flex; flex-direction: column; gap: 4px; font-size: var(--text-caption); color: var(--muted-foreground); }
+.nx-ask__unsent p { margin: 0; padding: 8px; border-radius: var(--radius-sm); background: var(--muted); font-size: var(--text-body); color: var(--foreground); white-space: pre-wrap; }
 .nx-ask__answer { display: flex; align-items: center; gap: 8px; }
 .nx-ask__answer > svg { flex: none; width: 16px; height: 16px; color: var(--muted-foreground); }
 .nx-ask__answer[data-muted] { color: var(--muted-foreground); }
@@ -550,8 +637,11 @@
 .nx-ask__hint svg { flex: none; width: 14px; height: 14px; margin-top: 1px; }
 .nx-ask__error { grid-column: 1 / -1; font-size: var(--text-caption); color: var(--destructive); }
 @media (pointer: coarse) {
-  .nx-ask__option { min-height: 44px; }
+  .nx-ask__option { min-height: 44px; border-radius: 22px; }
+  .nx-ask__own .nx-input { min-height: 44px; padding: 11px 12px; font-size: 16px; line-height: 22px; }
+  .nx-ask__own .nx-btn,
   .nx-ask__secret .nx-btn { height: 44px; }
+  .nx-ask__more::before { content: ""; position: absolute; inset: -14px -8px; }
   .nx-ask__field .nx-input { min-height: 44px; padding: 11px 44px 11px 12px; font-size: 16px; line-height: 22px; }
   .nx-ask__peek { width: 44px; height: 44px; }
 }
@@ -595,7 +685,8 @@
   from { opacity: 0; transform: translateY(6px); clip-path: inset(0 0 60% 0 round 18px); }
   to { opacity: 1; transform: none; clip-path: inset(0 0 0 0 round 0); }
 }
-.nx-flash .nx-bubble { animation: nx-flash 1.4s var(--ease-smooth-out); }
+.nx-flash .nx-bubble,
+.nx-flash .nx-answer { animation: nx-flash 1.4s var(--ease-smooth-out); }
 @keyframes nx-flash {
   0%, 30% { box-shadow: 0 0 0 3px color-mix(in oklch, var(--primary) 45%, transparent); }
   100% { box-shadow: 0 0 0 3px transparent; }
@@ -636,6 +727,55 @@
   .nx-line--whisper:hover { color: var(--foreground); }
 }
 .nx-line--whisper svg { width: 14px; height: 14px; flex: none; }
+/* The reply that answered a question card (MessageList AnswerLine). */
+.nx-answer {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--muted);
+  font: inherit;
+  color: inherit;
+  transition: color var(--duration-quick);
+}
+.nx-answer[data-rise] { animation: nx-rise var(--duration-fast) var(--ease-smooth-out) both; }
+.nx-answer svg { flex: none; width: 14px; height: 14px; }
+.nx-answer > span { flex: none; }
+.nx-answer b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; color: var(--foreground); }
+@media (hover: hover) {
+  .nx-answer:hover:not(:disabled) { color: var(--foreground); }
+}
+/* A 44px target: the pill is 25px, and its line pads it by 8px above and below. */
+@media (pointer: coarse) {
+  .nx-answer::before { content: ""; position: absolute; inset: -10px -8px; }
+}
+/* "Re: <question>" over a message about a question card (MessageList Bubble). */
+.nx-re {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 0 12px;
+  border: 0;
+  background: none;
+  font: 500 var(--text-caption) / 1.4 var(--font-sans);
+  color: var(--primary);
+}
+.nx-re svg { flex: none; width: 14px; height: 14px; }
+.nx-re span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (hover: hover) {
+  .nx-re:hover span { text-decoration: underline; text-underline-offset: 2px; }
+}
+/* A 44px target over the 17px line: up into the name row, and down only into
+   the bubble's own 8px padding, never over its text. */
+@media (pointer: coarse) {
+  .nx-re::before { content: ""; position: absolute; inset: -16px 0 -12px; }
+}
 .nx-msg--work { padding-top: 8px; }
 .nx-work {
   display: inline-flex;
@@ -695,15 +835,13 @@
 .nx-att-file__meta { font-size: var(--text-micro); opacity: 0.8; }
 .nx-att-file__dl { width: 16px; height: 16px; flex: none; opacity: 0.7; }
 
-/* Scroll-to-latest */
-.nx-to-latest {
+/* Chips floating over the transcript, just above the composer: scroll to
+   latest at the right edge, and "<agent> is waiting for an answer" in the
+   middle while the open question is out of view. */
+.nx-to-latest,
+.nx-waiting {
   position: absolute;
-  right: 16px;
   z-index: 4;
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
   border: 0;
   border-radius: 999px;
   background: var(--popover);
@@ -714,8 +852,30 @@
   transform: translateY(8px) scale(0.92);
   transition: opacity var(--duration-fast), transform var(--duration-fast) var(--ease-smooth-out);
 }
+.nx-to-latest[data-show],
+.nx-waiting[data-show] { opacity: 1; pointer-events: auto; transform: none; }
+.nx-to-latest { right: 16px; display: grid; place-items: center; width: 36px; height: 36px; }
 .nx-to-latest svg { width: 16px; height: 16px; }
-.nx-to-latest[data-show] { opacity: 1; pointer-events: auto; transform: none; }
+/* Centred between the edges, clear of the scroll-to-latest button. */
+.nx-waiting {
+  left: 50%;
+  translate: -50% 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 128px);
+  height: 32px;
+  padding: 0 12px;
+  font: 500 var(--text-caption) / 1 var(--font-sans);
+}
+.nx-waiting svg { flex: none; width: 14px; height: 14px; }
+.nx-waiting span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (hover: hover) {
+  .nx-waiting:hover { background: color-mix(in oklch, var(--popover) 92%, var(--foreground)); }
+}
+@media (pointer: coarse) {
+  .nx-waiting { height: 44px; padding: 0 16px; }
+}
 
 /* ── Composer ──────────────────────────────────────────────────────── */
 .nx-chat__composer {
@@ -952,8 +1112,10 @@ html.nx .nx-composer__input:focus-visible { outline: none; }
 }
 html.nx .nx-find input:focus-visible { outline: none; }
 .nx-find__count { font-size: var(--text-micro); color: var(--muted-foreground); white-space: nowrap; }
-.nx-msg[data-hl="match"] .nx-bubble { box-shadow: 0 0 0 2px color-mix(in oklch, var(--warn) 45%, transparent); }
-.nx-msg[data-hl="current"] .nx-bubble { box-shadow: 0 0 0 2px var(--warn); }
+.nx-msg[data-hl="match"] .nx-bubble,
+.nx-answer[data-hl="match"] { box-shadow: 0 0 0 2px color-mix(in oklch, var(--warn) 45%, transparent); }
+.nx-msg[data-hl="current"] .nx-bubble,
+.nx-answer[data-hl="current"] { box-shadow: 0 0 0 2px var(--warn); }
 @media (pointer: coarse) {
   .nx-find { height: 48px; }
   /* 16px, not the scale: iOS zooms into inputs below 16px on focus. */

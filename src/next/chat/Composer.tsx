@@ -4,7 +4,7 @@
  * localStorage), so a half-typed message survives switching rooms, sections
  * or reloading, exactly like the classic shells.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { api, type ApiAttachment } from '@/api/client'
 import { useApp } from '@/stores/app'
@@ -26,6 +26,16 @@ import { IconButton, Kbd, Menu, Spinner, T_QUICK, useCoarse, useMenu } from '../
 import { IArrowUp, IAt, IClip, IFile, IPlus, IPoll, ISmile, IStop, IX } from '../ui/icons'
 import { EmojiPicker } from './EmojiPicker'
 import { WorkingHeads } from './WorkingHeads'
+
+/** Whether a key sends what is typed, for the composer and the fields of the
+ *  cards under agents' questions (AskCard): Enter sends and Shift+Enter breaks
+ *  a line, while on a phone Return breaks a line and the button sends, like
+ *  every messenger. A sending key's default is prevented here. */
+export function sendsOnEnter(e: KeyboardEvent<Element>, coarse: boolean): boolean {
+  if (isImeComposing(e) || e.key !== 'Enter' || e.shiftKey || (coarse && !e.metaKey && !e.ctrlKey)) return false
+  e.preventDefault()
+  return true
+}
 
 /** Same cadence as the classic composer: re-ping "typing" at most every 3 s
  *  while keys move, and clear it 2 s after the last keystroke or on send. */
@@ -195,9 +205,7 @@ export function Composer({ convoId, threadRootId = null }: {
       if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertMention(picks[hi]); return }
       if (e.key === 'Escape') { e.preventDefault(); setMention(null); return }
     }
-    // Phones: Return is a newline and the button sends, like every messenger.
-    if (e.key === 'Enter' && !e.shiftKey && (!coarse || e.metaKey || e.ctrlKey)) {
-      e.preventDefault()
+    if (sendsOnEnter(e, coarse)) {
       send()
       return
     }

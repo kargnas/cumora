@@ -114,10 +114,12 @@ export interface CardAnswer {
   /** The person who answered. */
   by: string
   at: string
-  /** The option's index; null for a secret. */
+  /** The option's index; null for a secret or an answer in the person's own words. */
   option: number | null
+  /** What the person typed instead of picking an option; null otherwise. */
+  text: string | null
   /** The answer's message: its client id is chosen before it is posted, so
-   *  clients can hide it from its first frame, and its id is known once it is. */
+   *  clients recognise it from its first frame, and its id is known once it is. */
   clientId: string
   messageId: string | null
 }
@@ -340,6 +342,10 @@ const MIGRATIONS = [
   // What an owner puts on a bloub, any number at once (cat ears, whiskers): a
   // JSON array of the client's catalogue ids (src/next/bloub/accessories.ts).
   `ALTER TABLE bloub_avatars ADD COLUMN accessories TEXT NOT NULL DEFAULT '[]';`,
+
+  // What a person typed into a question card instead of picking one of its
+  // options (./cards.ts). NULL for a pick or a secret.
+  `ALTER TABLE cards ADD COLUMN answer_text TEXT;`,
 ]
 
 export interface FileVersion {
@@ -860,9 +866,9 @@ export async function openForkStore(file: string) {
      *  value with it. False when someone answered first. */
     claimAnswer(companyId: string, messageId: string, answer: Omit<CardAnswer, 'messageId'>, sealed: string | null = null): boolean {
       db.run(
-        `UPDATE cards SET answered_by = ?, answered_at = ?, answer_option = ?, answer_client_id = ?, secret = ?, rev = rev + 1
+        `UPDATE cards SET answered_by = ?, answered_at = ?, answer_option = ?, answer_text = ?, answer_client_id = ?, secret = ?, rev = rev + 1
           WHERE company_id = ? AND message_id = ? AND answered_at IS NULL`,
-        [answer.by, answer.at, answer.option, answer.clientId, sealed, companyId, messageId],
+        [answer.by, answer.at, answer.option, answer.text, answer.clientId, sealed, companyId, messageId],
       )
       if (db.getRowsModified() === 0) return false
       save()
@@ -874,7 +880,7 @@ export async function openForkStore(file: string) {
       const where = 'company_id = ? AND message_id = ? AND answer_client_id = ? AND answer_message_id IS NULL'
       forgetSecrets(where, [companyId, messageId, clientId])
       db.run(
-        `UPDATE cards SET answered_by = NULL, answered_at = NULL, answer_option = NULL, answer_client_id = NULL, rev = rev + 1 WHERE ${where}`,
+        `UPDATE cards SET answered_by = NULL, answered_at = NULL, answer_option = NULL, answer_text = NULL, answer_client_id = NULL, rev = rev + 1 WHERE ${where}`,
         [companyId, messageId, clientId],
       )
       if (db.getRowsModified() > 0) save()
@@ -928,13 +934,13 @@ const toCodingThread = ([server, threadId, companyId, agentId, conversationId, t
 })
 
 const CARD_COLUMNS = `message_id, conversation_id, agent_id, kind, question, options, created_at,
-  answered_by, answered_at, answer_option, answer_client_id, answer_message_id, taken_at, rev`
-const toCard = ([messageId, conversationId, agentId, kind, question, options, createdAt, by, at, option, clientId, answerMessageId, takenAt, rev]: initSqlJs.SqlValue[]): Card => ({
+  answered_by, answered_at, answer_option, answer_text, answer_client_id, answer_message_id, taken_at, rev`
+const toCard = ([messageId, conversationId, agentId, kind, question, options, createdAt, by, at, option, text, clientId, answerMessageId, takenAt, rev]: initSqlJs.SqlValue[]): Card => ({
   messageId: String(messageId), conversationId: String(conversationId), agentId: String(agentId),
   kind: kind === 'secret' ? 'secret' : 'choice', question: String(question), options: JSON.parse(String(options)) as string[],
   createdAt: String(createdAt),
   answer: at === null ? null : {
-    by: String(by), at: String(at), option: option === null ? null : Number(option),
+    by: String(by), at: String(at), option: option === null ? null : Number(option), text: text === null ? null : String(text),
     clientId: String(clientId), messageId: answerMessageId === null ? null : String(answerMessageId),
   },
   takenAt: takenAt === null ? null : String(takenAt),

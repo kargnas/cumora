@@ -30,17 +30,47 @@ import { href, navigate, getRoute, withRoute } from '../router'
 import { bytes, clock, dayLabel, exactTime, fullDate, pauseLength, relative, startOfDay } from '../format'
 import { HOLD_MS, useHold } from '../hooks'
 import { Avatar } from '../ui/Avatar'
-import { IconButton, Menu, Spinner, useMenu, type MenuEntry } from '../ui/primitives'
-import { IArrowDown, ICopy, IDownload, IFile, IMore, IReply, ISpark, IThread, IWhisper } from '../ui/icons'
+import { IconButton, INERT, Menu, Spinner, useCoarse, useMenu, type MenuEntry } from '../ui/primitives'
+import { IArrowDown, IArrowUp, ICheck, ICopy, IDownload, IFile, IMore, IReply, ISpark, IThread, IWhisper } from '../ui/icons'
 import { buildItems, createdAt, floatingDay, type DayPill, type Item, type Pos, type Stamp } from './model'
 import { authorOf } from './deletedAuthor'
-import { answersCard, useCards, useHiddenAnswers } from './cards'
+import { answerKind } from './cardAnswers'
+import { useCardAnswers, useCards, useQuestionOf, useWaitingCard } from './cards'
 import { AskCard } from './AskCard'
 import { openFigures, useRoomTokens, useTokens } from './tokens'
 import { AgendaTurns, TokenDialog, TokenLine } from './TokenFigures'
 
 const EMPTY: Message[] = []
 const QUICK = ['👍', '❤️', '😂', '👀', '✅', '🔥']
+/**
+ * Copies a message's text from outside its bubble, at its end on the free
+ * side: right of someone else's bubble, left of mine (chat.css). A mouse
+ * reveals it with the row, like the hover toolbar; touch has no hover, so it
+ * stays hidden there and the long-press sheet keeps Copy. The icon turns into
+ * a check once the text is copied.
+ */
+function CopyText({ text }: { text: string }) {
+  const nt = useNT()
+  const [done, setDone] = useState<'copied' | 'failed' | null>(null)
+  useEffect(() => {
+    if (!done) return
+    const t = window.setTimeout(() => setDone(null), 1500)
+    return () => window.clearTimeout(t)
+  }, [done])
+  const label = done === 'copied' ? nt('msg.copied') : done === 'failed' ? nt('msg.copyFailed') : nt('msg.copy')
+  return (
+    <button
+      type="button"
+      className="nx-copy"
+      data-done={done ?? undefined}
+      aria-label={label}
+      title={label}
+      onClick={() => copyText(text).then(() => setDone('copied'), () => { haptic('error'); setDone('failed') })}
+    >
+      {done === 'copied' ? <ICheck aria-hidden /> : <ICopy aria-hidden />}
+    </button>
+  )
+}
 
 /** When each row was first shown, per conversation. A row animates only
  *  inside its first ENTRANCE_MS, so a re-render mid-animation keeps playing
@@ -328,9 +358,11 @@ interface BubbleProps {
   /** Developer token figures in an agent's reply: the room's transcript only,
    *  since they count from my message to my next one in the room. */
   tokens?: boolean
+  /** Touch first (useCoarse): the long-press sheet holds Copy, since there is no hover to show its button. */
+  coarse: boolean
 }
 
-export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fresh, at, hl, swipe, tokens }: BubbleProps) {
+export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fresh, at, hl, swipe, tokens, coarse }: BubbleProps) {
   const nt = useNT()
   const locale = useLocale()
   const menu = useMenu()
@@ -346,6 +378,9 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
   const quoteAuthor = useParticipants((s) => (quote ? authorOf(s.byId, quote.authorId, nt)?.name : undefined))
   // Selects a string, so status churn on participants does not re-render the bubble.
   const quoteText = useParticipants((s) => quote?.body.replace(/@([A-Za-z][\w-]*)/g, (m, id: string) => (s.byId[id] ? `@${s.byId[id].name}` : m)))
+  // A message about a question card (it quotes the question or the reply that
+  // answered it) names the question above the bubble instead of quoting it.
+  const about = useQuestionOf(msg.conversationId, quote?.id)
 
   // A card is drawn under its question. One that arrives after the message is
   // on screen fades in; a remount (scrolling back) shows it at once.
@@ -362,7 +397,8 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
   const entries: MenuEntry[] = [
     { key: 'reply', label: nt('msg.reply'), icon: <IReply />, onSelect: reply },
     { key: 'thread', label: nt('msg.thread'), icon: <IThread />, onSelect: thread },
-    ...(hasText ? [{ key: 'copy', label: nt('msg.copy'), icon: <ICopy />, onSelect: () => void copyText(msg.body) }] : []),
+    // A mouse copies from the button beside the bubble (CopyText); touch has no hover, so the sheet keeps Copy.
+    ...(hasText && coarse ? [{ key: 'copy', label: nt('msg.copy'), icon: <ICopy />, onSelect: () => void copyText(msg.body) }] : []),
     // The line under the bubble is too small for a finger; the sheet opens the same details.
     ...(figures ? [{ key: 'tokens', label: nt('tokens.title'), icon: <ISpark />, onSelect: () => openFigures(nt('tokens.title'), figures) }] : []),
   ]
@@ -390,10 +426,16 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
             {time}
           </div>
         )}
+        {about && (
+          <button type="button" className="nx-re" onClick={() => useApp.getState().jumpToMessage(about.messageId)}>
+            <IReply aria-hidden />
+            <span>{nt('ask.re', { question: about.question })}</span>
+          </button>
+        )}
         <div className="nx-msg__row" {...hold}>
           {(mine || !turn) && time}
           <div className="nx-bubble" data-kind={msg.kind}>
-            {quote && (
+            {quote && !about && (
               <button type="button" className="nx-quote" onClick={() => useApp.getState().jumpToMessage(quote.id)}>
                 <span className="nx-quote__who">{quoteAuthor ?? quote.authorName ?? nt('msg.someone')}</span>
                 <span className="nx-quote__text">{quoteText}</span>
@@ -404,6 +446,7 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
             {msg.kind === 'poll' && <PollBubble msg={msg} />}
             {msg.attachment && <Attachment a={msg.attachment} />}
           </div>
+          {hasText && <CopyText text={msg.body} />}
           <div className="nx-msg__tools" role="toolbar" aria-label={nt('msg.actions')}>
             {QUICK.slice(0, 3).map((e) => (
               <button key={e} type="button" className="nx-msg__quick" onClick={() => react(e)} aria-label={nt('msg.reactWith', { emoji: e })}>{e}</button>
@@ -486,6 +529,71 @@ function WhisperLine({ msg }: { msg: Message }) {
   )
 }
 
+/** The reply that answered a question card, as one line where it was sent:
+ *  who answered with what. It opens the question, whose card keeps the answer. */
+function AnswerLine({ msg, author, rise, hl }: { msg: Message; author: Participant | undefined; rise: boolean; hl?: 'match' | 'current' }) {
+  const nt = useNT()
+  const question = msg.quotedMessageId
+  return (
+    <div id={`m-${msg.id}`} className="nx-line">
+      <button
+        type="button"
+        className="nx-answer"
+        data-rise={rise || undefined}
+        data-hl={hl}
+        disabled={!question}
+        onClick={() => { if (question) useApp.getState().jumpToMessage(question) }}
+      >
+        <ICheck aria-hidden />
+        <span>{nt('ask.answered', { name: author?.name ?? nt('msg.someone') })}</span>
+        <b>“{msg.body}”</b>
+      </button>
+    </div>
+  )
+}
+
+/** Room header height: it covers the top of the scroller. */
+const HEADER_PX = 56
+
+/**
+ * Where a row stands against the transcript's view: null while any of it
+ * shows between the header and the composer, else the way to scroll to it.
+ * Virtuoso renders rows past the view and drops rows further away, so an
+ * observer watches the row while it is rendered, and `recheck` (called for
+ * every rendered range) looks it up again. `below` places a row not rendered.
+ */
+function useAway(scroller: { current: HTMLElement | null }, id: string | null, below: () => boolean, inset: number) {
+  const [away, setAway] = useState<'up' | 'down' | null>(null)
+  const observer = useRef<IntersectionObserver | null>(null)
+  // What the observer watches, so a range that keeps the same row changes nothing.
+  const watched = useRef<{ row: Element; inset: number } | null>(null)
+  const args = useRef({ id, below, inset })
+  args.current = { id, below, inset }
+  const recheck = useCallback(() => {
+    const { id, below, inset } = args.current
+    const root = scroller.current
+    const row = id && root ? root.querySelector(`#m-${CSS.escape(id)}`) : null
+    if (row && watched.current?.row === row && watched.current.inset === inset) return
+    observer.current?.disconnect()
+    observer.current = null
+    watched.current = row ? { row, inset } : null
+    if (!id || !root) setAway(null)
+    else if (!row) setAway(below() ? 'down' : 'up')
+    else {
+      observer.current = new IntersectionObserver(([e]) => {
+        if (e) setAway(e.isIntersecting ? null : e.boundingClientRect.top < (e.rootBounds?.top ?? 0) ? 'up' : 'down')
+      }, { root, rootMargin: `-${HEADER_PX}px 0px -${inset}px 0px` })
+      observer.current.observe(row)
+    }
+  }, [scroller])
+  useEffect(() => {
+    const raf = requestAnimationFrame(recheck)
+    return () => cancelAnimationFrame(raf)
+  }, [recheck, id, inset])
+  useEffect(() => () => observer.current?.disconnect(), [])
+  return [away, recheck] as const
+}
+
 /* ── Live footer: streaming → final message ─────────────────────────── */
 function LiveBubble({ authorId, body }: { authorId: string; body: string }) {
   const p = useParticipants((s) => s.byId[authorId])
@@ -520,8 +628,8 @@ function LiveFooter({ convoId, onChange }: { convoId: string; onChange: (grew: b
 }
 
 /* ── Floating day ───────────────────────────────────────────────────── */
-/** Top of the floating day pill in the scroller: under the 56px room header, plus 8. */
-const FLOAT_LINE = 64
+/** Top of the floating day pill in the scroller: under the room header, plus 8. */
+const FLOAT_LINE = HEADER_PX + 8
 /** The pill's height plus 8: an in-flow pill this close below the line gets the spot back. */
 const FLOAT_NEAR = 30
 
@@ -648,20 +756,23 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
   const hasMore = useMessages((s) => s.hasMoreOlder[convoId] ?? false)
   const loadingOlder = useMessages((s) => s.loadingOlder.has(convoId))
   const byId = useParticipants((s) => s.byId)
+  const coarse = useCoarse()
   const ref = useRef<VirtuosoHandle>(null)
   const [atBottom, setAtBottom] = useState(true)
   // The transcript waits for the room's cards on its first load (see the
-  // skeleton below), and leaves out the replies that answered them.
+  // skeleton below). The reply that answered a question shows as a note
+  // (AnswerLine); a secret's reply only says that it was sent, which its
+  // card already shows, so it is left out.
   const cardsReady = useCards((s) => s.ready[convoId] === true)
   useEffect(() => {
     if (!useCards.getState().loaded[convoId]) void useCards.getState().load(convoId)
   }, [convoId])
-  const answers = useHiddenAnswers(convoId)
+  const answers = useCardAnswers(convoId)
   const shown = useMemo(
-    () => (answers.size === 0 ? raw : raw.filter((m) => !answersCard(answers, m))),
+    () => (answers.size === 0 ? raw : raw.filter((m) => answerKind(answers, m) !== 'secret')),
     [raw, answers],
   )
-  const items = useMemo(() => buildItems(shown, me), [shown, me])
+  const items = useMemo(() => buildItems(shown, me, (m) => answerKind(answers, m) === 'choice'), [shown, me, answers])
   useRoomTokens(convoId, items)
 
   // Messages present at open never animate; anything after does, once.
@@ -692,14 +803,31 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
   itemsRef.current = items
   const firstRef = useRef(firstItemIndex)
   firstRef.current = firstItemIndex
-  const onRange = useCallback(({ startIndex, endIndex }: ListRange) => {
+  const scroller = useRef<HTMLElement | null>(null)
+
+  // While the question the room's agent waits on is out of view, a pill says
+  // so and goes to it. Only a loaded question gets one: a jump needs its row.
+  // A person's reply quoting a question answers it too (waitingQuestion).
+  const quoted = useMemo(() => new Set(raw.flatMap((m) => (m.quotedMessageId && byId[m.authorId]?.kind === 'human' ? [m.quotedMessageId] : []))), [raw, byId])
+  const waiting = useWaitingCard(convoId, quoted)
+  const waitingId = waiting && items.some((it) => it.type === 'msg' && it.msg.id === waiting.messageId) ? waiting.messageId : null
+  const waitingAgent = useParticipants((s) => (waiting ? authorOf(s.byId, waiting.agentId, nt)?.name : undefined))
+  const range = useRef<ListRange | null>(null)
+  const [away, recheckAway] = useAway(scroller, waitingId, () => {
+    const index = itemsRef.current.findIndex((it) => it.type === 'msg' && it.msg.id === waitingId)
+    return range.current !== null && index + firstRef.current > range.current.endIndex
+  }, bottomInset)
+
+  const onRange = useCallback((r: ListRange) => {
     const list = itemsRef.current
-    const from = startIndex - firstRef.current
+    const from = r.startIndex - firstRef.current
     // Rows that cross a day mount that day's chip, which reports itself.
     let day: number | null = list[from] ? startOfDay(list[from].at) : null
-    for (let i = from; day !== null && i <= endIndex - firstRef.current; i++) if (list[i]?.day) day = null
+    for (let i = from; day !== null && i <= r.endIndex - firstRef.current; i++) if (list[i]?.day) day = null
     float.range(day)
-  }, [float])
+    range.current = r
+    requestAnimationFrame(recheckAway)
+  }, [float, recheckAway])
 
   const onStartReached = useCallback(() => {
     if (hasMore && !loadingOlder) void useMessages.getState().loadOlder(convoId)
@@ -711,7 +839,6 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
   // text never lags behind the scroll animation.
   const atBottomRef = useRef(true)
   atBottomRef.current = atBottom
-  const scroller = useRef<HTMLElement | null>(null)
   // Stable: Virtuoso re-runs its scroller effect, and with it this callback, whenever it changes.
   const onScroller = useCallback((el: HTMLElement | Window | null) => {
     scroller.current = el instanceof HTMLElement ? el : null
@@ -762,7 +889,7 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
     const out: string[] = []
     for (let i = items.length - 1; i >= 0; i--) {
       const it = items[i]
-      if (it.type === 'msg' && it.msg.body.toLowerCase().includes(q)) out.push(it.key)
+      if ((it.type === 'msg' || it.type === 'answer') && it.msg.body.toLowerCase().includes(q)) out.push(it.key)
     }
     return out
   }, [items, q])
@@ -786,6 +913,7 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
         : null
     const fresh = isFresh(seen, it.key) && !(it.type !== 'work' && streamed.has(it.msg.id))
     if (it.type === 'work') return <>{sep}<WorkChip item={it} author={authorOf(byId, it.authorId, nt)} /></>
+    if (it.type === 'answer') return <>{sep}<AnswerLine msg={it.msg} author={authorOf(byId, it.msg.authorId, nt)} rise={fresh} hl={it.key === currentHit ? 'current' : hitSet.has(it.key) ? 'match' : undefined} /></>
     if (it.type === 'line') {
       return (
         <>
@@ -808,11 +936,12 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
           hl={it.key === currentHit ? 'current' : hitSet.has(it.key) ? 'match' : undefined}
           swipe
           tokens
+          coarse={coarse}
         />
         <AgendaTurns msgId={it.msg.id} />
       </>
     )
-  }, [byId, locale, nt, seen, currentHit, hitSet, float])
+  }, [byId, locale, nt, seen, currentHit, hitSet, float, coarse])
 
   if (items.length === 0) {
     if (error) return <div className="nx-center"><div className="nx-empty"><b>{nt('msg.loadFailed')}</b><button type="button" className="nx-btn nx-btn--outline" onClick={() => void useMessages.getState().retryLoad(convoId)}>{nt('msg.retry')}</button></div></div>
@@ -820,6 +949,9 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
   }
   if (!cardsReady) return <TranscriptSkeleton />
 
+
+  // The floating chips (scroll-to-latest, the waiting pill) sit 8px above the composer.
+  const floating = { bottom: bottomInset + 8 }
 
   return (
     <div className="nx-transcript" onClick={toggleTimes}>
@@ -852,12 +984,25 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
         type="button"
         className="nx-to-latest"
         data-show={!atBottom || undefined}
-        style={{ bottom: bottomInset + 8 }}
+        style={floating}
         aria-label={nt('msg.latest')}
         onClick={() => ref.current?.scrollToIndex({ index: items.length - 1, align: 'end', behavior: 'smooth' })}
       >
         <IArrowDown />
       </button>
+      {waitingId && (
+        <button
+          type="button"
+          className="nx-waiting"
+          data-show={away !== null || undefined}
+          {...(away === null ? INERT : {})}
+          style={floating}
+          onClick={() => useApp.getState().jumpToMessage(waitingId)}
+        >
+          {away === 'down' ? <IArrowDown aria-hidden /> : <IArrowUp aria-hidden />}
+          <span>{nt('ask.waiting', { agent: waitingAgent ?? nt('msg.someone') })}</span>
+        </button>
+      )}
       <TokenDialog />
     </div>
   )

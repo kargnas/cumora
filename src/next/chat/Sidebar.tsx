@@ -18,7 +18,7 @@ import { listStamp } from '../format'
 import { haptic } from '../haptics'
 import { openPalette, useHold } from '../hooks'
 import { Avatar, AvatarStack } from '../ui/Avatar'
-import { Dialog, IconButton, Menu, MOD, Spinner, T_FAST, useCoarse, useMenu, type MenuAnchor, type MenuEntry } from '../ui/primitives'
+import { Dialog, IconButton, INERT, Menu, MOD, Spinner, T_FAST, useCoarse, useMenu, type MenuAnchor, type MenuEntry } from '../ui/primitives'
 import {
   IArrowDown, IArrowLeft, IArrowRight, IArrowUp, IBellOff, IChecks, IChevronDown, ICompose, IEye, IEyeOff, IFolder, IHash, IMail,
   IPencil, IPin, IPlus, ISearch, ITrash, IUsers, IExit,
@@ -94,9 +94,6 @@ function markAllRead(ids: string[]): void {
     void api.markRead(id).catch((e) => console.warn('[next] mark read failed', e))
   }
 }
-// React 18 drops an unknown boolean prop; an empty string reaches the DOM, and
-// inert keeps focus and clicks out of a collapsed group.
-const INERT = { inert: '' } as Record<string, string>
 
 /** The room's face wherever a room is listed: the peer for a 1:1, the
  *  agents for a group, a glyph otherwise. */

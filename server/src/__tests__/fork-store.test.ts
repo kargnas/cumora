@@ -375,17 +375,17 @@ test('a card takes one answer, opens again when its reply was not posted, and go
   assert.equal(store.card('c2', 'm-q'), null, 'scoped by company')
 
   const at = '2026-10-20T01:00:00.000Z'
-  assert.equal(store.claimAnswer('c1', 'm-q', { by: 'u1', at, option: 1, clientId: 'card-1' }), true)
-  assert.equal(store.claimAnswer('c1', 'm-q', { by: 'u2', at, option: 0, clientId: 'card-2' }), false, 'the first answer closes it')
+  assert.equal(store.claimAnswer('c1', 'm-q', { by: 'u1', at, option: 1, text: null, clientId: 'card-1' }), true)
+  assert.equal(store.claimAnswer('c1', 'm-q', { by: 'u2', at, option: 0, text: null, clientId: 'card-2' }), false, 'the first answer closes it')
   store.releaseAnswer('c1', 'm-q', 'card-1')
   assert.equal(store.card('c1', 'm-q')?.answer, null, 'an answer whose reply was not posted opens it again')
-  assert.equal(store.claimAnswer('c1', 'm-q', { by: 'u2', at, option: 0, clientId: 'card-2' }), true)
+  assert.equal(store.claimAnswer('c1', 'm-q', { by: 'u2', at, option: 0, text: null, clientId: 'card-2' }), true)
   assert.deepEqual(store.pendingAnswers().map((p) => [p.companyId, p.card.messageId]), [['c1', 'm-q']])
   store.settleAnswer('c1', 'm-q', 'card-2', 'm-a')
   const rev = store.card('c1', 'm-q')?.rev ?? 0
   store.settleAnswer('c1', 'm-q', 'card-2', 'm-a')
   store.releaseAnswer('c1', 'm-q', 'card-2')
-  assert.deepEqual(store.card('c1', 'm-q')?.answer, { by: 'u2', at, option: 0, clientId: 'card-2', messageId: 'm-a' }, 'a posted answer stays')
+  assert.deepEqual(store.card('c1', 'm-q')?.answer, { by: 'u2', at, option: 0, text: null, clientId: 'card-2', messageId: 'm-a' }, 'a posted answer stays')
   assert.equal(store.card('c1', 'm-q')?.rev, rev, 'settling again and a late release change nothing')
   assert.ok(rev >= 4, 'every change bumped it: claim, release, claim, settle')
   assert.deepEqual(store.pendingAnswers(), [])
@@ -396,6 +396,22 @@ test('a card takes one answer, opens again when its reply was not posted, and go
   assert.deepEqual(reopened.cards('c1', 'room'), [])
 })
 
+test('an answer in the person\'s own words keeps its text, also in a file from before it could', async () => {
+  const file = join(dir, 'cards-v11', 'fork.sqlite')
+  const ask = { companyId: 'c1', conversationId: 'room', agentId: 'bot', kind: 'choice' as const, question: 'Deploy main?', options: ['Deploy', 'Wait'] }
+  ;(await openForkStore(file)).createCard({ ...ask, messageId: 'm-q' })
+  const SQL = await initSqlJs()
+  const raw = new SQL.Database(readFileSync(file))
+  raw.run('ALTER TABLE cards DROP COLUMN answer_text; PRAGMA user_version = 11')
+  writeFileSync(file, raw.export())
+
+  const store = await openForkStore(file)
+  const at = '2026-10-23T13:00:00.000Z'
+  assert.equal(store.claimAnswer('c1', 'm-q', { by: 'u1', at, option: null, text: 'After the release notes', clientId: 'card-1' }), true)
+  assert.deepEqual((await openForkStore(file)).card('c1', 'm-q')?.answer,
+    { by: 'u1', at, option: null, text: 'After the release notes', clientId: 'card-1', messageId: null })
+})
+
 test('a sent secret goes once to the agent that asked, and the file keeps no trace of it', async () => {
   const file = join(dir, 'secrets', 'fork.sqlite')
   const store = await openForkStore(file)
@@ -403,7 +419,7 @@ test('a sent secret goes once to the agent that asked, and the file keeps no tra
   store.createCard({ ...ask, messageId: 'm-s' })
   assert.equal(store.takeSecret('c1', 'm-s', 'bot'), 'waiting')
   const sent = new Date()
-  store.claimAnswer('c1', 'm-s', { by: 'u1', at: sent.toISOString(), option: null, clientId: 'card-1' }, 'SEALED-ONE')
+  store.claimAnswer('c1', 'm-s', { by: 'u1', at: sent.toISOString(), option: null, text: null, clientId: 'card-1' }, 'SEALED-ONE')
   assert.equal(store.card('c1', 'm-s')?.expiresAt, new Date(sent.getTime() + SECRET_TTL_MS).toISOString())
   assert.equal(store.takeSecret('c1', 'm-s', 'bot'), 'waiting', 'not before its reply is posted: the card may still open again')
   store.settleAnswer('c1', 'm-s', 'card-1', 'm-a1')
@@ -415,7 +431,7 @@ test('a sent secret goes once to the agent that asked, and the file keeps no tra
 
   // Nobody takes this one within a day: a room load past that drops it.
   store.createCard({ ...ask, messageId: 'm-late' })
-  store.claimAnswer('c1', 'm-late', { by: 'u1', at: sent.toISOString(), option: null, clientId: 'card-2' }, 'SEALED-TWO')
+  store.claimAnswer('c1', 'm-late', { by: 'u1', at: sent.toISOString(), option: null, text: null, clientId: 'card-2' }, 'SEALED-TWO')
   store.settleAnswer('c1', 'm-late', 'card-2', 'm-a2')
   store.dropExpiredSecrets(new Date(sent.getTime() + SECRET_TTL_MS - 1000))
   assert.ok(readFileSync(file).includes('SEALED-TWO'), 'kept until its day is over')

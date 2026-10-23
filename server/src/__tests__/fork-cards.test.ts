@@ -10,12 +10,27 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, st
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
-import { openSecret, runCardCli, sealSecret } from '../fork/cards.js'
+import { MAX_ANSWER, openSecret, parseAnswer, runCardCli, sealSecret } from '../fork/cards.js'
 import { parseArgs } from '../agents/cli-parse.js'
 import { CUMORA_SHIM, RuntimeCliBroker } from '../agents/computer/daemon.js'
+import { MAX_ANSWER as FIELD_MAX } from '../../../src/next/chat/limits.js'
 
 const dir = mkdtempSync(join(tmpdir(), 'fork-cards-'))
 after(() => rmSync(dir, { recursive: true, force: true }))
+
+test('an answer is an option by its index, or the person\'s own words, which win', () => {
+  const options = ['Deploy', 'Wait']
+  assert.deepEqual(parseAnswer({ option: 1 }, options), { body: 'Wait', pick: { option: 1, text: null } })
+  assert.deepEqual(parseAnswer({ option: 0, text: '  after the notes\n' }, options),
+    { body: 'after the notes', pick: { option: null, text: 'after the notes' } }, 'trimmed, and they beat the option')
+  assert.deepEqual(parseAnswer({ text: ' wait ' }, options), { body: 'Wait', pick: { option: 1, text: null } }, 'words that spell an option are that option')
+  assert.throws(() => parseAnswer({ text: ' \n ' }, options), /text must be/, 'blank words answer nothing')
+  assert.equal(parseAnswer({ text: 'x'.repeat(MAX_ANSWER) }, options).pick.text?.length, MAX_ANSWER)
+  assert.throws(() => parseAnswer({ text: 'x'.repeat(MAX_ANSWER + 1) }, options), /text must be/)
+  for (const option of [2, -1, 0.5, '0', null]) assert.throws(() => parseAnswer({ option }, options), /option must be/, `option ${String(option)}`)
+  assert.throws(() => parseAnswer(undefined, options), /option must be/)
+  assert.equal(FIELD_MAX, MAX_ANSWER, 'the card field stops typing where the server stops accepting')
+})
 
 test('a sealed secret opens only with its key, for its own card, untouched', () => {
   const key = randomBytes(32)
