@@ -587,7 +587,8 @@
   from { opacity: 0; transform: translateY(6px); clip-path: inset(0 0 60% 0 round 18px); }
   to { opacity: 1; transform: none; clip-path: inset(0 0 0 0 round 0); }
 }
-.nx-flash .nx-bubble { animation: nx-flash 1.4s var(--ease-smooth-out); }
+.nx-flash .nx-bubble,
+.nx-flash .nx-answer { animation: nx-flash 1.4s var(--ease-smooth-out); }
 @keyframes nx-flash {
   0%, 30% { box-shadow: 0 0 0 3px color-mix(in oklch, var(--primary) 45%, transparent); }
   100% { box-shadow: 0 0 0 3px transparent; }
@@ -1013,8 +1014,10 @@ html.nx .nx-composer__input:focus-visible { outline: none; }
 }
 html.nx .nx-find input:focus-visible { outline: none; }
 .nx-find__count { font-size: var(--text-micro); color: var(--muted-foreground); white-space: nowrap; }
-.nx-msg[data-hl="match"] .nx-bubble { box-shadow: 0 0 0 2px color-mix(in oklch, var(--warn) 45%, transparent); }
-.nx-msg[data-hl="current"] .nx-bubble { box-shadow: 0 0 0 2px var(--warn); }
+.nx-msg[data-hl="match"] .nx-bubble,
+.nx-answer[data-hl="match"] { box-shadow: 0 0 0 2px color-mix(in oklch, var(--warn) 45%, transparent); }
+.nx-msg[data-hl="current"] .nx-bubble,
+.nx-answer[data-hl="current"] { box-shadow: 0 0 0 2px var(--warn); }
 @media (pointer: coarse) {
   .nx-find { height: 48px; }
   /* 16px, not the scale: iOS zooms into inputs below 16px on focus. */

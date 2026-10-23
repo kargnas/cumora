@@ -498,7 +498,7 @@ function WhisperLine({ msg }: { msg: Message }) {
 
 /** The reply that answered a question card, as one line where it was sent:
  *  who answered with what. It opens the question, whose card keeps the answer. */
-function AnswerLine({ msg, author, rise }: { msg: Message; author: Participant | undefined; rise: boolean }) {
+function AnswerLine({ msg, author, rise, hl }: { msg: Message; author: Participant | undefined; rise: boolean; hl?: 'match' | 'current' }) {
   const nt = useNT()
   const question = msg.quotedMessageId
   return (
@@ -507,6 +507,7 @@ function AnswerLine({ msg, author, rise }: { msg: Message; author: Participant |
         type="button"
         className="nx-answer"
         data-rise={rise || undefined}
+        data-hl={hl}
         disabled={!question}
         onClick={() => { if (question) useApp.getState().jumpToMessage(question) }}
       >
@@ -854,7 +855,7 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
     const out: string[] = []
     for (let i = items.length - 1; i >= 0; i--) {
       const it = items[i]
-      if (it.type === 'msg' && it.msg.body.toLowerCase().includes(q)) out.push(it.key)
+      if ((it.type === 'msg' || it.type === 'answer') && it.msg.body.toLowerCase().includes(q)) out.push(it.key)
     }
     return out
   }, [items, q])
@@ -878,7 +879,7 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
         : null
     const fresh = isFresh(seen, it.key) && !(it.type !== 'work' && streamed.has(it.msg.id))
     if (it.type === 'work') return <>{sep}<WorkChip item={it} author={authorOf(byId, it.authorId, nt)} /></>
-    if (it.type === 'answer') return <>{sep}<AnswerLine msg={it.msg} author={authorOf(byId, it.msg.authorId, nt)} rise={fresh} /></>
+    if (it.type === 'answer') return <>{sep}<AnswerLine msg={it.msg} author={authorOf(byId, it.msg.authorId, nt)} rise={fresh} hl={it.key === currentHit ? 'current' : hitSet.has(it.key) ? 'match' : undefined} /></>
     if (it.type === 'line') {
       return (
         <>

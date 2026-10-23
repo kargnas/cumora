@@ -398,22 +398,22 @@ async function answerable(requireCompany: Requirer, req: Request & AuthedRequest
 
 /** What a POST to …/answer carries: `{ text }`, the person's own words
  *  (trimmed, 1 to MAX_ANSWER characters), which wins over `{ option }`, an
- *  option's index. Words that spell out an option are that option, so the
- *  summary does not list it again among the others. A string says what is
- *  wrong with the body. */
-export function parseAnswer(body: unknown, options: string[]): { body: string; pick: Pick<CardAnswer, 'option' | 'text'> } | string {
+ *  option's index. Words that spell out an option in any case are that option
+ *  (ask() keeps options apart in more than case), so the summary does not
+ *  list it again among the others. */
+export function parseAnswer(body: unknown, options: string[]): { body: string; pick: Pick<CardAnswer, 'option' | 'text'> } {
   const { option, text } = (body ?? {}) as { option?: unknown; text?: unknown }
   let index = option
   if (typeof text === 'string') {
     const words = text.trim()
-    if (!words || words.length > MAX_ANSWER) return `text must be 1 to ${MAX_ANSWER} characters`
-    index = options.indexOf(words)
+    if (!words || words.length > MAX_ANSWER) throw new CardError(400, `text must be 1 to ${MAX_ANSWER} characters`)
+    index = options.findIndex((o) => o.toLowerCase() === words.toLowerCase())
     if (index === -1) return { body: words, pick: { option: null, text: words } }
   }
   if (typeof index === 'number' && Number.isInteger(index) && index >= 0 && index < options.length) {
     return { body: options[index], pick: { option: index, text: null } }
   }
-  return 'option must be the index of one of the options'
+  throw new CardError(400, 'option must be the index of one of the options')
 }
 
 /** POST /api/fork/cards/:messageId/answer { option } | { text }: picks an
@@ -422,7 +422,6 @@ export function answerChoice(requireCompany: Requirer, req: Request & AuthedRequ
   return handle(res, async () => {
     const { userId, companyId, store, card } = await answerable(requireCompany, req, 'choice')
     const reply = parseAnswer(req.body, card.options)
-    if (typeof reply === 'string') throw new CardError(400, reply)
     const answered = await answerWith(req, store, companyId, card, userId, reply.body, reply.pick, null)
     if (!answered) throw new CardError(409, 'someone answered first')
     res.json({ card: answered })
