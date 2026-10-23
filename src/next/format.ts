@@ -42,9 +42,12 @@ export function clock(d: Date, locale: Locale): string {
   return fmt(locale, { hour: '2-digit', minute: '2-digit' }).format(d)
 }
 
-/** "9:07 – 9:28 PM": Intl writes the shared part once, and adds the dates when the ends fall on different days. */
+/** "9:07 – 9:28 PM": Intl writes the shared part once. Across midnight it would
+ *  add both dates, which overflow a one-line label, so the times stand alone
+ *  there ("11:58 PM – 12:30 AM"); the day chip above already gives the date. */
 export function clockRange(from: Date, to: Date, locale: Locale): string {
-  return fmt(locale, { hour: '2-digit', minute: '2-digit' }).formatRange(from, to)
+  const f = fmt(locale, { hour: '2-digit', minute: '2-digit' })
+  return from.toDateString() === to.toDateString() ? f.formatRange(from, to) : `${f.format(from)} – ${f.format(to)}`
 }
 
 /** "Monday, October 19, 2026" */
