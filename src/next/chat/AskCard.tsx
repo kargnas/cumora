@@ -18,9 +18,7 @@ import { Avatar } from '../ui/Avatar'
 import { Spinner, useCoarse } from '../ui/primitives'
 import { ICheck, IChevronDown, IEye, IEyeOff, ILock } from '../ui/icons'
 import { useCards, type Card, type CardAnswer, type CardPick } from './cards'
-
-/** MAX_ANSWER in server/src/fork/cards.ts, which refuses a longer answer. */
-const MAX_ANSWER = 4000
+import { MAX_ANSWER } from './limits'
 
 /** A 409 means someone answered first; their answer arrives as the card's update. */
 function lostRace(e: unknown): boolean {
@@ -80,8 +78,9 @@ function Choice({ card, showQuestion }: { card: Card; showQuestion: boolean }) {
 
   if (card.answer) {
     // Someone else answered: what this person picked or was still typing
-    // stays readable instead of vanishing with the field. The server shows
-    // the card closed before its own answer's response, so mine never counts.
+    // stays readable instead of vanishing with the field. My own answer never
+    // shows here: the closed card reaches me before the server answers my
+    // POST, and by then it already names me as the one who answered.
     const unsent = card.answer.by === me ? null : lost ?? (draft.trim() || null)
     return <Summary card={card} answer={card.answer} showQuestion={showQuestion} rise={wasOpen.current} unsent={unsent} />
   }

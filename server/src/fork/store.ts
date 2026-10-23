@@ -119,7 +119,7 @@ export interface CardAnswer {
   /** What the person typed instead of picking an option; null otherwise. */
   text: string | null
   /** The answer's message: its client id is chosen before it is posted, so
-   *  clients can hide it from its first frame, and its id is known once it is. */
+   *  clients recognise it from its first frame, and its id is known once it is. */
   clientId: string
   messageId: string | null
 }

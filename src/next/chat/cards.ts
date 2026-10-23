@@ -42,8 +42,9 @@ export interface Card {
 /** A question's answer: an option by its index, or the person's own words. */
 export type CardPick = { option: number } | { text: string }
 
-/** A room's answer replies, by their id and their client id, with the kind of card each answered. */
-type Answers = ReadonlyMap<string, Card['kind']>
+/** A room's answer replies, by their id and their client id: the kind of card
+ *  each answered and that card's question message. */
+type Answers = ReadonlyMap<string, { kind: Card['kind']; question: string }>
 
 const NONE: Answers = new Map()
 
@@ -77,14 +78,15 @@ function put(s: State, cards: Card[]): Partial<State> {
   }
   const answers = { ...s.answers }
   for (const r of rooms) {
-    const ids = new Map<string, Card['kind']>()
+    const ids = new Map<string, { kind: Card['kind']; question: string }>()
     for (const c of Object.values(byMessage)) {
       if (c.conversationId !== r || !c.answer) continue
-      ids.set(c.answer.clientId, c.kind)
-      if (c.answer.messageId) ids.set(c.answer.messageId, c.kind)
+      const of = { kind: c.kind, question: c.messageId }
+      ids.set(c.answer.clientId, of)
+      if (c.answer.messageId) ids.set(c.answer.messageId, of)
     }
     const prev = s.answers[r] ?? NONE
-    if (ids.size !== prev.size || [...ids].some(([id, kind]) => prev.get(id) !== kind)) answers[r] = ids
+    if (ids.size !== prev.size || [...ids].some(([id, of]) => prev.get(id)?.question !== of.question)) answers[r] = ids
   }
   return { byMessage, answers }
 }
@@ -150,23 +152,25 @@ export function useCardAnswers(conversationId: string): Answers {
 
 /** The kind of card a message answered, if it is such a reply. */
 export function answerKind(answers: Answers, m: { id: string; clientId?: string }): Card['kind'] | undefined {
-  return answers.get(m.id) ?? (m.clientId === undefined ? undefined : answers.get(m.clientId))
+  return (answers.get(m.id) ?? (m.clientId === undefined ? undefined : answers.get(m.clientId)))?.kind
 }
 
-/** The question a message is about when it quotes one: the question itself,
- *  or the reply that answered it. */
-export function questionOf(byMessage: Record<string, Card>, quotedId: string): Card | undefined {
-  const own = byMessage[quotedId]
-  if (own) return own.kind === 'choice' ? own : undefined
-  return Object.values(byMessage).find((c) => c.kind === 'choice' && c.answer?.messageId === quotedId)
+/** The question card a message of the room is about when it quotes one: the
+ *  question itself, or the reply that answered it. */
+export function questionOf(s: Pick<State, 'byMessage' | 'answers'>, conversationId: string, quotedId: string): Card | undefined {
+  const reply = s.answers[conversationId]?.get(quotedId)
+  const card = s.byMessage[quotedId] ?? (reply ? s.byMessage[reply.question] : undefined)
+  return card?.kind === 'choice' ? card : undefined
 }
 
-/** The room's newest card nobody has answered: what its agent waits for. */
+/** The room's newest question nobody has answered: what its agent waits for.
+ *  Secret requests are left out: one whose agent left the room can never be
+ *  sent, so it would keep its pill forever. */
 export function useWaitingCard(conversationId: string): Card | undefined {
   return useCards((s) => {
     let newest: Card | undefined
     for (const c of Object.values(s.byMessage)) {
-      if (c.conversationId === conversationId && !c.answer && (!newest || c.createdAt > newest.createdAt)) newest = c
+      if (c.conversationId === conversationId && c.kind === 'choice' && !c.answer && (!newest || c.createdAt > newest.createdAt)) newest = c
     }
     return newest
   })

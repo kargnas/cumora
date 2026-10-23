@@ -16,6 +16,10 @@ export const T_FAST = { duration: 0.25, ease: EASE_OUT }
 export const SPRING_SHEET = { type: 'spring', stiffness: 420, damping: 40, mass: 0.9 } as const
 
 export const MOD = isMac ? '⌘' : 'Ctrl'
+/** Spread onto an element to make it inert: React 18 drops an unknown boolean
+ *  prop, while an empty string reaches the DOM. Inert keeps focus, clicks and
+ *  screen readers out of something hidden only by its opacity. */
+export const INERT = { inert: '' } as Record<string, string>
 
 export function Kbd({ children }: { children: ReactNode }) {
   return <kbd className="nx-kbd" aria-hidden>{children}</kbd>

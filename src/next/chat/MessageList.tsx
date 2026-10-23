@@ -30,7 +30,7 @@ import { href, navigate, getRoute, withRoute } from '../router'
 import { bytes, clock, dayLabel, exactTime, fullDate, pauseLength, relative, startOfDay } from '../format'
 import { HOLD_MS, useHold } from '../hooks'
 import { Avatar } from '../ui/Avatar'
-import { IconButton, Menu, Spinner, useMenu, type MenuEntry } from '../ui/primitives'
+import { IconButton, INERT, Menu, Spinner, useMenu, type MenuEntry } from '../ui/primitives'
 import { IArrowDown, IArrowUp, ICheck, ICopy, IDownload, IFile, IMore, IReply, ISpark, IThread, IWhisper } from '../ui/icons'
 import { buildItems, createdAt, floatingDay, type DayPill, type Item, type Pos, type Stamp } from './model'
 import { authorOf } from './deletedAuthor'
@@ -348,7 +348,7 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
   const quoteText = useParticipants((s) => quote?.body.replace(/@([A-Za-z][\w-]*)/g, (m, id: string) => (s.byId[id] ? `@${s.byId[id].name}` : m)))
   // A message about a question card (it quotes the question or the reply that
   // answered it) names the question above the bubble instead of quoting it.
-  const about = useCards((s) => (quote ? questionOf(s.byMessage, quote.id) : undefined))
+  const about = useCards((s) => (quote ? questionOf(s, msg.conversationId, quote.id) : undefined))
 
   // A card is drawn under its question. One that arrives after the message is
   // on screen fades in; a remount (scrolling back) shows it at once.
@@ -519,7 +519,6 @@ function AnswerLine({ msg, author, rise }: { msg: Message; author: Participant |
 
 /** Room header height: it covers the top of the scroller. */
 const HEADER_PX = 56
-const INERT = { inert: '' } as Record<string, string>
 
 /**
  * Where a row stands against the transcript's view: null while any of it
@@ -594,8 +593,8 @@ function LiveFooter({ convoId, onChange }: { convoId: string; onChange: (grew: b
 }
 
 /* ── Floating day ───────────────────────────────────────────────────── */
-/** Top of the floating day pill in the scroller: under the 56px room header, plus 8. */
-const FLOAT_LINE = 64
+/** Top of the floating day pill in the scroller: under the room header, plus 8. */
+const FLOAT_LINE = HEADER_PX + 8
 /** The pill's height plus 8: an in-flow pill this close below the line gets the spot back. */
 const FLOAT_NEAR = 30
 

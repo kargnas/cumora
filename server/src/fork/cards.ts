@@ -396,22 +396,29 @@ async function answerable(requireCompany: Requirer, req: Request & AuthedRequest
   return { userId, companyId, store, card }
 }
 
+/** What a POST to …/answer carries: `{ text }`, the person's own words
+ *  (trimmed, 1 to MAX_ANSWER characters), which wins over `{ option }`, an
+ *  option's index. A string says what is wrong with the body. */
+export function parseAnswer(body: unknown, options: string[]): { body: string; pick: Pick<CardAnswer, 'option' | 'text'> } | string {
+  const { option, text } = (body ?? {}) as { option?: unknown; text?: unknown }
+  if (typeof text === 'string') {
+    const words = text.trim()
+    if (!words || words.length > MAX_ANSWER) return `text must be 1 to ${MAX_ANSWER} characters`
+    return { body: words, pick: { option: null, text: words } }
+  }
+  if (typeof option === 'number' && Number.isInteger(option) && option >= 0 && option < options.length) {
+    return { body: options[option], pick: { option, text: null } }
+  }
+  return 'option must be the index of one of the options'
+}
+
 /** POST /api/fork/cards/:messageId/answer { option } | { text }: picks an
- *  option by its index, or answers in the person's own words. */
+ *  option, or answers in the person's own words (parseAnswer). */
 export function answerChoice(requireCompany: Requirer, req: Request & AuthedRequest, res: Response): Promise<void> {
   return handle(res, async () => {
     const { userId, companyId, store, card } = await answerable(requireCompany, req, 'choice')
-    const option: unknown = req.body?.option
-    const text = typeof req.body?.text === 'string' ? req.body.text.trim() : null
-    let reply: { body: string; pick: Pick<CardAnswer, 'option' | 'text'> }
-    if (text !== null) {
-      if (!text || text.length > MAX_ANSWER) throw new CardError(400, `text must be 1 to ${MAX_ANSWER} characters`)
-      reply = { body: text, pick: { option: null, text } }
-    } else if (typeof option === 'number' && Number.isInteger(option) && option >= 0 && option < card.options.length) {
-      reply = { body: card.options[option], pick: { option, text: null } }
-    } else {
-      throw new CardError(400, 'option must be the index of one of the options')
-    }
+    const reply = parseAnswer(req.body, card.options)
+    if (typeof reply === 'string') throw new CardError(400, reply)
     const answered = await answerWith(req, store, companyId, card, userId, reply.body, reply.pick, null)
     if (!answered) throw new CardError(409, 'someone answered first')
     res.json({ card: answered })

@@ -55,7 +55,7 @@ function sameDay(a: Date, b: Date): boolean {
  * reply that answered a question card (`isAnswer`) is an answer line, which
  * ends the turn like any line.
  */
-export function buildItems(messages: Message[], meId: string | null, isAnswer: (m: Message) => boolean = () => false): Item[] {
+export function buildItems(messages: Message[], meId: string | null, isAnswer: (m: Message) => boolean): Item[] {
   const out: Item[] = []
   let prevAt: Date | null = null
   let shownMin = 0
