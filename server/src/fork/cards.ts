@@ -19,11 +19,14 @@ import type { Request, Response } from 'express'
 import type { AuthedRequest } from '../auth.js'
 import type { ParsedArgs } from '../agents/cli-parse.js'
 import type { CliResult } from '../agents/cli-result.js'
-import { getForkStore, type Card, type ForkStore } from './store.js'
+import { getForkStore, type Card, type CardAnswer, type ForkStore } from './store.js'
 
 export const MAX_QUESTION = 280
 export const MAX_OPTIONS = 8
 export const MAX_OPTION = 120
+/** An answer typed into the card. The store file is rewritten on every change,
+ *  so a pasted log belongs in a message, not here. */
+export const MAX_ANSWER = 4000
 export const MAX_SECRET_BYTES = 16 * 1024
 
 type Requirer = (req: Request & AuthedRequest) => Promise<{ userId: string; companyId: string }>
@@ -62,10 +65,11 @@ const SECRET_USAGE = 'usage: secret request <convo_id> "<what it is for>" [--bod
 const ASK_HELP = `${ASK_USAGE}
 
 Asks the people in the room to pick one option. The question goes out as your
-message with the options under it, and the first person to pick closes it. Their
-pick comes back as their reply quoting your question. --body puts more text
-above the question, in the same message. --continue and --send-anyway work as
-in \`cumora reply\`.`
+message with the options under it, and the first person to answer closes it. A
+person can also answer in their own words, so leave out an "other" option.
+Their answer comes back as their reply quoting your question. --body puts more
+text above the question, in the same message. --continue and --send-anyway
+work as in \`cumora reply\`.`
 
 const SECRET_HELP = `${SECRET_USAGE}
 
@@ -149,7 +153,7 @@ async function ask(parsed: ParsedArgs, me: string, kind: Card['kind']): Promise<
   await announce(companyId, card)
   const text = kind === 'choice'
     ? `asked · ${messageId}\n${options.map((o, i) => `  ${i + 1}. ${o}`).join('\n')}\n` +
-      `The pick comes back as a person's reply quoting ${messageId}; nothing else to do until then.`
+      `The answer, a pick or their own words, comes back as a person's reply quoting ${messageId}; nothing else to do until then.`
     : `asked for a secret · ${messageId}\n` +
       `When a person sends it, their reply quotes ${messageId}. Then run once: cumora secret take ${messageId} <path>\n` +
       'Pick a path outside git work trees and memory/, such as ~/.secrets/<name>. ' +
@@ -321,12 +325,13 @@ async function postAsCaller(req: Request, companyId: string, conversationId: str
 }
 
 /** Closes the card under the client id its answer will carry, before the
- *  answer is posted: no second answer slips in, and clients hide the reply
- *  from its first frame because they hear of the card first. An answer whose
- *  reply was not written opens the card again. Null when someone answered first. */
-async function answerWith(req: Request, store: ForkStore, companyId: string, card: Card, userId: string, body: string, option: number | null, sealed: string | null): Promise<Card | null> {
+ *  answer is posted: no second answer slips in, and clients draw the reply as
+ *  the card's answer from its first frame because they hear of the card
+ *  first. An answer whose reply was not written opens the card again. Null
+ *  when someone answered first. */
+async function answerWith(req: Request, store: ForkStore, companyId: string, card: Card, userId: string, body: string, pick: Pick<CardAnswer, 'option' | 'text'>, sealed: string | null): Promise<Card | null> {
   const clientId = `card-${randomUUID()}`
-  if (!store.claimAnswer(companyId, card.messageId, { by: userId, at: new Date().toISOString(), option, clientId }, sealed)) return null
+  if (!store.claimAnswer(companyId, card.messageId, { by: userId, at: new Date().toISOString(), ...pick, clientId }, sealed)) return null
   posting.set(clientId, Number.POSITIVE_INFINITY)
   const claimed = store.card(companyId, card.messageId) as Card
   await announce(companyId, claimed)
@@ -391,15 +396,23 @@ async function answerable(requireCompany: Requirer, req: Request & AuthedRequest
   return { userId, companyId, store, card }
 }
 
-/** POST /api/fork/cards/:messageId/answer { option }: picks an option by index. */
+/** POST /api/fork/cards/:messageId/answer { option } | { text }: picks an
+ *  option by its index, or answers in the person's own words. */
 export function answerChoice(requireCompany: Requirer, req: Request & AuthedRequest, res: Response): Promise<void> {
   return handle(res, async () => {
     const { userId, companyId, store, card } = await answerable(requireCompany, req, 'choice')
     const option: unknown = req.body?.option
-    if (typeof option !== 'number' || !Number.isInteger(option) || option < 0 || option >= card.options.length) {
+    const text = typeof req.body?.text === 'string' ? req.body.text.trim() : null
+    let reply: { body: string; pick: Pick<CardAnswer, 'option' | 'text'> }
+    if (text !== null) {
+      if (!text || text.length > MAX_ANSWER) throw new CardError(400, `text must be 1 to ${MAX_ANSWER} characters`)
+      reply = { body: text, pick: { option: null, text } }
+    } else if (typeof option === 'number' && Number.isInteger(option) && option >= 0 && option < card.options.length) {
+      reply = { body: card.options[option], pick: { option, text: null } }
+    } else {
       throw new CardError(400, 'option must be the index of one of the options')
     }
-    const answered = await answerWith(req, store, companyId, card, userId, card.options[option], option, null)
+    const answered = await answerWith(req, store, companyId, card, userId, reply.body, reply.pick, null)
     if (!answered) throw new CardError(409, 'someone answered first')
     res.json({ card: answered })
   })
@@ -423,7 +436,7 @@ export function sendSecret(requireCompany: Requirer, req: Request & AuthedReques
     }
     const sealed = sealSecret(await secretKey(), card.messageId, value)
     const body = `🔑 Sent securely. Take it once with \`cumora secret take ${card.messageId} <path>\``
-    const answered = await answerWith(req, store, companyId, card, userId, body, null, sealed)
+    const answered = await answerWith(req, store, companyId, card, userId, body, { option: null, text: null }, sealed)
     if (!answered) throw new CardError(409, 'someone sent it first')
     res.json({ card: answered })
   })

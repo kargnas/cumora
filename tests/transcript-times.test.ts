@@ -26,6 +26,12 @@ test('a burst gets one time, then one more once the clock reads 5 minutes later'
   assert.deepEqual(stamps(items), ['turn', 'hidden', 'hidden', 'slot'])
 })
 
+test('the reply that answered a question card is a line, so the agent speaks again in a new turn', () => {
+  const answer = msg('me', '22:12:10')
+  const items = buildItems([msg('a', '22:10:00'), answer, msg('a', '22:12:40')], 'me', (m) => m.id === answer.id)
+  assert.deepEqual(stamps(items), ['turn', 'answer', 'turn'])
+})
+
 test('a new sender starts a turn, and only a silence of 15 minutes draws a line', () => {
   const items = buildItems([msg('a', '14:10:40'), msg('me', '18:28:03'), msg('a', '18:29:20'), msg('a', '18:38:05')], 'me')
   assert.deepEqual(stamps(items), ['turn', 'turn', 'turn', 'slot'])

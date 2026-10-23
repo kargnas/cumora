@@ -3,9 +3,11 @@
  * secret (server/src/fork/cards.ts). A room's cards load with its transcript,
  * which waits for them on its first load so a card never pops in under
  * history, and change through the `fork.card` event. A person's answer is
- * their reply quoting the question; the card shows it, so the transcript
- * hides that reply (`hidden`). The server sends the closed card before it
- * posts the reply, so the reply is hidden from its first frame.
+ * their reply quoting the question. The transcript draws the reply to a
+ * question as a one-line note and leaves out the reply to a secret request,
+ * which only says that it was sent (`answers`). The server sends the closed
+ * card before it posts the reply, so the reply takes that shape from its
+ * first frame.
  */
 import { create } from 'zustand'
 import { ApiError, http, ws } from '@/api/client'
@@ -14,8 +16,10 @@ import { useAuth } from '@/stores/auth'
 export interface CardAnswer {
   by: string
   at: string
-  /** The option's index; null for a secret. */
+  /** The option's index; null for a secret or an answer in the person's own words. */
   option: number | null
+  /** What the person typed instead of picking an option; null otherwise. */
+  text: string | null
   clientId: string
   messageId: string | null
 }
@@ -35,7 +39,13 @@ export interface Card {
   rev: number
 }
 
-const NONE: ReadonlySet<string> = new Set()
+/** A question's answer: an option by its index, or the person's own words. */
+export type CardPick = { option: number } | { text: string }
+
+/** A room's answer replies, by their id and their client id, with the kind of card each answered. */
+type Answers = ReadonlyMap<string, Card['kind']>
+
+const NONE: Answers = new Map()
 
 interface State {
   byMessage: Record<string, Card>
@@ -44,18 +54,18 @@ interface State {
   /** Rooms whose load finished, even by failing: a transcript waits for this,
    *  never forever. A failed room loads again the next time it opens. */
   ready: Record<string, true>
-  /** Per room, the ids and client ids of the replies that answered its cards. */
-  hidden: Record<string, ReadonlySet<string>>
+  /** Per room, the replies that answered its cards. */
+  answers: Record<string, Answers>
   load: (conversationId: string) => Promise<void>
-  answer: (card: Card, option: number) => Promise<void>
+  answer: (card: Card, pick: CardPick) => Promise<void>
   sendSecret: (card: Card, value: string) => Promise<void>
 }
 
 /** Adds the cards the server sent, keeping the newer copy of each by its
  *  `rev`: a load's snapshot or an answer's response can arrive after a later
  *  change came through `fork.card`. ponytail: cards are only ever added, so
- *  a purged agent's cards stay until the page reloads. A room's hidden set
- *  keeps its identity while it holds the same ids, so the transcript does not
+ *  a purged agent's cards stay until the page reloads. A room's answers keep
+ *  their identity while they hold the same replies, so the transcript does not
  *  rebuild its rows for a card that changed nothing there. */
 function put(s: State, cards: Card[]): Partial<State> {
   const byMessage = { ...s.byMessage }
@@ -65,23 +75,23 @@ function put(s: State, cards: Card[]): Partial<State> {
     byMessage[c.messageId] = c
     rooms.add(c.conversationId)
   }
-  const hidden = { ...s.hidden }
+  const answers = { ...s.answers }
   for (const r of rooms) {
-    const ids = new Set<string>()
+    const ids = new Map<string, Card['kind']>()
     for (const c of Object.values(byMessage)) {
       if (c.conversationId !== r || !c.answer) continue
-      ids.add(c.answer.clientId)
-      if (c.answer.messageId) ids.add(c.answer.messageId)
+      ids.set(c.answer.clientId, c.kind)
+      if (c.answer.messageId) ids.set(c.answer.messageId, c.kind)
     }
-    const prev = s.hidden[r] ?? NONE
-    if (ids.size !== prev.size || [...ids].some((id) => !prev.has(id))) hidden[r] = ids
+    const prev = s.answers[r] ?? NONE
+    if (ids.size !== prev.size || [...ids].some(([id, kind]) => prev.get(id) !== kind)) answers[r] = ids
   }
-  return { byMessage, hidden }
+  return { byMessage, answers }
 }
 
 export const useCards = create<State>((set, get) => {
   useAuth.subscribe((s, prev) => {
-    if (s.contextEpoch !== prev.contextEpoch) set({ byMessage: {}, loaded: {}, ready: {}, hidden: {} })
+    if (s.contextEpoch !== prev.contextEpoch) set({ byMessage: {}, loaded: {}, ready: {}, answers: {} })
   })
   // A fork event, outside the client's event union. After a reconnect the
   // rooms already shown load again, since events sent meanwhile are lost.
@@ -109,7 +119,7 @@ export const useCards = create<State>((set, get) => {
     byMessage: {},
     loaded: {},
     ready: {},
-    hidden: {},
+    answers: {},
 
     async load(conversationId) {
       const epoch = useAuth.getState().contextEpoch
@@ -128,17 +138,36 @@ export const useCards = create<State>((set, get) => {
       }
     },
 
-    answer: (card, option) => post(card, 'answer', { option }),
+    answer: (card, pick) => post(card, 'answer', pick),
     sendSecret: (card, value) => post(card, 'secret', { value }),
   }
 })
 
-/** The room's answer replies, for the transcript and threads to leave out. */
-export function useHiddenAnswers(conversationId: string): ReadonlySet<string> {
-  return useCards((s) => s.hidden[conversationId] ?? NONE)
+/** The room's answer replies, for the transcript and threads. */
+export function useCardAnswers(conversationId: string): Answers {
+  return useCards((s) => s.answers[conversationId] ?? NONE)
 }
 
-/** Whether a message is a reply that answered a card, which the card shows. */
-export function answersCard(hidden: ReadonlySet<string>, m: { id: string; clientId?: string }): boolean {
-  return hidden.has(m.id) || (m.clientId !== undefined && hidden.has(m.clientId))
+/** The kind of card a message answered, if it is such a reply. */
+export function answerKind(answers: Answers, m: { id: string; clientId?: string }): Card['kind'] | undefined {
+  return answers.get(m.id) ?? (m.clientId === undefined ? undefined : answers.get(m.clientId))
+}
+
+/** The question a message is about when it quotes one: the question itself,
+ *  or the reply that answered it. */
+export function questionOf(byMessage: Record<string, Card>, quotedId: string): Card | undefined {
+  const own = byMessage[quotedId]
+  if (own) return own.kind === 'choice' ? own : undefined
+  return Object.values(byMessage).find((c) => c.kind === 'choice' && c.answer?.messageId === quotedId)
+}
+
+/** The room's newest card nobody has answered: what its agent waits for. */
+export function useWaitingCard(conversationId: string): Card | undefined {
+  return useCards((s) => {
+    let newest: Card | undefined
+    for (const c of Object.values(s.byMessage)) {
+      if (c.conversationId === conversationId && !c.answer && (!newest || c.createdAt > newest.createdAt)) newest = c
+    }
+    return newest
+  })
 }

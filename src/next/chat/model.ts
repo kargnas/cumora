@@ -23,6 +23,8 @@ export type Item =
   | { type: 'msg'; key: string; msg: Message; mine: boolean; pos: Pos; stamp: Stamp; day: Date | null; pause: number | null; at: Date }
   | { type: 'work'; key: string; authorId: string; msgs: Message[]; day: Date | null; pause: number | null; at: Date }
   | { type: 'line'; key: string; msg: Message; day: Date | null; pause: number | null; at: Date }
+  /** A reply that answered a question card (chat/cards.ts), drawn as one line. */
+  | { type: 'answer'; key: string; msg: Message; day: Date | null; pause: number | null; at: Date }
 
 export function createdAt(m: Message): Date {
   const iso = (m as Message & { createdAt?: string }).createdAt
@@ -49,9 +51,11 @@ function sameDay(a: Date, b: Date): boolean {
  * line or anything that is not a message ends it). Its first message shows its
  * time on the name row; later ones show theirs only once the clock is
  * STAMP_GAP_MIN past the last time shown, so a burst gets one time, not one per line.
- * Calendar firings are left out: the room panel's Routines tab tracks runs.
+ * Calendar firings are left out: the room panel's Routines tab tracks runs. A
+ * reply that answered a question card (`isAnswer`) is an answer line, which
+ * ends the turn like any line.
  */
-export function buildItems(messages: Message[], meId: string | null): Item[] {
+export function buildItems(messages: Message[], meId: string | null, isAnswer: (m: Message) => boolean = () => false): Item[] {
   const out: Item[] = []
   let prevAt: Date | null = null
   let shownMin = 0
@@ -75,6 +79,10 @@ export function buildItems(messages: Message[], meId: string | null): Item[] {
     }
     if (LINE_KINDS.has(m.kind)) {
       out.push({ type: 'line', key: keyOf(m), msg: m, day, pause, at })
+      continue
+    }
+    if (isAnswer(m)) {
+      out.push({ type: 'answer', key: keyOf(m), msg: m, day, pause, at })
       continue
     }
 
