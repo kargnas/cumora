@@ -34,7 +34,8 @@ import { IconButton, INERT, Menu, Spinner, useMenu, type MenuEntry } from '../ui
 import { IArrowDown, IArrowUp, ICheck, ICopy, IDownload, IFile, IMore, IReply, ISpark, IThread, IWhisper } from '../ui/icons'
 import { buildItems, createdAt, floatingDay, type DayPill, type Item, type Pos, type Stamp } from './model'
 import { authorOf } from './deletedAuthor'
-import { answerKind, questionOf, useCardAnswers, useCards, useWaitingCard } from './cards'
+import { answerKind } from './cardAnswers'
+import { useCardAnswers, useCards, useQuestionOf, useWaitingCard } from './cards'
 import { AskCard } from './AskCard'
 import { openFigures, useRoomTokens, useTokens } from './tokens'
 import { AgendaCards, TokenDialog, TokenLine } from './TokenFigures'
@@ -348,7 +349,7 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
   const quoteText = useParticipants((s) => quote?.body.replace(/@([A-Za-z][\w-]*)/g, (m, id: string) => (s.byId[id] ? `@${s.byId[id].name}` : m)))
   // A message about a question card (it quotes the question or the reply that
   // answered it) names the question above the bubble instead of quoting it.
-  const about = useCards((s) => (quote ? questionOf(s, msg.conversationId, quote.id) : undefined))
+  const about = useQuestionOf(msg.conversationId, quote?.id)
 
   // A card is drawn under its question. One that arrives after the message is
   // on screen fades in; a remount (scrolling back) shows it at once.
@@ -771,7 +772,9 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
 
   // While the question the room's agent waits on is out of view, a pill says
   // so and goes to it. Only a loaded question gets one: a jump needs its row.
-  const waiting = useWaitingCard(convoId)
+  // A person's reply quoting a question answers it too (waitingQuestion).
+  const quoted = useMemo(() => new Set(raw.flatMap((m) => (m.quotedMessageId && byId[m.authorId]?.kind === 'human' ? [m.quotedMessageId] : []))), [raw, byId])
+  const waiting = useWaitingCard(convoId, quoted)
   const waitingId = waiting && items.some((it) => it.type === 'msg' && it.msg.id === waiting.messageId) ? waiting.messageId : null
   const waitingAgent = useParticipants((s) => (waiting ? s.byId[waiting.agentId]?.name : undefined))
   const range = useRef<ListRange | null>(null)
@@ -911,6 +914,9 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
   if (!cardsReady) return <TranscriptSkeleton />
 
 
+  // The floating chips (scroll-to-latest, the waiting pill) sit 8px above the composer.
+  const floating = { bottom: bottomInset + 8 }
+
   return (
     <div className="nx-transcript" onClick={toggleTimes}>
       <Virtuoso
@@ -942,7 +948,7 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
         type="button"
         className="nx-to-latest"
         data-show={!atBottom || undefined}
-        style={{ bottom: bottomInset + 8 }}
+        style={floating}
         aria-label={nt('msg.latest')}
         onClick={() => ref.current?.scrollToIndex({ index: items.length - 1, align: 'end', behavior: 'smooth' })}
       >
@@ -954,7 +960,7 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
           className="nx-waiting"
           data-show={away !== null || undefined}
           {...(away === null ? INERT : {})}
-          style={{ bottom: bottomInset + 8 }}
+          style={floating}
           onClick={() => useApp.getState().jumpToMessage(waitingId)}
         >
           {away === 'down' ? <IArrowDown aria-hidden /> : <IArrowUp aria-hidden />}

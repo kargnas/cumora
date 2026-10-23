@@ -15,7 +15,8 @@ import { Bubble } from '../chat/MessageList'
 import { Composer } from '../chat/Composer'
 import { createdAt } from '../chat/model'
 import { authorOf } from '../chat/deletedAuthor'
-import { answerKind, useCardAnswers } from '../chat/cards'
+import { answerKind } from '../chat/cardAnswers'
+import { useCardAnswers } from '../chat/cards'
 import { Spinner } from '../ui/primitives'
 
 const EMPTY: Message[] = []

@@ -736,15 +736,13 @@
 .nx-att-file__meta { font-size: var(--text-micro); opacity: 0.8; }
 .nx-att-file__dl { width: 16px; height: 16px; flex: none; opacity: 0.7; }
 
-/* Scroll-to-latest */
-.nx-to-latest {
+/* Chips floating over the transcript, just above the composer: scroll to
+   latest at the right edge, and "<agent> is waiting for an answer" in the
+   middle while the open question is out of view. */
+.nx-to-latest,
+.nx-waiting {
   position: absolute;
-  right: 16px;
   z-index: 4;
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
   border: 0;
   border-radius: 999px;
   background: var(--popover);
@@ -755,35 +753,24 @@
   transform: translateY(8px) scale(0.92);
   transition: opacity var(--duration-fast), transform var(--duration-fast) var(--ease-smooth-out);
 }
+.nx-to-latest[data-show],
+.nx-waiting[data-show] { opacity: 1; pointer-events: auto; transform: none; }
+.nx-to-latest { right: 16px; display: grid; place-items: center; width: 36px; height: 36px; }
 .nx-to-latest svg { width: 16px; height: 16px; }
-.nx-to-latest[data-show] { opacity: 1; pointer-events: auto; transform: none; }
-/* "<agent> is waiting for an answer" while the open question is out of view.
-   Centred between the edges, clear of the scroll-to-latest button. */
+/* Centred between the edges, clear of the scroll-to-latest button. */
 .nx-waiting {
-  position: absolute;
   left: 50%;
-  z-index: 4;
+  translate: -50% 0;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   max-width: calc(100% - 128px);
   height: 32px;
   padding: 0 12px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--popover);
-  box-shadow: var(--shadow-float);
   font: 500 var(--text-caption) / 1 var(--font-sans);
-  color: var(--foreground);
-  translate: -50% 0;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(8px) scale(0.96);
-  transition: opacity var(--duration-fast), transform var(--duration-fast) var(--ease-smooth-out);
 }
 .nx-waiting svg { flex: none; width: 14px; height: 14px; }
 .nx-waiting span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nx-waiting[data-show] { opacity: 1; pointer-events: auto; transform: none; }
 @media (hover: hover) {
   .nx-waiting:hover { background: color-mix(in oklch, var(--popover) 92%, var(--foreground)); }
 }
