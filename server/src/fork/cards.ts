@@ -64,12 +64,12 @@ const SECRET_USAGE = 'usage: secret request <convo_id> "<what it is for>" [--bod
 
 const ASK_HELP = `${ASK_USAGE}
 
-Asks the people in the room to pick one option. The question goes out as your
-message with the options under it, and the first person to answer closes it. A
-person can also answer in their own words, so leave out an "other" option.
-Their answer comes back as their reply quoting your question. --body puts more
-text above the question, in the same message. --continue and --send-anyway
-work as in \`cumora reply\`.`
+Asks the people in the room to answer by picking one option or in their own
+words, so leave out an "other" option. The question goes out as your message
+with the options under it, and the first person to answer closes it. Their
+answer comes back as their reply quoting your question. --body puts more text
+above the question, in the same message. --continue and --send-anyway work as
+in \`cumora reply\`.`
 
 const SECRET_HELP = `${SECRET_USAGE}
 
@@ -398,16 +398,20 @@ async function answerable(requireCompany: Requirer, req: Request & AuthedRequest
 
 /** What a POST to …/answer carries: `{ text }`, the person's own words
  *  (trimmed, 1 to MAX_ANSWER characters), which wins over `{ option }`, an
- *  option's index. A string says what is wrong with the body. */
+ *  option's index. Words that spell out an option are that option, so the
+ *  summary does not list it again among the others. A string says what is
+ *  wrong with the body. */
 export function parseAnswer(body: unknown, options: string[]): { body: string; pick: Pick<CardAnswer, 'option' | 'text'> } | string {
   const { option, text } = (body ?? {}) as { option?: unknown; text?: unknown }
+  let index = option
   if (typeof text === 'string') {
     const words = text.trim()
     if (!words || words.length > MAX_ANSWER) return `text must be 1 to ${MAX_ANSWER} characters`
-    return { body: words, pick: { option: null, text: words } }
+    index = options.indexOf(words)
+    if (index === -1) return { body: words, pick: { option: null, text: words } }
   }
-  if (typeof option === 'number' && Number.isInteger(option) && option >= 0 && option < options.length) {
-    return { body: options[option], pick: { option, text: null } }
+  if (typeof index === 'number' && Number.isInteger(index) && index >= 0 && index < options.length) {
+    return { body: options[index], pick: { option: index, text: null } }
   }
   return 'option must be the index of one of the options'
 }

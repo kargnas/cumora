@@ -54,7 +54,9 @@ function Choice({ card, showQuestion }: { card: Card; showQuestion: boolean }) {
   // The summary fades in only when the answer arrives while this card is on screen.
   const wasOpen = useRef(card.answer === null)
 
-  const send = async (pick: CardPick, tried: string) => {
+  const send = async (pick: CardPick) => {
+    // A card can open again after a lost race; only this try may show as unsent.
+    setLost(null)
     setBusy('option' in pick ? pick.option : 'text')
     setFailed(false)
     try {
@@ -62,7 +64,7 @@ function Choice({ card, showQuestion }: { card: Card; showQuestion: boolean }) {
       setDraft('')
       haptic('success')
     } catch (e) {
-      if (lostRace(e)) setLost(tried)
+      if (lostRace(e)) setLost('text' in pick ? pick.text : card.options[pick.option] ?? '')
       else {
         setFailed(true)
         haptic('error')
@@ -73,7 +75,7 @@ function Choice({ card, showQuestion }: { card: Card; showQuestion: boolean }) {
   }
   const sendDraft = () => {
     const text = draft.trim()
-    if (text && busy === null) void send({ text }, text)
+    if (text && busy === null) void send({ text })
   }
 
   if (card.answer) {
@@ -96,7 +98,7 @@ function Choice({ card, showQuestion }: { card: Card; showQuestion: boolean }) {
             className="nx-ask__option"
             disabled={busy !== null}
             aria-busy={busy === i || undefined}
-            onClick={() => void send({ option: i }, option)}
+            onClick={() => void send({ option: i })}
           >
             <span>{option}</span>
             {busy === i && <Spinner />}

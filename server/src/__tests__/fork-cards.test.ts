@@ -23,6 +23,7 @@ test('an answer is an option by its index, or the person\'s own words, which win
   assert.deepEqual(parseAnswer({ option: 1 }, options), { body: 'Wait', pick: { option: 1, text: null } })
   assert.deepEqual(parseAnswer({ option: 0, text: '  after the notes\n' }, options),
     { body: 'after the notes', pick: { option: null, text: 'after the notes' } }, 'trimmed, and they beat the option')
+  assert.deepEqual(parseAnswer({ text: ' Wait ' }, options), { body: 'Wait', pick: { option: 1, text: null } }, 'words that spell an option are that option')
   assert.equal(typeof parseAnswer({ text: ' \n ' }, options), 'string', 'blank words answer nothing')
   assert.equal(typeof parseAnswer({ text: 'x'.repeat(MAX_ANSWER) }, options), 'object')
   assert.equal(typeof parseAnswer({ text: 'x'.repeat(MAX_ANSWER + 1) }, options), 'string')
