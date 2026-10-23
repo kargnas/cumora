@@ -42,6 +42,11 @@ export function clock(d: Date, locale: Locale): string {
   return fmt(locale, { hour: '2-digit', minute: '2-digit' }).format(d)
 }
 
+/** "9:07 – 9:28 PM": Intl writes the shared part once, and adds the dates when the ends fall on different days. */
+export function clockRange(from: Date, to: Date, locale: Locale): string {
+  return fmt(locale, { hour: '2-digit', minute: '2-digit' }).formatRange(from, to)
+}
+
 /** "Monday, October 19, 2026" */
 export function fullDate(d: Date, locale: Locale): string {
   return fmt(locale, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).format(d)

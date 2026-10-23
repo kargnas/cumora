@@ -1,8 +1,8 @@
 /**
  * Where developer token figures go (chat/tokens.ts loads the calls): each
- * of my messages gets the calls from it to my next one, and an agenda turn a
- * card after the message it followed. Pure, so tests/dev-token-figures.test.ts
- * can run it without a browser.
+ * of my messages gets the calls from it to my next one, and the agenda turns
+ * that followed a message one card after it. Pure, so
+ * tests/dev-token-figures.test.ts can run it without a browser.
  */
 export interface Sub { id: string; description: string; type: string; tokens: number; toolUses: number; durationMs: number }
 
@@ -49,7 +49,8 @@ export interface Figures {
   hit: number | null
 }
 
-export interface AgendaCard { runId: string; at: string; figures: Figures }
+/** The agenda turns that followed one message: how many, and the figures of all their calls. */
+export interface AgendaCard { turns: number; figures: Figures }
 
 /** A message as the figures see it: its id, time (ISO), and whether I or an agent wrote it. */
 export interface Mark { id: string; at: string; mine: boolean; agent: boolean }
@@ -87,9 +88,9 @@ export function figuresOf(calls: Call[], from: string, to: string | null): Figur
 
 /** Figures for the calls from each of my messages to my next one, keyed by the
  *  agents' last reply in that stretch, below what it cost (a stretch without
- *  one shows nothing), and agenda cards after the message each turn followed. Marks and calls are in time order.
+ *  one shows nothing), and one agenda card after each message for the turns that followed it. Marks and calls are in time order.
  *  `cut`: the server dropped calls before it, so nothing that starts earlier is drawn. */
-export function place(marks: Mark[], calls: Call[], agenda: Call[], cut: string | null): { byMessage: Record<string, Figures>; cardsAfter: Record<string, AgendaCard[]> } {
+export function place(marks: Mark[], calls: Call[], agenda: Call[], cut: string | null): { byMessage: Record<string, Figures>; cardAfter: Record<string, AgendaCard> } {
   const mine = marks.filter((m) => m.mine)
   const byMessage: Record<string, Figures> = {}
   let i = 0
@@ -113,15 +114,25 @@ export function place(marks: Mark[], calls: Call[], agenda: Call[], cut: string 
     if (run) run.push(c)
     else runs.set(key, [c])
   }
-  const cardsAfter: Record<string, AgendaCard[]> = {}
-  for (const [runId, run] of runs) {
+  // The turns after one message share a card: while board work waits on a quiet
+  // agent, a turn comes every two or three minutes (AGENDA_QUIET_MS and
+  // AGENDA_CHECK_MS in the computer daemon). An agent's turns run one after
+  // another, so a card's calls stay in time order.
+  const after = new Map<string, { turns: number; calls: Call[] }>()
+  for (const run of runs.values()) {
     const at = run[0].at
     if (cut !== null && at <= cut) continue
     // The last message at or before the turn; one before the loaded history has no place yet.
     let host: string | null = null
     for (const m of marks) { if (m.at <= at) host = m.id; else break }
-    const figures = figuresOf(run, at, run[run.length - 1].at)
-    if (host && figures) (cardsAfter[host] ??= []).push({ runId, at, figures })
+    if (!host) continue
+    const card = after.get(host)
+    if (card) { card.turns += 1; card.calls.push(...run) }
+    else after.set(host, { turns: 1, calls: [...run] })
   }
-  return { byMessage, cardsAfter }
+  const cardAfter: Record<string, AgendaCard> = {}
+  for (const [host, { turns, calls: all }] of after) {
+    cardAfter[host] = { turns, figures: figuresOf(all, all[0].at, all[all.length - 1].at)! }
+  }
+  return { byMessage, cardAfter }
 }

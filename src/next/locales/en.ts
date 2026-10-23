@@ -117,6 +117,7 @@ const core = {
   'tokens.ctx': 'ctx {ctx}',
   'tokens.cache': 'cache {hit}',
   'tokens.agenda': 'Agenda turn {time}',
+  'tokens.agendaTurns': '{n} agenda turns {time}',
   'tokens.now': 'now',
   'tokens.context': 'Context now',
   'tokens.cacheHit': 'Cache hit',

@@ -1,6 +1,6 @@
 /**
  * Developer token figures (chat/tokens.ts): the line under the agents' reply
- * bubble, the agenda turn cards, and the details dialog they open. On a touch screen the
+ * bubble, the card of the agenda turns after a message, and the details dialog they open. On a touch screen the
  * line is too small to aim at, so the message's long-press sheet opens the
  * same details (MessageList's Bubble). Nothing renders unless developer mode
  * filled the store.
@@ -9,7 +9,7 @@ import { useCallback, useRef } from 'react'
 import { useLocale } from '@/lib/i18n'
 import { useParticipants } from '@/stores/participants'
 import { useNT, type NT } from '../i18n'
-import { clock, exactTime } from '../format'
+import { clock, clockRange, exactTime } from '../format'
 import { Dialog } from '../ui/primitives'
 import type { AgentFigures, Figures } from './tokenSpans'
 import { openFigures, useTokens } from './tokens'
@@ -38,26 +38,28 @@ export function TokenLine({ figures }: { figures: Figures }) {
   )
 }
 
-/** Agenda turns that ran after this message, each as its own card. */
-export function AgendaCards({ msgId }: { msgId: string }) {
+/** The agenda turns that ran after this message, on one card: the latest
+ *  turn's context and the cache hit over all of them. */
+export function AgendaTurns({ msgId }: { msgId: string }) {
   const nt = useNT()
   const locale = useLocale()
-  const cards = useTokens((s) => s.cardsAfter[msgId])
-  if (!cards) return null
+  const card = useTokens((s) => s.cardAfter[msgId])
+  if (!card) return null
+  const { turns, figures } = card
+  const from = new Date(figures.from)
+  const label = turns === 1
+    ? nt('tokens.agenda', { time: clock(from, locale) })
+    : nt('tokens.agendaTurns', { n: turns, time: clockRange(from, new Date(figures.to!), locale) })
   return (
-    <>
-      {cards.map((c) => (
-        <div key={c.runId} className="nx-line">
-          <button
-            type="button"
-            className="nx-tokens nx-tokens--card nx-mono"
-            onClick={() => openFigures(nt('tokens.agendaTitle'), c.figures)}
-          >
-            {[nt('tokens.agenda', { time: clock(new Date(c.at), locale) }), summary(c.figures, nt)].filter(Boolean).join(' · ')}
-          </button>
-        </div>
-      ))}
-    </>
+    <div className="nx-line">
+      <button
+        type="button"
+        className="nx-tokens nx-tokens--card nx-mono"
+        onClick={() => openFigures(nt('tokens.agendaTitle'), figures)}
+      >
+        {[label, summary(figures, nt)].filter(Boolean).join(' · ')}
+      </button>
+    </div>
   )
 }
 

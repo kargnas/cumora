@@ -126,6 +126,7 @@ export const zhCN: Partial<Record<keyof typeof en, string>> = {
   'tokens.ctx': '上下文 {ctx}',
   'tokens.cache': '缓存 {hit}',
   'tokens.agenda': '议程回合 {time}',
+  'tokens.agendaTurns': '{n} 个议程回合 {time}',
   'tokens.now': '现在',
   'tokens.context': '当前上下文',
   'tokens.cacheHit': '缓存命中',

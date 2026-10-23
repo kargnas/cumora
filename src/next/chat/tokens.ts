@@ -2,8 +2,8 @@
  * Developer token figures in a room, shown while developer mode is on (owners
  * and admins). Under the agents' last reply after each of my messages:
  * the context of the latest agent call and the cache hit ratio of every agent
- * call from my message to my next one, or to now. A 1:1 room's agent's agenda turns, which answer no room, show as
- * cards after the message they followed. The calls come from
+ * call from my message to my next one, or to now. A 1:1 room's agent's agenda turns, which answer no room, show on
+ * one card after the message they followed. The calls come from
  * GET /api/fork/rooms/:id/tokens (server/src/fork/tokens.ts), and
  * tokenSpans.ts places them.
  */
@@ -23,12 +23,12 @@ interface TokensState {
   /** The server's last answer per room. */
   rooms: Record<string, Loaded>
   byMessage: Record<string, Figures>
-  cardsAfter: Record<string, AgendaCard[]>
+  cardAfter: Record<string, AgendaCard>
   /** What the details dialog shows. */
   open: { title: string; figures: Figures } | null
 }
 
-export const useTokens = create<TokensState>(() => ({ rooms: {}, byMessage: {}, cardsAfter: {}, open: null }))
+export const useTokens = create<TokensState>(() => ({ rooms: {}, byMessage: {}, cardAfter: {}, open: null }))
 
 export function openFigures(title: string, figures: Figures): void {
   useTokens.setState({ open: { title, figures } })
@@ -89,7 +89,7 @@ export function useRoomTokens(convoId: string, items: Item[]): void {
   const marksRef = useRef(marks)
   marksRef.current = marks
   useEffect(() => {
-    const next = enabled && loaded ? place(marksRef.current, loaded.calls, loaded.agenda, loaded.cut) : { byMessage: {}, cardsAfter: {} }
-    useTokens.setState((s) => ({ byMessage: keep(s.byMessage, next.byMessage), cardsAfter: keep(s.cardsAfter, next.cardsAfter) }))
+    const next = enabled && loaded ? place(marksRef.current, loaded.calls, loaded.agenda, loaded.cut) : { byMessage: {}, cardAfter: {} }
+    useTokens.setState((s) => ({ byMessage: keep(s.byMessage, next.byMessage), cardAfter: keep(s.cardAfter, next.cardAfter) }))
   }, [enabled, key, loaded])
 }
