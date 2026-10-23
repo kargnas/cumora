@@ -61,7 +61,7 @@ import { runWithSessionRecovery } from './session-recovery.js'
 import { toolKindOf, type ToolKind } from '../../fork/toolKind.js'
 import { tokenMarks } from '../../fork/tokenRows.js'
 import { CARDS_PROMPT } from '../../fork/cardsPrompt.js'
-import { agentVisibleBody } from '../../fork/messageBody.js'
+import { digestHumanBody, humanLine, wholeInDigest } from '../../fork/messageBody.js'
 
 export { conversationHeader }
 
@@ -2766,6 +2766,8 @@ export class AgentRunner {
     // relay/status/membership notice)? The cost gate in runTurn uses this to
     // refuse to spend ANY model on a system-only (or empty) inbox.
     let hasReal = false
+    // Fork: people's messages the digest shows whole, newest first (fork/messageBody.ts).
+    const whole = wholeInDigest(inbox?.rows ?? [])
     // rows are ordered created_at ASC, so the last row per conversation is its
     // newest unread message — exactly the cursor we want to advance to.
     for (const row of inbox?.rows ?? []) {
@@ -2792,10 +2794,12 @@ export class AgentRunner {
       const who = row.author_kind ? `${author} (${row.author_kind})` : author
       // Render a due calendar alarm readably (title — prompt) so the engine
       // knows WHY it woke; other system rows stay redacted as before.
-      // Fork: a person's message is shown whole (fork/messageBody.ts).
-      const body = agentVisibleBody((row.kind === 'system'
-        ? (alarm ? `[calendar:due] ${[alarm.title, alarm.agentPrompt].filter(Boolean).join(' — ') || 'scheduled alarm fired'}` : '[system]')
-        : (row.body ?? '')).replace(/\s+/g, ' '), row.author_kind, 600)
+      // Fork: a person's message up to BODY_CAP within the digest's budget (fork/messageBody.ts).
+      const body = row.kind !== 'system' && row.author_kind === 'human'
+        ? digestHumanBody(row.body ?? '', whole.has(row.id), row.conversation_id)
+        : (row.kind === 'system'
+          ? (alarm ? `[calendar:due] ${[alarm.title, alarm.agentPrompt].filter(Boolean).join(' — ') || 'scheduled alarm fired'}` : '[system]')
+          : (row.body ?? '')).replace(/\s+/g, ' ').slice(0, 600)
       // Keep the message id + convo id on each line (like the cloud agent's
       // context) so the engine can QUOTE the exact message: `cumora reply
       // <convo> '<body>' --quote <message_id>`.
@@ -3197,7 +3201,10 @@ export class AgentRunner {
       if (!latest.id || latest.id === this.lastSteeredMsgId) return // dedup repeated wakes for the same ping
       this.lastSteeredMsgId = latest.id
       const who = latest.author_name ?? 'someone'
-      const body = (latest.body ?? '').replace(/\s+/g, ' ').slice(0, 300)
+      // Fork: a person's message up to BODY_CAP (fork/messageBody.ts).
+      const body = latest.author_kind === 'human'
+        ? humanLine(latest.body ?? '')
+        : (latest.body ?? '').replace(/\s+/g, ' ').slice(0, 300)
       let autoStop: ReturnType<typeof setTimeout> | null = null
       if (autoStopsTurn(latest, this.agent.id) && session.interrupt) {
         const seq = this.turnSeq

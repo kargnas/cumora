@@ -39,7 +39,7 @@ import {
   CH_MESSAGE_NEW,
   CH_STATUS,
 } from '../redis.js'
-import { agentVisibleBody } from '../fork/messageBody.js'
+import { humanLine } from '../fork/messageBody.js'
 
 // Every CLI result flows through ok()/err(), so scrubbing lone UTF-16 surrogates
 // here means CLI output (read by agents as tool results) can never carry a split
@@ -778,8 +778,9 @@ async function cmdMessages(parsed: ParsedArgs): Promise<CliResult> {
   const lines = [header, '']
   for (const m of inOrder) {
     const t = new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    // Fork: a person's message is shown whole (fork/messageBody.ts).
-    const body = m.kind === 'tool' ? `[tool call]` : agentVisibleBody(m.body, m.author_kind, 280).replace(/\n/g, ' \\n ')
+    // Fork: a person's message up to BODY_CAP (fork/messageBody.ts).
+    const body = m.kind === 'tool' ? `[tool call]`
+      : m.author_kind === 'human' ? humanLine(m.body) : m.body.slice(0, 280).replace(/\n/g, ' \\n ')
     lines.push(`  [${m.id}] [${t}] ${m.author_id.padEnd(8)} #${String(m.sequence).padStart(3, ' ')}  ${body}`)
     if (m.quoted_message_id) {
       if (m.quoted) {
@@ -992,6 +993,7 @@ interface InboxItem {
   conversation_topic: string | null
   author_id: string
   author_name: string
+  author_kind: string | null
   body: string
   kind: string
   sequence: number
@@ -1047,6 +1049,7 @@ async function loadInbox(agentId: string): Promise<InboxItem[]> {
         c.topic AS conversation_topic,
         m.author_id,
         COALESCE(p.name, m.author_id) AS author_name,
+        p.kind AS author_kind,
         m.body,
         m.kind,
         m.sequence,
@@ -1134,7 +1137,9 @@ async function cmdInbox(parsed: ParsedArgs): Promise<CliResult> {
     if (head.conversation_topic) lines.push(`  Topic: ${head.conversation_topic}`)
     for (const m of msgs) {
       const t = new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      const body = m.kind === 'tool' ? '[tool call]' : m.body.slice(0, 240).replace(/\n/g, ' \\n ')
+      // Fork: a person's message up to BODY_CAP (fork/messageBody.ts).
+      const body = m.kind === 'tool' ? '[tool call]'
+        : m.author_kind === 'human' ? humanLine(m.body) : m.body.slice(0, 240).replace(/\n/g, ' \\n ')
       lines.push(`  [${m.id}]  ${t}  ${m.author_name}: ${body}`)
       // Inline the quoted-original (one line, indented) so you can see what
       // a reply is replying to without a second lookup. Pass `--quote <id>`
@@ -1184,13 +1189,14 @@ async function cmdGlance(parsed: ParsedArgs): Promise<CliResult> {
     id: string
     author_id: string
     author_name: string
+    author_kind: string | null
     kind: string
     body: string
     created_at: string
     sequence: number
   }
   const { rows } = await pool.query<RecentRow>(
-    `SELECT m.id, m.author_id, COALESCE(p.name, m.author_id) AS author_name,
+    `SELECT m.id, m.author_id, COALESCE(p.name, m.author_id) AS author_name, p.kind AS author_kind,
             m.kind, m.body, m.created_at, m.sequence
        FROM messages m
        JOIN conversations c ON c.id = m.conversation_id
@@ -1248,7 +1254,8 @@ async function cmdGlance(parsed: ParsedArgs): Promise<CliResult> {
         ? '[tool call]'
         : m.kind === 'system'
           ? '[system]'
-          : m.body.slice(0, 200).replace(/\n/g, ' \\n ')
+          // Fork: a person's message up to BODY_CAP (fork/messageBody.ts).
+          : m.author_kind === 'human' ? humanLine(m.body) : m.body.slice(0, 200).replace(/\n/g, ' \\n ')
       lines.push(`  [${m.id}] ${tag} ${t}  ${m.author_name}: ${body}`)
     }
   }
@@ -2026,10 +2033,10 @@ async function cmdReply(parsed: ParsedArgs): Promise<CliResult> {
     // and a NEW turn's preemptive --send-anyway consumed it at 17:34,
     // shipping a stale "6" past Nova's 6 and Iris's 7 sight unseen.)
     const { rows: newer } = await pool.query<{
-      sequence: number; author_id: string; author_name: string | null; body: string
+      sequence: number; author_id: string; author_name: string | null; author_kind: string | null; body: string
     }>(
       `SELECT m.sequence, m.author_id, m.body,
-              COALESCE(p.name, u.display_name) AS author_name
+              COALESCE(p.name, u.display_name) AS author_name, p.kind AS author_kind
          FROM messages m
          LEFT JOIN participants p ON p.id = m.author_id
          LEFT JOIN users u ON u.id = m.author_id
@@ -2049,8 +2056,9 @@ async function cmdReply(parsed: ParsedArgs): Promise<CliResult> {
       // these same rows (the hold envelope itself advances the seen cursor).
       await recordSeen(me, convoId, maxHeldSeq)
       await recordHold(me, replyHoldScope, maxHeldSeq)
+      // Fork: a person's message up to BODY_CAP (fork/messageBody.ts).
       const lines = newer.map((r) =>
-        `  [seq=${r.sequence}] ${r.author_name || r.author_id}: ${r.body.replace(/\s+/g, ' ').slice(0, 200)}`
+        `  [seq=${r.sequence}] ${r.author_name || r.author_id}: ${r.author_kind === 'human' ? humanLine(r.body) : r.body.replace(/\s+/g, ' ').slice(0, 200)}`
       ).join('\n')
       return err(
         `HELD — your reply NOT sent. Your --send-anyway acknowledged an EARLIER hold, but the room has moved since: ` +
@@ -2088,10 +2096,10 @@ async function cmdReply(parsed: ParsedArgs): Promise<CliResult> {
     const baseline = await getSeen(me, convoId)
     if (baseline > 0) {
       const { rows: newer } = await pool.query<{
-        sequence: number; author_id: string; author_name: string | null; body: string
+        sequence: number; author_id: string; author_name: string | null; author_kind: string | null; body: string
       }>(
         `SELECT m.sequence, m.author_id, m.body,
-                COALESCE(p.name, u.display_name) AS author_name
+                COALESCE(p.name, u.display_name) AS author_name, p.kind AS author_kind
            FROM messages m
            LEFT JOIN participants p ON p.id = m.author_id
            LEFT JOIN users u ON u.id = m.author_id
@@ -2109,8 +2117,9 @@ async function cmdReply(parsed: ParsedArgs): Promise<CliResult> {
         // post after this, the re-attempt holds again on the truly-new ones.
         const maxHeldSeq = newer[newer.length - 1].sequence
         await recordSeen(me, convoId, maxHeldSeq)
+        // Fork: a person's message up to BODY_CAP (fork/messageBody.ts).
         const lines = newer.map((r) =>
-          `  [seq=${r.sequence}] ${r.author_name || r.author_id}: ${r.body.replace(/\s+/g, ' ').slice(0, 200)}`
+          `  [seq=${r.sequence}] ${r.author_name || r.author_id}: ${r.author_kind === 'human' ? humanLine(r.body) : r.body.replace(/\s+/g, ' ').slice(0, 200)}`
         ).join('\n')
         // Arm the hold token: NOW the agent has actually been shown the
         // held context, so a follow-up --send-anyway is a real

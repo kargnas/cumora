@@ -215,13 +215,15 @@ async function requireDevice(req: Request & AuthedRequest): Promise<{ computerId
   return dev
 }
 
+// Fork: each instance is someone's own self-hosted cumora, where no plan is
+// sold, so free gets pro's limits. The tier itself stays free on purpose: pro
+// also means the managed Cumora Cloud (starters seeded there, the hire form
+// defaulting to it), which instances do not have.
+const PRO_LIMITS = { companiesPerUser: 10, agentsPerCompany: 20, humansPerCompany: 10 } as const
+
 const TIER_LIMITS = {
-  // Fork: each instance is someone's own self-hosted cumora, where no plan is
-  // sold, so free gets pro's limits. The tier itself stays free on purpose:
-  // pro also means the managed Cumora Cloud (starters seeded there, the hire
-  // form defaulting to it), which instances do not have.
-  free: { companiesPerUser: 10, agentsPerCompany: 20, humansPerCompany: 10 },
-  pro:  { companiesPerUser: 10, agentsPerCompany: 20, humansPerCompany: 10 },
+  free: PRO_LIMITS,
+  pro:  PRO_LIMITS,
   max:  { companiesPerUser: 25, agentsPerCompany: 50, humansPerCompany: 25 },
 } as const
 
