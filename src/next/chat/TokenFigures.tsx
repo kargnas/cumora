@@ -5,7 +5,7 @@
  * message's long-press sheet opens the same details (MessageList's Bubble).
  * Nothing renders unless developer mode filled the store.
  */
-import { useCallback, useRef, useState } from 'react'
+import { type CSSProperties, useCallback, useRef, useState } from 'react'
 import { useLocale } from '@/lib/i18n'
 import { useParticipants } from '@/stores/participants'
 import { useNT, type NT } from '../i18n'
@@ -35,8 +35,6 @@ function summary(f: Figures, nt: NT, first: number | null = null): string {
  *  turn under this one sent thousands of tokens around it at these context sizes. */
 const LOW_CACHE = 0.9
 const isLow = (f: Figures) => f.hit !== null && f.hit < LOW_CACHE
-/** The tallest bar: a turn whose context fills its model's window. */
-const BAR_PX = 64
 
 /** The prompt tokens of a turn that did not come from the cache: cache writes and the uncached rest. */
 const missed = (f: Figures) => f.agents.reduce((n, a) => n + a.input + a.write, 0)
@@ -74,9 +72,8 @@ export function AgendaTurns({ msgId }: { msgId: string }) {
   if (!card) return null
   const { turns, figures } = card
   const first = turns[0]
-  const when = turns.length === 1
-    ? clock(new Date(first.from), locale)
-    : clockRange(new Date(first.from), new Date(turns[turns.length - 1].from), locale)
+  const at = (f: Figures) => clock(new Date(f.from), locale)
+  const when = turns.length === 1 ? at(first) : clockRange(new Date(first.from), new Date(turns[turns.length - 1].from), locale)
   const low = turns.filter(isLow)
   const lowest = low.reduce<Figures | null>((m, t) => (m && m.hit! <= t.hit! ? m : t), null)
   // Turns from rows without a window still get bars, scaled to the largest of them.
@@ -103,16 +100,12 @@ export function AgendaTurns({ msgId }: { msgId: string }) {
             {/* The table below carries the same numbers for screen readers. */}
             <div className="nx-agenda__bars" aria-hidden>
               {turns.map((t) => {
-                const height = scale > 0 ? ((t.ctx ?? 0) / scale) * BAR_PX : 0
-                const read = height * (t.hit ?? 0)
-                const rest = height - read
+                // An earlier turn on a model with a larger window can exceed the latest window; it tops out.
+                const height = scale > 0 ? Math.min(1, (t.ctx ?? 0) / scale) : 0
+                const style = { height: `${height * 100}%`, '--read': `${(t.hit ?? 0) * 100}%` } as CSSProperties
                 return (
-                  <span key={t.from} title={[clock(new Date(t.from), locale), summary(t, nt)].join(' · ')}>
-                    <span className="nx-agenda__bar">
-                      {rest >= 1 && <span data-rest style={{ height: rest }} />}
-                      {/* The 2px gap between the parts comes out of the read part, so the bar keeps its height. */}
-                      <span style={{ height: rest >= 1 ? Math.max(0, read - 2) : read }} />
-                    </span>
+                  <span key={t.from} title={[at(t), summary(t, nt)].join(' · ')}>
+                    <span className="nx-agenda__bar" style={style} />
                   </span>
                 )
               })}
@@ -126,7 +119,7 @@ export function AgendaTurns({ msgId }: { msgId: string }) {
               <tbody>
                 {turns.map((t) => (
                   <tr key={t.from}>
-                    <td>{clock(new Date(t.from), locale)}</td>
+                    <td>{at(t)}</td>
                     <td>{ctxText(t) ?? '—'}</td>
                     <td data-low={isLow(t) || undefined}>{t.hit === null ? '—' : pct(t.hit)}</td>
                   </tr>
@@ -140,8 +133,8 @@ export function AgendaTurns({ msgId }: { msgId: string }) {
         <p className="nx-agenda__low nx-mono">
           <IInfo />
           {low.length === 1
-            ? nt('tokens.lowOne', { time: clock(new Date(lowest.from), locale), hit: pct(lowest.hit!), n: COMPACT.format(missed(lowest)) })
-            : nt('tokens.lowMany', { n: low.length, limit: `${LOW_CACHE * 100}%`, hit: pct(lowest.hit!), time: clock(new Date(lowest.from), locale) })}
+            ? nt('tokens.lowOne', { time: at(lowest), hit: pct(lowest.hit!), n: COMPACT.format(missed(lowest)) })
+            : nt('tokens.lowMany', { n: low.length, limit: `${LOW_CACHE * 100}%`, hit: pct(lowest.hit!), time: at(lowest) })}
         </p>
       )}
     </div>

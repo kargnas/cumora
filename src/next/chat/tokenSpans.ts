@@ -122,14 +122,14 @@ export function place(marks: Mark[], calls: Call[], agenda: Call[], cut: string 
   const after = new Map<string, Call[][]>()
   for (const run of runs.values()) {
     const at = run[0].at
-    if (cut !== null && at <= cut) continue
     // The last message at or before the turn; one before the loaded history has no place yet.
-    let host: string | null = null
-    for (const m of marks) { if (m.at <= at) host = m.id; else break }
-    if (!host) continue
-    const turns = after.get(host)
+    let host: Mark | null = null
+    for (const m of marks) { if (m.at <= at) host = m; else break }
+    // A card whose message is at or before the cut would count only the turns after it.
+    if (!host || (cut !== null && host.at <= cut)) continue
+    const turns = after.get(host.id)
     if (turns) turns.push(run)
-    else after.set(host, [run])
+    else after.set(host.id, [run])
   }
   const cardAfter: Record<string, AgendaCard> = {}
   for (const [host, turns] of after) {

@@ -392,7 +392,12 @@
    and one line under it for the turns whose cache hit fell. Each bar is a
    meter (the share read from the cache in primary over a neutral rest), and
    the table under the bars carries the same numbers. */
-.nx-agenda { max-width: 820px; margin: 0 auto; padding: 8px 16px; }
+.nx-agenda {
+  --agenda-rest: color-mix(in oklch, var(--muted-foreground) 45%, transparent);
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 8px 16px;
+}
 .nx-agenda__box { border-radius: var(--radius); background: var(--muted); }
 .nx-agenda__digest {
   display: grid;
@@ -422,17 +427,21 @@
 }
 .nx-agenda__more { padding: 0 12px 12px; }
 .nx-agenda__more[data-fresh] { animation: nx-rise var(--duration-fast) var(--ease-smooth-out) both; }
-.nx-agenda__bars { display: flex; align-items: flex-end; height: 64px; box-shadow: inset 0 -1px 0 var(--border); }
+.nx-agenda__bars { display: flex; height: 64px; box-shadow: inset 0 -1px 0 var(--border); }
 /* Every turn gets an equal slot of the width, so a long night of turns narrows
    the bars instead of overflowing the row. */
-.nx-agenda__bars > span { display: flex; justify-content: center; flex: 1 1 0; min-width: 0; max-width: 16px; }
-.nx-agenda__bar { display: flex; flex-direction: column; gap: 2px; width: 75%; }
-.nx-agenda__bar > span { background: var(--primary); }
-.nx-agenda__bar > span[data-rest] { background: color-mix(in oklch, var(--muted-foreground) 45%, transparent); }
-.nx-agenda__bar > span:first-child { border-radius: 4px 4px 0 0; }
+.nx-agenda__bars > span { display: flex; align-items: flex-end; justify-content: center; flex: 1 1 0; min-width: 0; max-width: 16px; }
+/* Its height (inline) is the turn's context against the window. The share read
+   from the cache (--read) fills from the bottom, then a 2px gap of the box's
+   own surface, then the rest. A nearly full share pushes the gap past the top. */
+.nx-agenda__bar {
+  width: 75%;
+  border-radius: 4px 4px 0 0;
+  background: linear-gradient(to top, var(--primary) var(--read), transparent var(--read) calc(var(--read) + 2px), var(--agenda-rest) calc(var(--read) + 2px));
+}
 .nx-agenda__legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 8px 0; font-size: var(--text-micro); color: var(--muted-foreground); }
 .nx-agenda__legend span { display: inline-flex; align-items: center; gap: 4px; }
-.nx-agenda__legend i { width: 8px; height: 8px; border-radius: 2px; background: color-mix(in oklch, var(--muted-foreground) 45%, transparent); }
+.nx-agenda__legend i { width: 8px; height: 8px; border-radius: 2px; background: var(--agenda-rest); }
 .nx-agenda__legend i[data-read] { background: var(--primary); }
 .nx-agenda__table { width: 100%; border-collapse: collapse; font-size: var(--text-micro); }
 .nx-agenda__table th { padding: 4px 0; font-family: var(--font-sans); font-weight: 500; color: var(--muted-foreground); text-align: left; box-shadow: inset 0 -1px 0 var(--border); }

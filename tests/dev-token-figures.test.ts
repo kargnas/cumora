@@ -79,9 +79,17 @@ test('the agenda turns after a message share one card', () => {
 test('a stretch that starts before the server\'s cut gets no figures', () => {
   const items = [msg('a', '2026-10-22T10:00:00.000Z', true), msg('b', '2026-10-22T10:01:00.000Z', false), msg('c', '2026-10-22T10:02:00.000Z', true), msg('d', '2026-10-22T10:02:30.000Z', false)]
   const calls = [call('2026-10-22T10:01:30.000Z'), call('2026-10-22T10:03:00.000Z')]
-  const agenda = [call('2026-10-22T10:01:00.000Z', { runId: 'early' }), call('2026-10-22T10:04:00.000Z', { runId: 'late' })]
+  const agenda = [
+    call('2026-10-22T10:01:00.000Z', { runId: 'early' }),
+    call('2026-10-22T10:01:45.000Z', { runId: 'after-cut' }),
+    call('2026-10-22T10:04:00.000Z', { runId: 'late' }),
+  ]
   const { byMessage, cardAfter } = place(items, calls, agenda, '2026-10-22T10:01:30.000Z')
   assert.equal(byMessage.b, undefined, 'its first calls were cut')
   assert.equal(byMessage.d.agents[0].calls, 1)
-  assert.deepEqual(Object.entries(cardAfter).map(([id, c]) => [id, c.turns.length]), [['d', 1]])
+  assert.deepEqual(
+    Object.entries(cardAfter).map(([id, c]) => [id, c.turns.length]),
+    [['d', 1]],
+    'the turns after b would count only the part after the cut',
+  )
 })
