@@ -535,6 +535,29 @@ interface RuntimeInboxResponse {
 // in EVERY chat turn's prompt (see chatDelta), so it stays small.
 const DIGEST_MAX_MESSAGE_LINES = 40
 
+/** How many of each conversation's unread lines renderInboxDigest keeps, from
+ *  [conversation id, unread count] in first-seen order. Water-fill
+ *  quietest-first: each conversation takes at most an even share of what is
+ *  LEFT, so a small conversation keeps all of its messages and the busy one
+ *  absorbs the slack. When the total fits, this hands every conversation its
+ *  full set (nothing omitted, nothing announced). Exported because the fork's
+ *  whole-body budget (fork/messageBody.ts) spends only on kept lines. */
+export function digestKeep(
+  counts: ReadonlyArray<readonly [string, number]>,
+  budget = DIGEST_MAX_MESSAGE_LINES,
+): Map<string, number> {
+  const keep = new Map<string, number>()
+  let lineBudget = budget
+  let unserved = counts.length
+  for (const [id, count] of [...counts].sort((a, b) => a[1] - b[1])) {
+    const n = Math.min(count, Math.max(0, Math.floor(lineBudget / unserved)))
+    keep.set(id, n)
+    lineBudget -= n
+    unserved -= 1
+  }
+  return keep
+}
+
 /** Render the pre-loaded unread digest for the wake prompt within
  *  DIGEST_MAX_MESSAGE_LINES.
  *
@@ -559,19 +582,7 @@ export function renderInboxDigest(
   budget = DIGEST_MAX_MESSAGE_LINES,
 ): string {
   if (byConvo.size === 0) return ''
-  // Water-fill quietest-first: each conversation takes at most an even share of
-  // what is LEFT, so a small conversation keeps all of its messages and the busy
-  // one absorbs the slack. When the total fits, this hands every conversation
-  // its full set (nothing omitted, nothing announced).
-  const keep = new Map<string, number>()
-  let lineBudget = budget
-  let unserved = byConvo.size
-  for (const [id, convo] of [...byConvo].sort((a, b) => a[1].msgs.length - b[1].msgs.length)) {
-    const n = Math.min(convo.msgs.length, Math.max(0, Math.floor(lineBudget / unserved)))
-    keep.set(id, n)
-    lineBudget -= n
-    unserved -= 1
-  }
+  const keep = digestKeep([...byConvo].map(([id, convo]) => [id, convo.msgs.length] as const), budget)
   const lines: string[] = []
   for (const [id, convo] of byConvo) {
     const shown = keep.get(id) ?? 0
@@ -2766,8 +2777,15 @@ export class AgentRunner {
     // relay/status/membership notice)? The cost gate in runTurn uses this to
     // refuse to spend ANY model on a system-only (or empty) inbox.
     let hasReal = false
-    // Fork: people's messages the digest shows whole, newest first (fork/messageBody.ts).
-    const whole = wholeInDigest(inbox?.rows ?? [])
+    // Fork: unread per conversation, and the people's messages the digest shows
+    // whole among the lines renderInboxDigest keeps (fork/messageBody.ts).
+    const unread = new Map<string, number>()
+    for (const row of inbox?.rows ?? []) {
+      if (typeof row.conversation_id === 'string' && row.conversation_id) {
+        unread.set(row.conversation_id, (unread.get(row.conversation_id) ?? 0) + 1)
+      }
+    }
+    const whole = wholeInDigest(inbox?.rows ?? [], digestKeep([...unread]))
     // rows are ordered created_at ASC, so the last row per conversation is its
     // newest unread message — exactly the cursor we want to advance to.
     for (const row of inbox?.rows ?? []) {
@@ -2796,7 +2814,7 @@ export class AgentRunner {
       // knows WHY it woke; other system rows stay redacted as before.
       // Fork: a person's message up to BODY_CAP within the digest's budget (fork/messageBody.ts).
       const body = row.kind !== 'system' && row.author_kind === 'human'
-        ? digestHumanBody(row.body ?? '', whole.has(row.id), row.conversation_id)
+        ? digestHumanBody(row.body ?? '', whole.has(row.id), row.conversation_id, unread.get(row.conversation_id) ?? 1)
         : (row.kind === 'system'
           ? (alarm ? `[calendar:due] ${[alarm.title, alarm.agentPrompt].filter(Boolean).join(' — ') || 'scheduled alarm fired'}` : '[system]')
           : (row.body ?? '')).replace(/\s+/g, ' ').slice(0, 600)
