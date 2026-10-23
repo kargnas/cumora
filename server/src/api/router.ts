@@ -59,6 +59,7 @@ import { attachComputerControlStream, deliverEngineDetect } from '../agents/comp
 import { companyTier } from '../tier.js'
 import { createShippingRouter } from './shipping-router.js'
 import { createForkRouter } from '../fork/router.js'
+import { askFirstQuestion } from '../fork/firstQuestion.js'
 import {
   findIdempotentCreate, IdempotencyConflictError,
   parseRequestId, requestHash,
@@ -3037,14 +3038,21 @@ api.post('/agents', async (req, res) => {
   // conversations list until they manually click "Chat" — and the Chat
   // button on the agent card stays disabled because no direct exists.
   // Same idempotent shape as `POST /conversations/direct`.
+  let dm: string | null = null
   try {
-    await ensureDirectConversation({
+    dm = await ensureDirectConversation({
       companyId: tenant,
       firstId: me,
       secondId: data.id,
     })
   } catch (e) {
     console.warn('[agents] auto-create direct convo failed', e)
+  }
+  // Fork: a new agent starts that conversation with a question for the person
+  // who hired it (fork/firstQuestion.ts).
+  if (creation.created && dm) {
+    try { await askFirstQuestion({ companyId: tenant, conversationId: dm, agentId, ownerId: me }) }
+    catch (e) { console.warn('[agents] first question failed', e) }
   }
 
   // Fire-and-forget portrait generation. The agent appears immediately
