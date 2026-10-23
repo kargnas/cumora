@@ -39,6 +39,7 @@ import {
   CH_MESSAGE_NEW,
   CH_STATUS,
 } from '../redis.js'
+import { agentVisibleBody } from '../fork/messageBody.js'
 
 // Every CLI result flows through ok()/err(), so scrubbing lone UTF-16 surrogates
 // here means CLI output (read by agents as tool results) can never carry a split
@@ -711,7 +712,7 @@ async function cmdMessages(parsed: ParsedArgs): Promise<CliResult> {
   params.push(tail)
   const limitParam = `$${params.length}`
   const { rows } = await pool.query<{
-    id: string; author_id: string; kind: string; body: string; sequence: number;
+    id: string; author_id: string; author_kind: string | null; kind: string; body: string; sequence: number;
     created_at: string; attachment: StoredAttachment | null;
     poll: InboxPollPayload | null;
     quoted_message_id: string | null;
@@ -734,7 +735,7 @@ async function cmdMessages(parsed: ParsedArgs): Promise<CliResult> {
           )
      )
      SELECT
-        m.id, m.author_id, m.kind, m.body, m.sequence, m.created_at, m.attachment, m.poll,
+        m.id, m.author_id, author.kind AS author_kind, m.kind, m.body, m.sequence, m.created_at, m.attachment, m.poll,
         m.quoted_message_id,
         (
           SELECT jsonb_build_object(
@@ -749,6 +750,7 @@ async function cmdMessages(parsed: ParsedArgs): Promise<CliResult> {
         ) AS quoted
        FROM messages m
        JOIN authorized_conversation authorized ON authorized.id = m.conversation_id
+       LEFT JOIN participants author ON author.id = m.author_id AND author.company_id = $3
       WHERE TRUE
        ${whereExtra}
        ORDER BY m.sequence DESC LIMIT ${limitParam}`,
@@ -776,7 +778,8 @@ async function cmdMessages(parsed: ParsedArgs): Promise<CliResult> {
   const lines = [header, '']
   for (const m of inOrder) {
     const t = new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    const body = m.kind === 'tool' ? `[tool call]` : m.body.slice(0, 280).replace(/\n/g, ' \\n ')
+    // Fork: a person's message is shown whole (fork/messageBody.ts).
+    const body = m.kind === 'tool' ? `[tool call]` : agentVisibleBody(m.body, m.author_kind, 280).replace(/\n/g, ' \\n ')
     lines.push(`  [${m.id}] [${t}] ${m.author_id.padEnd(8)} #${String(m.sequence).padStart(3, ' ')}  ${body}`)
     if (m.quoted_message_id) {
       if (m.quoted) {

@@ -61,6 +61,7 @@ import { runWithSessionRecovery } from './session-recovery.js'
 import { toolKindOf, type ToolKind } from '../../fork/toolKind.js'
 import { tokenMarks } from '../../fork/tokenRows.js'
 import { CARDS_PROMPT } from '../../fork/cardsPrompt.js'
+import { agentVisibleBody } from '../../fork/messageBody.js'
 
 export { conversationHeader }
 
@@ -2791,9 +2792,10 @@ export class AgentRunner {
       const who = row.author_kind ? `${author} (${row.author_kind})` : author
       // Render a due calendar alarm readably (title — prompt) so the engine
       // knows WHY it woke; other system rows stay redacted as before.
-      const body = (row.kind === 'system'
+      // Fork: a person's message is shown whole (fork/messageBody.ts).
+      const body = agentVisibleBody((row.kind === 'system'
         ? (alarm ? `[calendar:due] ${[alarm.title, alarm.agentPrompt].filter(Boolean).join(' — ') || 'scheduled alarm fired'}` : '[system]')
-        : (row.body ?? '')).replace(/\s+/g, ' ').slice(0, 600)
+        : (row.body ?? '')).replace(/\s+/g, ' '), row.author_kind, 600)
       // Keep the message id + convo id on each line (like the cloud agent's
       // context) so the engine can QUOTE the exact message: `cumora reply
       // <convo> '<body>' --quote <message_id>`.
