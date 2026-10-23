@@ -493,7 +493,7 @@
   animation: nx-rise var(--duration-fast) var(--ease-smooth-out) both;
 }
 .nx-ask__unsent { display: flex; flex-direction: column; gap: 4px; font-size: var(--text-caption); color: var(--muted-foreground); }
-.nx-ask__unsent p { margin: 0; padding: 8px 12px; border-radius: var(--radius-sm); background: var(--muted); font-size: var(--text-body); color: var(--foreground); white-space: pre-wrap; }
+.nx-ask__unsent p { margin: 0; padding: 8px; border-radius: var(--radius-sm); background: var(--muted); font-size: var(--text-body); color: var(--foreground); white-space: pre-wrap; }
 .nx-ask__answer { display: flex; align-items: center; gap: 8px; }
 .nx-ask__answer > svg { flex: none; width: 16px; height: 16px; color: var(--muted-foreground); }
 .nx-ask__answer[data-muted] { color: var(--muted-foreground); }

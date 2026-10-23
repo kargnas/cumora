@@ -777,7 +777,7 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
   const quoted = useMemo(() => new Set(raw.flatMap((m) => (m.quotedMessageId && byId[m.authorId]?.kind === 'human' ? [m.quotedMessageId] : []))), [raw, byId])
   const waiting = useWaitingCard(convoId, quoted)
   const waitingId = waiting && items.some((it) => it.type === 'msg' && it.msg.id === waiting.messageId) ? waiting.messageId : null
-  const waitingAgent = useParticipants((s) => (waiting ? s.byId[waiting.agentId]?.name : undefined))
+  const waitingAgent = useParticipants((s) => (waiting ? authorOf(s.byId, waiting.agentId, nt)?.name : undefined))
   const range = useRef<ListRange | null>(null)
   const [away, recheckAway] = useAway(scroller, waitingId, () => {
     const index = itemsRef.current.findIndex((it) => it.type === 'msg' && it.msg.id === waitingId)

@@ -17,6 +17,7 @@ import { clock, exactTime, fullDate } from '../format'
 import { Avatar } from '../ui/Avatar'
 import { Spinner, useCoarse } from '../ui/primitives'
 import { ICheck, IChevronDown, IEye, IEyeOff, ILock } from '../ui/icons'
+import { unsentAnswer } from './cardAnswers'
 import { useCards, type Card, type CardAnswer, type CardPick } from './cards'
 import { MAX_ANSWER } from './limits'
 
@@ -80,10 +81,8 @@ function Choice({ card, showQuestion }: { card: Card; showQuestion: boolean }) {
 
   if (card.answer) {
     // Someone else answered: what this person picked or was still typing
-    // stays readable instead of vanishing with the field. My own answer never
-    // shows here: the closed card reaches me before the server answers my
-    // POST, and by then it already names me as the one who answered.
-    const unsent = card.answer.by === me ? null : lost ?? (draft.trim() || null)
+    // stays readable instead of vanishing with the field.
+    const unsent = unsentAnswer(card.answer.by, me, lost, draft)
     return <Summary card={card} answer={card.answer} showQuestion={showQuestion} rise={wasOpen.current} unsent={unsent} />
   }
   return (

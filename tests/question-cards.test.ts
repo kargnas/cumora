@@ -9,7 +9,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Card, CardAnswer } from '../src/next/chat/cards.ts'
-import { answerKind, questionOf, roomAnswers, waitingQuestion } from '../src/next/chat/cardAnswers.ts'
+import { answerKind, questionOf, roomAnswers, unsentAnswer, waitingQuestion } from '../src/next/chat/cardAnswers.ts'
 
 /** The minute in `createdAt` is the id's last digit, so a higher digit is newer. */
 const card = (messageId: string, over: Partial<Card> = {}): Card => ({
@@ -49,4 +49,11 @@ test('the room waits on its newest open question, not on a secret or a question 
   assert.equal(waitingQuestion([older, newer, ...others], 'room', new Set()), newer)
   assert.equal(waitingQuestion([older, newer], 'room', new Set(['m-q2'])), older, 'a person quoted the newer one')
   assert.equal(waitingQuestion([older, card('m-q2', { answer: answer('card-1') })], 'room', new Set(['m-q1'])), undefined)
+})
+
+test('someone else answering first keeps what I tried or typed, and my own answer never counts as unsent', () => {
+  assert.equal(unsentAnswer('me', 'me', 'A', 'still typing'), null, 'the closed card already names me while my POST is out')
+  assert.equal(unsentAnswer('maya', 'me', 'A', 'still typing'), 'A', 'the try that lost the race')
+  assert.equal(unsentAnswer('maya', 'me', null, '  half a thought \n'), 'half a thought')
+  assert.equal(unsentAnswer('maya', 'me', null, ' '), null)
 })

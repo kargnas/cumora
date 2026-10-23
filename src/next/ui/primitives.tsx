@@ -18,7 +18,8 @@ export const SPRING_SHEET = { type: 'spring', stiffness: 420, damping: 40, mass:
 export const MOD = isMac ? '⌘' : 'Ctrl'
 /** Spread onto an element to make it inert: React 18 drops an unknown boolean
  *  prop, while an empty string reaches the DOM. Inert keeps focus, clicks and
- *  screen readers out of something hidden only by its opacity. */
+ *  screen readers out of something that is in the DOM but not shown, such as
+ *  a faded-out chip or a collapsed group. */
 export const INERT = { inert: '' } as Record<string, string>
 
 export function Kbd({ children }: { children: ReactNode }) {

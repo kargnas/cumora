@@ -39,6 +39,15 @@ export function questionOf(byMessage: Record<string, Card>, answers: Answers, qu
   return card?.kind === 'choice' ? card : undefined
 }
 
+/** What a person tried to send when someone else answered first: the try
+ *  that lost the race (`lost`), else what they were still typing. Never my
+ *  own answer: the closed card reaches me before the server answers my POST,
+ *  and by then it already names me as the one who answered. */
+export function unsentAnswer(answeredBy: string, me: string | null, lost: string | null, draft: string): string | null {
+  if (answeredBy === me) return null
+  return lost ?? (draft.trim() || null)
+}
+
 /** The room's newest question nobody has answered: what its agent waits for.
  *  Left out are secret requests (one whose agent left the room can never be
  *  sent, so its pill would stay forever) and questions a person answered with
