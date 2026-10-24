@@ -12,12 +12,9 @@
  * trigger on an OP.GG repository reads it as the profile that may, and the
  * server keeps no token of its own.
  *
- * A fire posts the same system message as a Calendar dispatch, through
- * upstream's own `postDispatchMessage` (../calendar.ts), in the
- * `calendar_event` envelope with `eventKind: 'trigger'`: the daemon's and the
- * triage's alarm gates wake the assignee as they do for a routine, and the
- * clients keep it out of the transcript the same way. The pull request is the
- * event's description and the trigger's prompt its brief.
+ * A fire wakes the assignee in the trigger's room as a routine does, through
+ * ./dispatch.ts with `eventKind: 'trigger'`. The pull request is the event's
+ * description and the trigger's prompt its brief.
  *
  * People make triggers in the Routines tab (./router.ts), agents with
  * `cumora trigger` (runTriggerCli below), under the tab's rule: a room's
@@ -28,6 +25,7 @@ import { join, resolve } from 'node:path'
 import { joinBodyArgs, type ParsedArgs, unescapeChat } from '../agents/cli-parse.js'
 import type { CliResult } from '../agents/cli-result.js'
 import { agentCompany, fail, inRoom } from './cards.js'
+import { postWake, type Wake } from './dispatch.js'
 import { redact } from './redact.js'
 import { getForkStore, type Trigger } from './store.js'
 
@@ -145,19 +143,19 @@ export function dueFor(trigger: Pick<Trigger, 'since'>, pulls: MergedPr[]): Merg
   return pulls.filter((p) => Date.parse(p.mergedAt) > since).sort((a, b) => Date.parse(a.mergedAt) - Date.parse(b.mergedAt))
 }
 
-function envelope(t: Trigger, pr: MergedPr): string {
-  return JSON.stringify({
-    kind: 'calendar_event',
-    eventKind: 'trigger',
-    triggerId: t.id,
-    title: t.title,
-    description: `Pull request #${pr.number} "${pr.title}" by ${pr.author} merged into ${pr.base} of ${t.repo} at ${pr.mergedAt}.\n${pr.url}`,
-    agentPrompt: t.prompt,
+function wakeOf(t: Trigger, pr: MergedPr): Wake {
+  return {
+    companyId: t.companyId,
     assigneeId: t.assigneeId,
-    targetConversationId: t.conversationId,
+    conversationId: t.conversationId,
+    eventKind: 'trigger',
+    title: t.title,
+    agentPrompt: t.prompt,
     scheduledFor: pr.mergedAt,
+    triggerId: t.id,
+    description: `Pull request #${pr.number} "${pr.title}" by ${pr.author} merged into ${pr.base} of ${t.repo} at ${pr.mergedAt}.\n${pr.url}`,
     createdBy: t.createdBy,
-  })
+  }
 }
 
 /** Posts the trigger's message for one pull request. False when that event
@@ -166,13 +164,7 @@ export async function fire(t: Trigger, pr: MergedPr, eventKey = `pr:${pr.number}
   const store = await getForkStore()
   if (!store.claimFire(t.id, eventKey, new Date().toISOString(), `#${pr.number} ${pr.title}`)) return false
   try {
-    // Imported here, not at the top: calendar.js loads db/pool.js and env.ts (see router.ts).
-    const { postDispatchMessage } = await import('../calendar.js')
-    const messageId = await postDispatchMessage({
-      event: { company_id: t.companyId, assignee_id: t.assigneeId },
-      conversationId: t.conversationId,
-      body: envelope(t, pr),
-    })
+    const messageId = await postWake(wakeOf(t, pr))
     store.settleFire(t.id, eventKey, { messageId })
     return true
   } catch (err) {

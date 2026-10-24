@@ -24,8 +24,7 @@
  * failing server is shown under the list instead of the list going quiet.
  *
  * When a thread ends or waits for the answer to a question, the agent that
- * launched it is woken through upstream's postDispatchMessage in the
- * `calendar_event` envelope, like a trigger (./triggers.ts). The hook cannot
+ * launched it is woken through ./dispatch.ts, like a trigger (./triggers.ts). The hook cannot
  * tell which room the agent was working in, so the wake goes to the room of the
  * turn that launched the thread: the computer's daemon puts the room of each
  * turn on its calls in upstream's llm_calls (launchRoom).
@@ -34,6 +33,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { Request, Response } from 'express'
 import type { AuthedRequest } from '../auth.js'
+import { postWake, type Wake } from './dispatch.js'
 import { redact } from './redact.js'
 import { isPrivileged } from './roles.js'
 import { codingWakeKey, getForkStore, type CodingThread, type NewCodingThread } from './store.js'
@@ -263,11 +263,13 @@ async function agentWorkspaces(): Promise<string[]> {
   return rows.map((r) => r.company_id)
 }
 
-function envelope(t: CodingThread): string {
+function wakeOf(t: CodingThread, room: string): Wake {
   const where = `on the T3 MCP server ${t.server} (threadId ${t.threadId})`
   const question = t.status === 'question'
-  return JSON.stringify({
-    kind: 'calendar_event',
+  return {
+    companyId: t.companyId,
+    assigneeId: t.agentId,
+    conversationId: room,
     eventKind: 'coding',
     // Everyone in the room can read this message, so it carries no text of the
     // thread: a title is agent text that can quote any room, which agentCoding
@@ -277,10 +279,8 @@ function envelope(t: CodingThread): string {
     agentPrompt: question
       ? `Read its question with t3_pending_request_read (requestId ${t.requestId}) ${where}. Answer it with t3_pending_request_respond when the answer is yours to give, or ask the people in this room. Never answer with a secret or a credential unless a person in this room tells you to.`
       : `Read how it went with t3_thread_read ${where} and tell this room in a short message, unless you already did.`,
-    assigneeId: t.agentId,
-    targetConversationId: t.conversationId,
     scheduledFor: t.updatedAt,
-  })
+  }
 }
 
 async function wake(t: CodingThread): Promise<void> {
@@ -299,9 +299,7 @@ async function wake(t: CodingThread): Promise<void> {
   // between the two must not wake the agent twice.
   store.markCodingWoken(t.server, t.threadId, key, null, room)
   try {
-    // Imported here, not at the top: calendar.js loads db/pool.js and env.ts.
-    const { postDispatchMessage } = await import('../calendar.js')
-    await postDispatchMessage({ event: { company_id: t.companyId, assignee_id: t.agentId }, conversationId: room, body: envelope({ ...t, conversationId: room }) })
+    await postWake(wakeOf(t, room))
   } catch (err) {
     console.error(`[fork] could not wake ${t.agentId} for T3 thread ${t.threadId}:`, err)
     store.markCodingWoken(t.server, t.threadId, key, err instanceof Error ? err.message : String(err))

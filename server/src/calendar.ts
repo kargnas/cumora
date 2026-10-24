@@ -135,7 +135,7 @@ async function resolveTargetConversation(event: CalendarEventRow): Promise<strin
   return rows[0]?.id ?? null
 }
 
-// Exported for the fork's triggers (fork/triggers.ts), which post the same
+// Exported for the fork's wakes (fork/dispatch.ts), which post the same
 // message when an event happens instead of when a time comes.
 export async function postDispatchMessage(args: {
   event: Pick<CalendarEventRow, 'company_id' | 'assignee_id'>
