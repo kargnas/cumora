@@ -212,6 +212,20 @@ export function anchorFrom(el: Element, align: 'start' | 'end' = 'start'): MenuA
   return { x: align === 'end' ? r.right : r.left, y: r.bottom + 4, align }
 }
 
+/** A right-click while a menu is open never brings up the browser's own menu
+ *  on top of it. Outside the menu, pointerdown has already closed it, and the
+ *  right-click goes on to whatever lies under the layer, so another row's menu
+ *  opens with that same click, as in a desktop app. */
+function rightClickThrough(ev: React.MouseEvent<HTMLDivElement>): void {
+  ev.preventDefault()
+  if (ev.target !== ev.currentTarget) return
+  const layer = ev.currentTarget
+  const under = document.elementsFromPoint(ev.clientX, ev.clientY).find((el) => !layer.contains(el))
+  under?.dispatchEvent(new MouseEvent('contextmenu', {
+    bubbles: true, cancelable: true, clientX: ev.clientX, clientY: ev.clientY, button: 2, buttons: 2,
+  }))
+}
+
 export function Menu({ open, anchor, entries, onClose, header }: {
   open: boolean
   anchor: MenuAnchor | null
@@ -278,7 +292,11 @@ export function Menu({ open, anchor, entries, onClose, header }: {
     <Portal>
       <AnimatePresence>
         {open && (
-          <div className="nx-layer" onPointerDown={(ev) => { if (ev.target === ev.currentTarget) onClose() }}>
+          <div
+            className="nx-layer"
+            onPointerDown={(ev) => { if (ev.target === ev.currentTarget) onClose() }}
+            onContextMenu={rightClickThrough}
+          >
             {coarse ? (
               <>
                 <motion.div className="nx-scrim" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={T_FAST} onClick={onClose} />
