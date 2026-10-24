@@ -823,8 +823,8 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
   // so and goes to it. Only a loaded question gets one: a jump needs its row.
   // A person's reply quoting a question answers it too, and so does anything
   // a person writes after it once its agent has spoken since (waitingQuestion).
-  const { quoted, heard } = useMemo(() => roomTalk(raw, (id) => byId[id]?.kind === 'human'), [raw, byId])
-  const waiting = useWaitingCard(convoId, quoted, heard)
+  const talk = useMemo(() => roomTalk(raw, (id) => byId[id]?.kind === 'human'), [raw, byId])
+  const waiting = useWaitingCard(convoId, talk)
   const waitingId = waiting && items.some((it) => it.type === 'msg' && it.msg.id === waiting.messageId) ? waiting.messageId : null
   const waitingAgent = useParticipants((s) => (waiting ? authorOf(s.byId, waiting.agentId, nt)?.name : undefined))
   const range = useRef<ListRange | null>(null)
