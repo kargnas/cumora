@@ -5,14 +5,15 @@
  * answer per agent draws the list at once when the tab opens again. A thread
  * with pull requests opens the last one T3 lists; T3 has no address a phone
  * can open. Owners and admins only, because a title an agent wrote can quote
- * any room.
+ * any room. The agent drawer, the Agents wall and workspace and the agent menu
+ * read the same lists through `useCoding`.
  */
 import { useEffect, useState } from 'react'
 import { http, ws } from '@/api/client'
 import { useLocale } from '@/lib/i18n'
-import { useAuth } from '@/stores/auth'
 import type { Conversation, Participant } from '@/types'
 import { relative } from '../format'
+import { useAdmin } from '../hooks'
 import { useNT, type NKey } from '../i18n'
 import { Avatar } from '../ui/Avatar'
 import { Spinner } from '../ui/primitives'
@@ -20,7 +21,7 @@ import { ICheck, IInfo, IStop, IX } from '../ui/icons'
 import { errText } from '../sections/calendar/parts'
 import { useRoomAgents } from '../chat/ChatView'
 
-interface Thread {
+export interface Thread {
   server: string
   threadId: string
   title: string
@@ -38,6 +39,9 @@ type AgentCoding = Coding & { agentId: string }
 const ACTIVE = new Set(['preparing', 'queued', 'starting', 'running', 'waiting'])
 const STOPPED = new Set(['interrupted', 'cancelled', 'rolled_back'])
 
+/** Still going: running, or stopped on a question for someone. */
+export const isOpenThread = (t: Thread): boolean => ACTIVE.has(t.status) || t.status === 'question'
+
 // The last answer for each agent, so the list draws at once when the tab opens
 // again, and its entrance plays only the first time (src/next/AGENTS.md).
 const cache = new Map<string, Coding>()
@@ -49,7 +53,7 @@ const cached = (ids: string): AgentCoding[] | null => {
   return lists.every((l) => l !== null) ? (lists as AgentCoding[]) : null
 }
 
-function look(status: string): { label: NKey; tone: string; icon: JSX.Element } {
+export function look(status: string): { label: NKey; tone: string; icon: JSX.Element } {
   if (status === 'question') return { label: 'coding.waiting', tone: 'warn', icon: <IInfo aria-hidden /> }
   if (ACTIVE.has(status)) return { label: 'coding.running', tone: 'live', icon: <Spinner /> }
   if (status === 'completed') return { label: 'coding.completed', tone: 'live', icon: <ICheck aria-hidden /> }
@@ -58,45 +62,33 @@ function look(status: string): { label: NKey; tone: string; icon: JSX.Element } 
   return { label: 'coding.idle', tone: 'muted', icon: <span className="nx-coding__dot" aria-hidden /> }
 }
 
-function CodingRow({ t, agent, server }: { t: Thread; agent?: Participant; server: boolean }) {
-  const nt = useNT()
-  const locale = useLocale()
-  const { label, tone, icon } = look(t.status)
-  const pr = t.pullRequests[t.pullRequests.length - 1]
-  // A running thread counts from its start, a resting one from when it stopped.
-  const when = relative(ACTIVE.has(t.status) || t.status === 'question' ? t.createdAt : t.updatedAt, locale)
-  const body = (
-    <>
-      {icon}
-      {agent && <Avatar p={agent} size={20} />}
-      <span className="nx-row__text">
-        <span className="nx-coding__title">{t.title}</span>
-        {/* The avatar is hidden from screen readers, so the hint names the agent. */}
-        <span className="nx-row__hint">{[agent?.name, nt(label), when, server ? t.server : null].filter(Boolean).join(' · ')}</span>
-      </span>
-      {t.pullRequests.map((p) => <span key={p.url} className="nx-chip nx-mono">#{p.number}</span>)}
-    </>
-  )
-  return pr
-    ? <a className="nx-row nx-row--link nx-coding" data-tone={tone} href={pr.url} target="_blank" rel="noopener noreferrer">{body}</a>
-    : <div className="nx-row nx-coding" data-tone={tone}>{body}</div>
-}
+/** A running thread counts from its start, a resting one from when it stopped. */
+export const threadTime = (t: Thread): string => (isOpenThread(t) ? t.createdAt : t.updatedAt)
 
-function CodingList({ agents }: { agents: Participant[] }) {
-  const nt = useNT()
-  const ids = agents.map((a) => a.id).join(' ')
+/** Newest first, every agent's threads in one list. */
+export const newestThreads = (coding: AgentCoding[]): Array<{ t: Thread; agentId: string }> => coding
+  .flatMap((c) => c.threads.map((t) => ({ t, agentId: c.agentId })))
+  .sort((a, b) => b.t.updatedAt.localeCompare(a.t.updatedAt))
+
+/**
+ * The threads of some agents (`ids`, space-joined), read again whenever the
+ * server's copy changes. `enabled` false skips the reads, for a viewer the
+ * route refuses or a menu that is closed.
+ */
+export function useCoding(ids: string, enabled = true): { coding: AgentCoding[] | null; fresh: boolean; error: string | null } {
   const [coding, setCoding] = useState(() => cached(ids))
   // Only a list that arrives with a first answer fades in.
-  const [rise, setRise] = useState(() => cached(ids) === null)
+  const [fresh, setFresh] = useState(() => cached(ids) === null)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
+    if (!enabled) return
     let live = true
     // An event can start a read while an older one is still out; only the
     // newest may draw.
     let latest = 0
     const hit = cached(ids)
     setCoding(hit)
-    setRise(hit === null)
+    setFresh(hit === null)
     setError(null)
     const load = async () => {
       if (document.hidden) return
@@ -127,7 +119,40 @@ function CodingList({ agents }: { agents: Participant[] }) {
       off()
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [ids])
+  }, [ids, enabled])
+  // While reads are off, the state can still hold the lists of agents asked
+  // about before (the menu reopened on someone else); those never show.
+  const own = coding !== null && coding.map((c) => c.agentId).join(' ') === ids
+  return { coding: own ? coding : null, fresh, error }
+}
+
+function CodingRow({ t, agent, server }: { t: Thread; agent?: Participant; server: boolean }) {
+  const nt = useNT()
+  const locale = useLocale()
+  const { label, tone, icon } = look(t.status)
+  const pr = t.pullRequests[t.pullRequests.length - 1]
+  const when = relative(threadTime(t), locale)
+  const body = (
+    <>
+      {icon}
+      {agent && <Avatar p={agent} size={20} />}
+      <span className="nx-row__text">
+        <span className="nx-coding__title">{t.title}</span>
+        {/* The avatar is hidden from screen readers, so the hint names the agent. */}
+        <span className="nx-row__hint">{[agent?.name, nt(label), when, server ? t.server : null].filter(Boolean).join(' · ')}</span>
+      </span>
+      {t.pullRequests.map((p) => <span key={p.url} className="nx-chip nx-mono">#{p.number}</span>)}
+    </>
+  )
+  return pr
+    ? <a className="nx-row nx-row--link nx-coding" data-tone={tone} href={pr.url} target="_blank" rel="noopener noreferrer">{body}</a>
+    : <div className="nx-row nx-coding" data-tone={tone}>{body}</div>
+}
+
+/** The threads of `agents`, newest first; a face on each row once there are several agents. */
+export function CodingList({ agents }: { agents: Participant[] }) {
+  const nt = useNT()
+  const { coding, fresh, error } = useCoding(agents.map((a) => a.id).join(' '))
 
   if (coding === null) {
     return error
@@ -135,18 +160,16 @@ function CodingList({ agents }: { agents: Participant[] }) {
       : <div className="nx-center" aria-busy="true"><Spinner /></div>
   }
   const byId = new Map(agents.map((a) => [a.id, a]))
-  const rows = coding
-    .flatMap((c) => c.threads.map((t) => ({ t, agent: byId.get(c.agentId) })))
-    .sort((a, b) => b.t.updatedAt.localeCompare(a.t.updatedAt))
+  const rows = newestThreads(coding)
   const servers = coding[0]?.servers ?? []
   return (
     <>
       {rows.length === 0
-        ? <div className="nx-empty">{nt('coding.none')}</div>
+        ? <div className="nx-empty">{nt(agents.length === 1 ? 'coding.noneAgent' : 'coding.none')}</div>
         : (
-          <div className={rise ? 'nx-rows nx-coding-list' : 'nx-rows'}>
-            {rows.map(({ t, agent }) => (
-              <CodingRow key={`${t.server} ${t.threadId}`} t={t} agent={agents.length > 1 ? agent : undefined} server={servers.length > 1} />
+          <div className={fresh ? 'nx-rows nx-coding-list' : 'nx-rows'}>
+            {rows.map(({ t, agentId }) => (
+              <CodingRow key={`${t.server} ${t.threadId}`} t={t} agent={agents.length > 1 ? byId.get(agentId) : undefined} server={servers.length > 1} />
             ))}
           </div>
         )}
@@ -160,10 +183,7 @@ function CodingList({ agents }: { agents: Participant[] }) {
 export function CodingTab({ c }: { c: Conversation }) {
   const nt = useNT()
   const { agents } = useRoomAgents(c)
-  const admin = useAuth((s) => {
-    const role = s.companies.find((x) => x.id === s.activeCompanyId)?.role
-    return role === 'owner' || role === 'admin'
-  })
+  const admin = useAdmin()
   if (agents.length === 0) return <div className="nx-empty">{nt('panel.noAgents')}</div>
   if (!admin) return <div className="nx-empty"><b>{nt('coding.locked')}</b>{nt('coding.lockedBody')}</div>
   return <CodingList agents={agents} />

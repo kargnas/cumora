@@ -198,6 +198,9 @@ export interface MenuItem {
   key: string
   label: string
   icon?: ReactNode
+  /** Quiet text or a badge at the end of the row (a count, a time, a live tag). */
+  detail?: ReactNode
+  /** Shown as a key hint; a single character also picks the item while the menu is open. */
   shortcut?: string
   danger?: boolean
   disabled?: boolean
@@ -262,6 +265,11 @@ export function Menu({ open, anchor, entries, onClose, header }: {
       if (e.key === 'ArrowDown') { e.preventDefault(); setHi((i) => (i + 1) % items.length) }
       if (e.key === 'ArrowUp') { e.preventDefault(); setHi((i) => (i - 1 + items.length) % items.length) }
       if (e.key === 'Enter' && hi >= 0 && items[hi]) { e.preventDefault(); items[hi].onSelect(); onClose() }
+      // A one-key shortcut, unless the key is typing into a field that kept focus.
+      const t = e.target as HTMLElement | null
+      if (e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey || t?.isContentEditable || t?.tagName === 'INPUT' || t?.tagName === 'TEXTAREA') return
+      const hit = items.find((x) => x.shortcut?.toLowerCase() === e.key.toLowerCase())
+      if (hit) { e.preventDefault(); hit.onSelect(); onClose() }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -282,7 +290,8 @@ export function Menu({ open, anchor, entries, onClose, header }: {
         onClick={() => { e.onSelect(); onClose() }}
       >
         {e.icon}
-        <span>{e.label}</span>
+        <span className="nx-menu__text">{e.label}</span>
+        {e.detail && <span className="nx-menu__detail">{e.detail}</span>}
         {e.shortcut && !coarse && <Kbd>{e.shortcut}</Kbd>}
       </button>
     )

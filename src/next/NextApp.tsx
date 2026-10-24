@@ -3,7 +3,7 @@
  * classic Desktop/Mobile shells; all data, auth and WebSocket boot still
  * happen in App.tsx, so this file only owns layout, routing and chrome.
  */
-import { Suspense, useEffect, useMemo } from 'react'
+import { Suspense, useEffect, useMemo, useRef } from 'react'
 import { useAuth } from '@/stores/auth'
 import { useDevtools } from '@/stores/devtools'
 import { isMuted, useConversations } from '@/stores/conversations'
@@ -12,6 +12,7 @@ import { isElectron } from '@/lib/runtime'
 import { useAppearanceStore, type Appearance } from '@/lib/theme'
 import { initPushNotifications } from '@/lib/push'
 import { bindPressHaptics } from './haptics'
+import { AgentMenuHost, bindAgentRefs } from './agentMenu'
 import { useBloubLooks } from './bloub/looks'
 import { useNativeChrome, useNextDocument } from './document'
 import { switchToClassic } from './designPref'
@@ -282,8 +283,10 @@ export default function NextApp() {
   const layout = useLayout()
   const coarse = useCoarse()
   const stack = layout === 'stack'
+  const app = useRef<HTMLDivElement>(null)
 
   useEffect(() => bindLegacyWrites(), [])
+  useEffect(() => (app.current ? bindAgentRefs(app.current) : undefined), [])
   useEffect(() => bindPressHaptics(), [])
   useBloubLooksSync()
   useEffect(() => { projectRoute(route, stack) }, [route, stack])
@@ -306,7 +309,7 @@ export default function NextApp() {
 
   return (
     <TooltipLayer>
-      <div className="nx-app" data-layout={layout} data-coarse={coarse || undefined} data-electron={isElectron || undefined}>
+      <div ref={app} className="nx-app" data-layout={layout} data-coarse={coarse || undefined} data-electron={isElectron || undefined}>
         {/* Desktop app: the window has no system title bar, so this strip is
             what you drag, and it keeps clear of the macOS traffic lights. */}
         {isElectron && <div className="nx-dragbar" aria-hidden />}
@@ -321,6 +324,7 @@ export default function NextApp() {
         {showTabBar && <TabBar route={route} />}
       </div>
       <Palette />
+      <AgentMenuHost />
       {/* Classic email composer reads useApp.composeEmail itself and draws
           as an overlay, so it works from any section. */}
       <EmailComposer />

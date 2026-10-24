@@ -29,6 +29,7 @@ import { useNT, type NT } from '../i18n'
 import { href, navigate, getRoute, withRoute } from '../router'
 import { bytes, clock, dayLabel, exactTime, fullDate, pauseLength, relative, startOfDay } from '../format'
 import { HOLD_MS, useHold } from '../hooks'
+import { agentRef } from '../agentMenu'
 import { Avatar } from '../ui/Avatar'
 import { IconButton, INERT, Menu, Spinner, useCoarse, useMenu, type MenuEntry } from '../ui/primitives'
 import { IArrowDown, IArrowUp, ICheck, ICopy, IDownload, IFile, IMore, IReply, ISpark, IThread, IWhisper } from '../ui/icons'
@@ -417,12 +418,12 @@ export const Bubble = memo(function Bubble({ msg, author, mine, pos, stamp, fres
       {/* Before the halves that slide, so they paint over it while they move. */}
       {swipe && <span className="nx-msg__swipe" aria-hidden><IReply /></span>}
       <div className="nx-msg__gutter">
-        {!mine && turn && author && <Avatar p={author} size={28} />}
+        {!mine && turn && author && <Face p={author} />}
       </div>
       <div className="nx-msg__col">
         {!mine && turn && (
           <div className="nx-msg__name">
-            <span>{author?.name ?? nt('msg.someone')}</span>
+            <span {...agentRef(author)}>{author?.name ?? nt('msg.someone')}</span>
             {time}
           </div>
         )}
@@ -594,13 +595,25 @@ function useAway(scroller: { current: HTMLElement | null }, id: string | null, b
   return [away, recheck] as const
 }
 
+/** A message's avatar; an agent's opens the agent menu (src/next/agentMenu.tsx). */
+function Face({ p, presence = false }: { p: Participant; presence?: boolean }) {
+  if (p.kind !== 'agent') return <Avatar p={p} size={28} presence={presence} />
+  return (
+    <span className="nx-msg__face" data-agent-id={p.id} role="button" tabIndex={0} aria-label={p.name}>
+      <Avatar p={p} size={28} presence={presence} />
+    </span>
+  )
+}
+
 /* ── Live footer: streaming → final message ─────────────────────────── */
 function LiveBubble({ authorId, body }: { authorId: string; body: string }) {
   const p = useParticipants((s) => s.byId[authorId])
   if (!p) return null
   return (
     <div className="nx-msg nx-msg--live" data-fresh="reveal">
-      <div className="nx-msg__gutter"><Avatar p={p} size={28} presence /></div>
+      <div className="nx-msg__gutter">
+        <Face p={p} presence />
+      </div>
       <div className="nx-msg__col">
         <div className="nx-msg__row">
           <div className="nx-bubble">

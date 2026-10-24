@@ -303,6 +303,7 @@ export const zhCN: Partial<Record<keyof typeof en, string>> = {
   'coding.stopped': '已停止',
   'coding.idle': '空闲',
   'coding.serverError': 'T3 服务器 {server}：{error}',
+  'coding.noneAgent': '还没有 T3 Code 线程。',
 
   'computer.lockedBody': '浏览器会显示智能体登录过的所有网站，所以只有工作区所有者和管理员可以查看。',
   'computer.closed': '{name} 的浏览器没有打开',
@@ -315,6 +316,23 @@ export const zhCN: Partial<Record<keyof typeof en, string>> = {
   'computer.tab': 'Tab',
   'computer.enter': 'Enter',
   'computer.backspace': '退格',
+  'computer.noBrowser': '没有打开的浏览器',
+
+  'agentMenu.now': '正在做：{title}',
+  'agentMenu.screen': '实时画面',
+  'agentMenu.live': '实时',
+  'agentMenu.jobs': '编码',
+  'agentMenu.jobsCount': '{active} 个进行中 · 共 {total} 个',
+  'agentMenu.message': '发消息',
+  'agentMenu.mention': '在这里提及',
+  'agentMenu.stop': '停止这一轮',
+  'agentMenu.profile': '查看资料',
+  'agentMenu.copyLink': '复制链接',
+
+  'drawer.label': '显示',
+  'drawer.screen': '画面',
+  'drawer.jobs': '编码',
+  'drawer.profile': '资料',
 
   'files.none': '这个对话里还没有文件或文档。',
   'files.images': '图片',

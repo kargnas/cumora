@@ -82,7 +82,9 @@ export function MembersTab({ c }: { c: Conversation }) {
           <button
             type="button"
             className="nx-person__open"
-            onClick={() => navigate(withRoute(getRoute(), { peek: { kind: 'agent', id: p.id }, threadId: null }))}
+            // An agent's row opens the agent menu (src/next/agentMenu.tsx); a person's opens their profile.
+            data-agent-id={p.kind === 'agent' ? p.id : undefined}
+            onClick={p.kind === 'agent' ? undefined : () => navigate(withRoute(getRoute(), { peek: { kind: 'agent', id: p.id }, threadId: null }))}
           >
             <Avatar p={p} size={32} presence />
             <span className="nx-person__text">

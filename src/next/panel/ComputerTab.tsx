@@ -5,12 +5,13 @@
  * or a key on the screen reaches the page; on a touch screen a tap clicks and a
  * vertical drag scrolls. Text from a phone keyboard, an IME or the clipboard
  * goes through the field under the screen. Owners and admins only, because the
- * browser shows every site the agent is signed in to.
+ * browser shows every site the agent is signed in to. The agent drawer and the
+ * Agents workspace show the same `Screen`; the Agents wall shows `ScreenThumb`.
  */
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent } from 'react'
 import { http } from '@/api/client'
-import { useAuth } from '@/stores/auth'
 import type { Conversation, Participant } from '@/types'
+import { useAdmin } from '../hooks'
 import { useNT } from '../i18n'
 import { Dialog, IconButton, Spinner } from '../ui/primitives'
 import { IExpand } from '../ui/icons'
@@ -59,7 +60,7 @@ const press = ({ text, ...key }: { key: string; code: string; windowsVirtualKeyC
   { type: 'input_keyboard', eventType: 'keyUp', ...key },
 ]
 
-function Screen({ agent, big = false }: { agent: Participant; big?: boolean }) {
+export function Screen({ agent, big = false }: { agent: Participant; big?: boolean }) {
   const nt = useNT()
   const canvas = useRef<HTMLCanvasElement>(null)
   // The page's size in CSS pixels, from the newest frame: clicks are given in it.
@@ -297,14 +298,84 @@ function Screen({ agent, big = false }: { agent: Participant; big?: boolean }) {
   )
 }
 
+// A wall tile shows one frame this often: enough to see what an agent is on,
+// light enough for a dozen tiles at once.
+const THUMB_MS = 3_000
+
+/**
+ * A small, slow copy of an agent's screen for the Agents wall. It reads only
+ * while the tile is on screen and the app is visible, one frame every
+ * THUMB_MS, into an <img> so the browser decodes it off the main thread. Each
+ * read keeps the server's stream for that agent open (screen.ts closes it 30 s
+ * after the last read).
+ */
+export function ScreenThumb({ agent }: { agent: Participant }) {
+  const nt = useNT()
+  const box = useRef<HTMLSpanElement>(null)
+  const [src, setSrc] = useState<string | null>(null)
+  const [state, setState] = useState<'loading' | Poll['state']>('loading')
+
+  useEffect(() => {
+    const node = box.current
+    if (!node) return
+    const ac = new AbortController()
+    const { signal } = ac
+    let onScreen = false
+    let wake = () => {}
+    const io = new IntersectionObserver(([e]) => {
+      onScreen = e.isIntersecting
+      if (onScreen) wake()
+    })
+    io.observe(node)
+    // Cleanup wakes a loop that is waiting for the tile to scroll into view.
+    signal.addEventListener('abort', () => wake(), { once: true })
+    const seen = () => new Promise<void>((resolve) => { wake = resolve })
+    let url: string | null = null
+    const show = (next: string | null) => {
+      if (url) URL.revokeObjectURL(url)
+      url = next
+      setSrc(next)
+    }
+    void (async () => {
+      let after = 0
+      while (!signal.aborted) {
+        if (!onScreen) { await seen(); continue }
+        if (document.hidden) { await shown(signal); continue }
+        try {
+          const r = await http<Poll>(`/fork/agents/${encodeURIComponent(agent.id)}/screen?after=${after}`, { signal })
+          if (signal.aborted) return
+          after = r.seq
+          if (r.frame) show(URL.createObjectURL(new Blob([Uint8Array.from(atob(r.frame), (c) => c.charCodeAt(0))], { type: 'image/jpeg' })))
+          else if (r.state === 'closed') show(null)
+          setState(r.state)
+        } catch {
+          // A failed read leaves the last frame up; the next one tries again.
+          if (signal.aborted) return
+        }
+        await sleep(THUMB_MS, signal)
+      }
+    })()
+    return () => {
+      ac.abort()
+      io.disconnect()
+      if (url) URL.revokeObjectURL(url)
+    }
+  }, [agent.id])
+
+  return (
+    <span ref={box} className="nx-thumb" data-state={src ? 'open' : state}>
+      {src
+        ? <img src={src} alt={nt('computer.title', { name: agent.name })} draggable={false} />
+        : state === 'loading' ? <Spinner /> : <span>{nt('computer.noBrowser')}</span>}
+    </span>
+  )
+}
+
 export function ComputerTab({ c }: { c: Conversation }) {
   const nt = useNT()
   const { agents } = useRoomAgents(c)
   const picked = usePickedAgent(agents)
-  const admin = useAuth((s) => {
-    const role = s.companies.find((x) => x.id === s.activeCompanyId)?.role
-    return role === 'owner' || role === 'admin'
-  })
+  const admin = useAdmin()
   if (!picked) return <div className="nx-empty">{nt('panel.noAgents')}</div>
   if (!admin) return <div className="nx-empty"><b>{nt('coding.locked')}</b>{nt('computer.lockedBody')}</div>
   return (

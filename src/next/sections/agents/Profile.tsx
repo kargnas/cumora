@@ -1,9 +1,10 @@
 /**
  * One participant's profile. Agents get status, placement (computer, engine,
  * model), tools, email, autonomy and the hire/off-board/delete actions; people get
- * the parts that apply to them (message, email). An agent's Handbook, its
- * standing files with what changed, opens in place of the profile
- * (`?view=handbook`).
+ * the parts that apply to them (message, email). An agent's page opens on its
+ * workspace (Work.tsx) for owners and admins; `?view=profile` shows this
+ * profile and `?view=handbook` its Handbook, its standing files with what
+ * changed. The agent drawer in chats shows this profile too.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from '@/api/client'
@@ -16,13 +17,14 @@ import type { Computer, Participant } from '@/types'
 import { haptic } from '../../haptics'
 import { useNT } from '../../i18n'
 import { getRoute, linkClick, navigate, withRoute, type Route } from '../../router'
-import { useOpenDirect } from '../../hooks'
+import { useAdmin, useOpenDirect } from '../../hooks'
 import { Avatar } from '../../ui/Avatar'
 import { Segmented, Spinner } from '../../ui/primitives'
 import { ICheck, ICompose, ICopy, IExit, IPencil, IRepeat, ITrash } from '../../ui/icons'
 import { Handbook } from '../../panel/HandbookTab'
+import { AgentWork } from './Work'
 import {
-  agentState, defaultModelOf, dialogHref, engineOf, errorText, listHref, LoadError, providerLabel, StateText, type Roster,
+  agentState, defaultModelOf, dialogHref, engineOf, errorText, hasWork, listHref, LoadError, providerLabel, StateText, type Roster,
 } from './shared'
 
 function Block({ title, children }: { title: string; children: ReactNode }) {
@@ -208,7 +210,7 @@ function Autonomy({ p }: { p: Participant }) {
   )
 }
 
-function Profile({ p, route, onRefresh }: { p: Participant; route: Route; onRefresh: () => Promise<void> }) {
+export function Profile({ p, route, onRefresh }: { p: Participant; route: Route; onRefresh: () => Promise<void> }) {
   const nt = useNT()
   const host = useComputers((s) => (p.computerId ? s.byId[p.computerId] : undefined))
   const isAgent = p.kind === 'agent'
@@ -255,6 +257,9 @@ function Profile({ p, route, onRefresh }: { p: Participant; route: Route; onRefr
   )
 }
 
+type View = 'work' | 'profile' | 'handbook'
+const VIEW_LABEL = { work: 'agents.viewWork', profile: 'agents.viewProfile', handbook: 'agents.viewHandbook' } as const
+
 function ProfileSkeleton() {
   return (
     <div className="nx-agents-profile" aria-busy="true">
@@ -275,6 +280,7 @@ export function AgentProfile({ id, route, roster, onRefresh }: {
   onRefresh: () => Promise<void>
 }) {
   const nt = useNT()
+  const admin = useAdmin()
   const p = useParticipants((s) => s.byId[id])
   if (roster.state === 'loading') return <ProfileSkeleton />
   if (roster.state === 'error') return <LoadError onRetry={roster.retry} />
@@ -289,20 +295,24 @@ export function AgentProfile({ id, route, roster, onRefresh }: {
     )
   }
   if (p.kind !== 'agent') return <Profile p={p} route={route} onRefresh={onRefresh} />
-  const view = route.search.get('view') === 'handbook' ? 'handbook' : 'profile'
+  // The workspace's screen and threads answer only owners and admins, and
+  // only an agent on a computer has them; the first view needs no `?view=`.
+  const views: View[] = admin && hasWork(p) ? ['work', 'profile', 'handbook'] : ['profile', 'handbook']
+  const asked = route.search.get('view') as View | null
+  const view = asked && views.includes(asked) ? asked : views[0]
   return (
     <>
       <div className="nx-agents-views">
         <Segmented
           label={nt('agents.views')}
           value={view}
-          onChange={(v) => navigate(withRoute(getRoute(), { params: { view: v === 'handbook' ? v : null } }), { replace: true })}
-          items={[{ key: 'profile', label: nt('agents.viewProfile') }, { key: 'handbook', label: nt('agents.viewHandbook') }]}
+          onChange={(v) => navigate(withRoute(getRoute(), { params: { view: v === views[0] ? null : v } }), { replace: true })}
+          items={views.map((k) => ({ key: k, label: nt(VIEW_LABEL[k]) }))}
         />
       </div>
-      {view === 'handbook'
-        ? <div className="nx-agents-handbook"><Handbook agentId={p.id} /></div>
-        : <Profile p={p} route={route} onRefresh={onRefresh} />}
+      {view === 'work' ? <AgentWork p={p} />
+        : view === 'handbook' ? <div className="nx-agents-handbook"><Handbook agentId={p.id} /></div>
+          : <Profile p={p} route={route} onRefresh={onRefresh} />}
     </>
   )
 }

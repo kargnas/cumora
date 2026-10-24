@@ -1,12 +1,20 @@
-/** Helpers and small pieces shared by the agents list, profile and dialogs. */
-import { useCallback, useEffect, useState } from 'react'
+/** Helpers and small pieces shared by the agents wall, list, profile and
+ *  dialogs, and by the agent menu and drawer outside this section. */
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
+import { useMe } from '@/stores/auth'
+import { useComputers } from '@/stores/computers'
 import { useParticipants } from '@/stores/participants'
 import { useLocale } from '@/lib/i18n'
 import type { Computer, EngineId, Participant, Status } from '@/types'
 import { useNT } from '../../i18n'
-import { href, withRoute, type Route } from '../../router'
+import { href, navigate, withRoute, type Route } from '../../router'
 import { elapsed } from '../../format'
 import { useNow } from '../../hooks'
+import { Segmented, type SegItem } from '../../ui/primitives'
+// Here rather than in index.tsx: the agent menu and drawer draw these parts
+// in chats before the section's own chunk ever loads.
+import './agents.css'
 
 /** Status as the team sees it. The server's status, unless the agent was
  *  off-boarded or its own computer is offline: then nothing it last reported
@@ -18,6 +26,10 @@ export function agentState(p: Participant, host: Computer | undefined): AgentSta
   if (host && host.kind !== 'cloud' && host.status !== 'online') return 'offline'
   return p.status
 }
+
+/** A browser and T3 Code threads exist only for an active agent on a
+ *  computer; a Cumora Cloud agent has neither. */
+export const hasWork = (p: Participant): boolean => p.kind === 'agent' && !p.departedAt && !!p.computerId
 
 /** Working or thinking: the breathing ring and the shimmer. */
 const isLive = (s: AgentState): boolean => s === 'working' || s === 'thinking'
@@ -32,9 +44,76 @@ export function parseFilter(raw: string | null): Filter {
   return FILTERS.includes(raw as Filter) ? raw as Filter : 'all'
 }
 
-/** The list URL, keeping the filter the user picked. */
+/** The wall (the default) or the list beside the open agent: `?roster=list`. */
+export const isWall = (route: Route): boolean => route.search.get('roster') !== 'list'
+
+/** The wall or list URL, keeping the filter the user picked. */
 export function listHref(route: Route): string {
-  return href({ section: 'agents', params: { filter: route.search.get('filter') } })
+  return href({ section: 'agents', params: { filter: route.search.get('filter'), roster: route.search.get('roster') } })
+}
+
+/** Everyone the section shows: active agents (and which of them are busy),
+ *  off-boarded ones, and the viewer's human teammates. */
+export function useTeam(): { agents: Participant[]; busy: Set<string>; former: Participant[]; humans: Participant[] } {
+  const me = useMe()
+  const people = useParticipants(useShallow((s) => Object.values(s.byId).sort((a, b) => a.name.localeCompare(b.name))))
+  const hosts = useComputers((s) => s.byId)
+  return useMemo(() => {
+    const out = { agents: [] as Participant[], busy: new Set<string>(), former: [] as Participant[], humans: [] as Participant[] }
+    for (const p of people) {
+      if (p.kind === 'human') {
+        if (p.id !== me) out.humans.push(p)
+      } else if (p.departedAt) {
+        out.former.push(p)
+      } else {
+        out.agents.push(p)
+        if (isBusy(agentState(p, p.computerId ? hosts[p.computerId] : undefined))) out.busy.add(p.id)
+      }
+    }
+    // Most recently off-boarded first, as the classic roster ordered them.
+    out.former.sort((a, b) => (b.departedAt ?? '').localeCompare(a.departedAt ?? ''))
+    return out
+  }, [people, hosts, me])
+}
+
+/** All / Working / Idle (/ Former once someone left), with counts. */
+export function FilterTabs({ route, team }: { route: Route; team: ReturnType<typeof useTeam> }) {
+  const nt = useNT()
+  const filter = parseFilter(route.search.get('filter'))
+  const count = (n: number) => <span className="nx-agents-count nx-mono">{n}</span>
+  const tabs: Array<SegItem<Filter>> = [
+    { key: 'all', label: nt('agents.filter.all') },
+    { key: 'working', label: nt('agents.filter.working'), badge: count(team.busy.size) },
+    { key: 'idle', label: nt('agents.filter.idle'), badge: count(team.agents.length - team.busy.size) },
+    // Former only exists once someone has been off-boarded.
+    ...(team.former.length > 0 || filter === 'departed'
+      ? [{ key: 'departed' as const, label: nt('agents.filter.departed'), badge: count(team.former.length) }]
+      : []),
+  ]
+  return (
+    <Segmented
+      label={nt('agents.filters')}
+      value={filter}
+      items={tabs}
+      onChange={(k) => navigate(withRoute(route, { params: { filter: k === 'all' ? null : k } }), { replace: true })}
+    />
+  )
+}
+
+/** Wall or List. Going to the wall leaves the open agent for the whole wall. */
+export function RosterSwitch({ route }: { route: Route }) {
+  const nt = useNT()
+  const wall = isWall(route)
+  return (
+    <Segmented
+      label={nt('agents.layout')}
+      value={wall ? 'wall' : 'list'}
+      items={[{ key: 'wall', label: nt('agents.wall') }, { key: 'list', label: nt('agents.list') }]}
+      onChange={(k) => navigate(k === 'wall'
+        ? href({ section: 'agents', params: { filter: route.search.get('filter') } })
+        : withRoute(route, { params: { roster: 'list' } }), { replace: true })}
+    />
+  )
 }
 
 /** Query params of the dialogs this section opens. */

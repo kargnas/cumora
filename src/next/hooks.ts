@@ -1,6 +1,6 @@
 import { useCallback, useRef, useSyncExternalStore } from 'react'
 import { api } from '@/api/client'
-import { getMeId } from '@/stores/auth'
+import { getMeId, useAuth } from '@/stores/auth'
 import { useConversations } from '@/stores/conversations'
 import type { Conversation, Participant } from '@/types'
 import { haptic } from './haptics'
@@ -40,6 +40,15 @@ export function useNow(enabled = true): number {
 
 function noopSubscribe(): () => void {
   return () => {}
+}
+
+/** The viewer owns or administers the active workspace: the fork's agent
+ *  routes (screen, coding, handbook) answer only them. */
+export function useAdmin(): boolean {
+  return useAuth((s) => {
+    const role = s.companies.find((x) => x.id === s.activeCompanyId)?.role
+    return role === 'owner' || role === 'admin'
+  })
 }
 
 /** The other participant of a direct conversation. */

@@ -121,6 +121,19 @@ export function Composer({ convoId, threadRootId = null }: {
     if (replyingId) requestAnimationFrame(() => editor.current?.focus())
   }, [replyingId])
 
+  // The agent menu's "Mention here" (src/next/agentMenu.tsx) adds `@id` to the room's draft.
+  useEffect(() => {
+    if (isThread) return
+    const onMention = (e: Event) => {
+      const text = editor.current?.getValue() ?? ''
+      const sep = text && !/\s$/.test(text) ? ' ' : ''
+      editor.current?.setValue(`${text}${sep}@${(e as CustomEvent<string>).detail} `)
+      requestAnimationFrame(() => editor.current?.focus())
+    }
+    window.addEventListener('nx:mention', onMention)
+    return () => window.removeEventListener('nx:mention', onMention)
+  }, [isThread])
+
   const members = useMemo<Participant[]>(() => (convo?.members ?? [])
     .map((id) => byId[id])
     .filter((p): p is Participant => !!p && p.id !== me), [convo, byId, me])
