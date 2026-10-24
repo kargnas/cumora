@@ -17,23 +17,25 @@ export interface Wake {
   title: string
   agentPrompt: string
   scheduledFor: string
-  /** Envelope fields the gates do not read, such as description and createdBy. */
-  extra?: Record<string, unknown>
+  description?: string
+  createdBy?: string
+  triggerId?: string
 }
 
 export function wakeBody(w: Wake): string {
   // No eventId: the classic UI would link the row to a Calendar event that
-  // does not exist. `extra` comes first, so it cannot replace a field the
-  // gates read.
+  // does not exist. Fields left undefined are dropped from the JSON.
   return JSON.stringify({
     kind: 'calendar_event',
     eventKind: w.eventKind,
-    ...w.extra,
+    triggerId: w.triggerId,
     title: w.title,
+    description: w.description,
     agentPrompt: w.agentPrompt,
     assigneeId: w.assigneeId,
     targetConversationId: w.conversationId,
     scheduledFor: w.scheduledFor,
+    createdBy: w.createdBy,
   })
 }
 

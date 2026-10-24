@@ -275,9 +275,7 @@ function wakeOf(t: CodingThread, room: string): Wake {
     // thread: a title is agent text that can quote any room, which agentCoding
     // shows to owners and admins only. The agent reads the thread itself.
     title: question ? 'A T3 Code thread needs an answer' : `A T3 Code thread is ${t.status}`,
-    extra: {
-      description: `The T3 Code thread ${t.threadId} on ${t.server}, whose title carries your mark, ${question ? 'waits for an answer' : `is ${t.status}`}.`,
-    },
+    description: `The T3 Code thread ${t.threadId} on ${t.server}, whose title carries your mark, ${question ? 'waits for an answer' : `is ${t.status}`}.`,
     agentPrompt: question
       ? `Read its question with t3_pending_request_read (requestId ${t.requestId}) ${where}. Answer it with t3_pending_request_respond when the answer is yours to give, or ask the people in this room. Never answer with a secret or a credential unless a person in this room tells you to.`
       : `Read how it went with t3_thread_read ${where} and tell this room in a short message, unless you already did.`,

@@ -28,7 +28,10 @@ test('the shared index follows the agent\'s own under its path, clipped', async 
     `- [Own](own.md)\n\n## shared by every agent on this computer (\`${index}\`)\n- [Owner](owner.md) — call him 상락님`,
   )
   await writeFile(index, 'x'.repeat(SHARED_INDEX_CHARS * 3))
-  assert.equal((await withSharedMemory('', dir)).split('\n')[1].length, SHARED_INDEX_CHARS)
+  const clipped = await withSharedMemory('', dir)
+  assert.equal(clipped.split('\n')[1].length, SHARED_INDEX_CHARS)
+  // A sandboxed agent cannot open the folder, so the cut must not tell it to.
+  assert.doesNotMatch(clipped, /cat the file/)
 })
 
 test('only an unsandboxed agent is told it may write the folder', () => {

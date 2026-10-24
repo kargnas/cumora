@@ -41,7 +41,7 @@ export function firstQuestionWake(companyId: string, agent: Person, owner: Perso
     title: `${owner.name} hired ${agent.name}`,
     agentPrompt: brief(owner, room),
     scheduledFor: new Date().toISOString(),
-    extra: { createdBy: owner.id },
+    createdBy: owner.id,
   }
 }
 

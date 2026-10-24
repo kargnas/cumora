@@ -50,7 +50,7 @@ A new agent does not wait to be spoken to. Right after it is hired (`POST /api/a
 
 ## Shared memory
 
-Every agent on a computer shares one memory folder, `~/.cumora/shared-memory/`, beside its own `memory/`: who the people they work for are, what to call them, the language and time zone they use, and which accounts they all use, but no secrets and nothing that belongs to one room or project (`server/src/fork/sharedMemory.ts`). The daemon adds the folder's `MEMORY.md` to every wake after the agent's own index, and the standing prompt says what belongs there. Agents write the files themselves, which only an unsandboxed engine can do (cumora-setup's computer runs them so); a sandboxed agent still gets the index, and its standing prompt says the folder is closed to it. The Handbook does not show this folder.
+Every agent on a computer shares one memory folder, `~/.cumora/shared-memory/`, beside its own `memory/`: who the people they work for are, what to call them, the language and time zone they use, and which accounts they all use, but no secrets and nothing that belongs to one room or project (`server/src/fork/sharedMemory.ts`). The daemon adds the folder's `MEMORY.md` to every wake after the agent's own index, and the standing prompt says what belongs there. Agents write the files themselves, which only an unsandboxed engine can do (cumora-setup's computer runs them so); a sandboxed agent still gets the index, and its standing prompt says the folder is closed to it. Every agent reads the index on every wake, so text that any agent with write access was tricked into saving there reaches all of them; give agents that access only where you accept that. The Handbook does not show this folder.
 
 ## Handbook
 

@@ -22,7 +22,7 @@
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { clipMemoryDigest, DEFAULT_MEMORY_DIGEST_CHARS } from '../agents/memory-scope.js'
+import { DEFAULT_MEMORY_DIGEST_CHARS } from '../agents/memory-scope.js'
 
 /** Beside the agent homes in ~/.cumora/agents. */
 export const SHARED_MEMORY_DIR = join(homedir(), '.cumora', 'shared-memory')
@@ -33,22 +33,18 @@ export const SHARED_INDEX_CHARS = DEFAULT_MEMORY_DIGEST_CHARS / 2
 /** The standing prompt's paragraph on the shared memory. `writable`: the
  *  engines run unsandboxed, so the agent's tools reach the folder. */
 export function sharedMemoryPrompt(writable: boolean): string {
-  if (!writable) {
-    return (
-      `Shared memory: the shared index after your own memory index is \`${SHARED_MEMORY_DIR}/MEMORY.md\`, ` +
-      `the memory every agent on this computer shares. Your tools cannot open or change that folder here, ` +
-      `so take the index as it is.\n\n`
-    )
-  }
+  const intro =
+    `Shared memory: the shared index after your own memory index is \`${SHARED_MEMORY_DIR}/MEMORY.md\`, ` +
+    `the memory every agent on this computer shares. `
+  if (!writable) return `${intro}Your tools cannot open or change that folder here, so take the index as it is.\n\n`
   return (
-    `Shared memory: \`${SHARED_MEMORY_DIR}/\` is the memory every agent on this computer shares, and its ` +
-    `\`MEMORY.md\` comes into every wake after your own index. It is the one place outside your home you may ` +
-    `read and write, an exception to the privacy rules in your CLAUDE.md or AGENTS.md and below. Keep there ` +
-    `only what every agent needs: who the people you work for are, what to call them, the language and time ` +
-    `zone they use, and which accounts you all use (never a password, token or key). What belongs to one room ` +
-    `or project, and your own role and work, stay in \`memory/\`. Keep it the way you keep your own memory ` +
-    `(one fact per file, rewritten in place, a one-line pointer in its MEMORY.md), and change only the lines ` +
-    `you mean to, since other agents edit it too.\n\n`
+    `${intro}That folder is the one place outside your home you may read and write, an exception to the ` +
+    `privacy rules in your CLAUDE.md or AGENTS.md and below. Keep there only what every agent needs: who the ` +
+    `people you work for are, what to call them, the language and time zone they use, and which accounts you ` +
+    `all use (never a password, token or key). What belongs to one room or project, and your own role and ` +
+    `work, stay in \`memory/\`. Keep it the way you keep your own memory (one fact per file, rewritten in ` +
+    `place, a one-line pointer in its MEMORY.md), and change only the lines you mean to, since other agents ` +
+    `edit it too.\n\n`
   )
 }
 
@@ -57,7 +53,10 @@ export async function withSharedMemory(own: string, dir = SHARED_MEMORY_DIR): Pr
   const file = join(dir, 'MEMORY.md')
   let index = ''
   try {
-    index = clipMemoryDigest(await readFile(file, 'utf8'), SHARED_INDEX_CHARS)
+    // Not clipMemoryDigest: its "cat the file for the rest" would contradict
+    // what a sandboxed agent is told about this folder.
+    const text = (await readFile(file, 'utf8')).trim()
+    index = text.length > SHARED_INDEX_CHARS ? `${text.slice(0, SHARED_INDEX_CHARS)}\n…(truncated)` : text
   } catch (err) {
     // No shared memory yet is how every computer starts. Any other failure is
     // logged, and the wake goes on with the agent's own memory.

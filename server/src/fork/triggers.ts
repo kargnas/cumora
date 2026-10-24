@@ -152,11 +152,9 @@ function wakeOf(t: Trigger, pr: MergedPr): Wake {
     title: t.title,
     agentPrompt: t.prompt,
     scheduledFor: pr.mergedAt,
-    extra: {
-      triggerId: t.id,
-      description: `Pull request #${pr.number} "${pr.title}" by ${pr.author} merged into ${pr.base} of ${t.repo} at ${pr.mergedAt}.\n${pr.url}`,
-      createdBy: t.createdBy,
-    },
+    triggerId: t.id,
+    description: `Pull request #${pr.number} "${pr.title}" by ${pr.author} merged into ${pr.base} of ${t.repo} at ${pr.mergedAt}.\n${pr.url}`,
+    createdBy: t.createdBy,
   }
 }
 
