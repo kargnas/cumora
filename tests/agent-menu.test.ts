@@ -1,12 +1,15 @@
 /**
- * The agent menu's triggers (src/next/agentRefs.ts) and the one-key
+ * The agent menu's triggers (src/next/agentRefs.ts), which agents have a
+ * screen and threads (src/next/sections/agents/hasWork.ts), and the one-key
  * shortcuts of every Menu (src/next/ui/menuKeys.ts). There is no DOM in the
  * test runner, so a plain object stands in for the app's root element and
  * the events carry the few fields the listeners read.
  */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import type { Computer, Participant } from '../src/types.ts'
 import { bindAgentRefs } from '../src/next/agentRefs.ts'
+import { hasWork } from '../src/next/sections/agents/hasWork.ts'
 import { shortcutItem } from '../src/next/ui/menuKeys.ts'
 
 type Listener = (e: Event) => void
@@ -85,6 +88,26 @@ describe('agent menu triggers', () => {
     const t = setup()
     t.unbind()
     assert.equal(t.listeners.size, 0)
+  })
+})
+
+describe('which agents have a screen and threads', () => {
+  const agent = { id: 'atlas', kind: 'agent', name: 'Atlas', computerId: 'mbp' } as unknown as Participant
+  const host = (kind: string) => ({ id: 'mbp', kind }) as unknown as Computer
+
+  it('an agent on its own computer has them', () => {
+    assert.equal(hasWork(agent, host('local')), true)
+  })
+
+  it('a Cumora Cloud agent never has them, even with a cloud-<company> computer id', () => {
+    assert.equal(hasWork({ ...agent, computerId: 'cloud-acme' }, host('cloud')), false)
+    assert.equal(hasWork({ ...agent, computerId: null }, undefined), false)
+  })
+
+  it('nor an unknown host, an off-boarded agent or a person', () => {
+    assert.equal(hasWork(agent, undefined), false)
+    assert.equal(hasWork({ ...agent, departedAt: '2026-10-01T00:00:00Z' }, host('local')), false)
+    assert.equal(hasWork({ ...agent, kind: 'human' }, host('local')), false)
   })
 })
 

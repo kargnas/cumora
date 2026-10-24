@@ -17,14 +17,14 @@ import type { Computer, Participant } from '@/types'
 import { haptic } from '../../haptics'
 import { useNT } from '../../i18n'
 import { getRoute, linkClick, navigate, withRoute, type Route } from '../../router'
-import { useAdmin, useOpenDirect } from '../../hooks'
+import { useOpenDirect } from '../../hooks'
 import { Avatar } from '../../ui/Avatar'
 import { Segmented, Spinner } from '../../ui/primitives'
 import { ICheck, ICompose, ICopy, IExit, IPencil, IRepeat, ITrash } from '../../ui/icons'
 import { Handbook } from '../../panel/HandbookTab'
 import { AgentWork } from './Work'
 import {
-  agentState, defaultModelOf, dialogHref, engineOf, errorText, hasWork, listHref, LoadError, providerLabel, StateText, type Roster,
+  agentState, defaultModelOf, dialogHref, engineOf, errorText, listHref, LoadError, providerLabel, StateText, useSeesWork, type Roster,
 } from './shared'
 
 function Block({ title, children }: { title: string; children: ReactNode }) {
@@ -280,8 +280,8 @@ export function AgentProfile({ id, route, roster, onRefresh }: {
   onRefresh: () => Promise<void>
 }) {
   const nt = useNT()
-  const admin = useAdmin()
   const p = useParticipants((s) => s.byId[id])
+  const seesWork = useSeesWork(p)
   if (roster.state === 'loading') return <ProfileSkeleton />
   if (roster.state === 'error') return <LoadError onRetry={roster.retry} />
   if (!p) {
@@ -297,7 +297,7 @@ export function AgentProfile({ id, route, roster, onRefresh }: {
   if (p.kind !== 'agent') return <Profile p={p} route={route} onRefresh={onRefresh} />
   // The workspace's screen and threads answer only owners and admins, and
   // only an agent on a computer has them; the first view needs no `?view=`.
-  const views: View[] = admin && hasWork(p) ? ['work', 'profile', 'handbook'] : ['profile', 'handbook']
+  const views: View[] = seesWork ? ['work', 'profile', 'handbook'] : ['profile', 'handbook']
   const asked = route.search.get('view') as View | null
   const view = asked && views.includes(asked) ? asked : views[0]
   return (

@@ -11,8 +11,9 @@ import type { Computer, EngineId, Participant, Status } from '@/types'
 import { useNT } from '../../i18n'
 import { href, navigate, withRoute, type Route } from '../../router'
 import { elapsed } from '../../format'
-import { useNow } from '../../hooks'
+import { useAdmin, useNow } from '../../hooks'
 import { Segmented, type SegItem } from '../../ui/primitives'
+import { hasWork } from './hasWork'
 // Here rather than in index.tsx: the agent menu and drawer draw these parts
 // in chats before the section's own chunk ever loads.
 import './agents.css'
@@ -28,9 +29,14 @@ export function agentState(p: Participant, host: Computer | undefined): AgentSta
   return p.status
 }
 
-/** A browser and T3 Code threads exist only for an active agent on a
- *  computer; a Cumora Cloud agent has neither. */
-export const hasWork = (p: Participant): boolean => p.kind === 'agent' && !p.departedAt && !!p.computerId
+/** The viewer sees the agent's browser and T3 Code threads: they own or
+ *  administer the workspace (the routes answer no one else), and the agent
+ *  has them (`hasWork`). The menu, drawer, wall and page all ask this. */
+export function useSeesWork(p: Participant | undefined): boolean {
+  const admin = useAdmin()
+  const host = useComputers((s) => (p?.computerId ? s.byId[p.computerId] : undefined))
+  return admin && p !== undefined && hasWork(p, host)
+}
 
 /** Working or thinking: the breathing ring and the shimmer. */
 const isLive = (s: AgentState): boolean => s === 'working' || s === 'thinking'

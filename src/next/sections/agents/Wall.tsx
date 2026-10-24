@@ -11,7 +11,7 @@ import { memo } from 'react'
 import { useComputers } from '@/stores/computers'
 import type { Participant } from '@/types'
 import { openAgentMenu } from '../../agentMenu'
-import { useAdmin, useHold } from '../../hooks'
+import { useHold } from '../../hooks'
 import { useNT } from '../../i18n'
 import { href, linkClick, navigate, type Route } from '../../router'
 import { Avatar } from '../../ui/Avatar'
@@ -20,7 +20,7 @@ import { IPlus } from '../../ui/icons'
 import { isOpenThread, lastPr, look, newestThreads, useCoding } from '../../panel/CodingTab'
 import { ScreenThumb } from '../../panel/ComputerTab'
 import {
-  agentsFor, agentState, dialogHref, EMPTY_FILTER, FilterTabs, hasWork, LoadError, parseFilter, RosterSwitch, StateText, useTeam, type Roster,
+  agentsFor, agentState, dialogHref, EMPTY_FILTER, FilterTabs, LoadError, parseFilter, RosterSwitch, StateText, useSeesWork, useTeam, type Roster,
 } from './shared'
 
 /** The thread the agent is on (the newest still going), else its newest one. */
@@ -42,11 +42,11 @@ function NowLine({ p }: { p: Participant }) {
   )
 }
 
-const Tile = memo(function Tile({ p, to, admin }: { p: Participant; to: string; admin: boolean }) {
+const Tile = memo(function Tile({ p, to }: { p: Participant; to: string }) {
   const nt = useNT()
   const host = useComputers((s) => (p.computerId ? s.byId[p.computerId] : undefined))
   const hold = useHold((x, y) => openAgentMenu(p.id, { x, y }))
-  const working = admin && hasWork(p)
+  const working = useSeesWork(p)
   return (
     <a href={to} onClick={linkClick} className="nx-agents-tile" data-departed={p.departedAt ? '' : undefined} {...hold}>
       {/* Every tile keeps the screen's box, so a row of tiles stays one height. */}
@@ -75,7 +75,6 @@ function Skeleton() {
 
 export function AgentWall({ route, roster, refreshing }: { route: Route; roster: Roster; refreshing: boolean }) {
   const nt = useNT()
-  const admin = useAdmin()
   const filter = parseFilter(route.search.get('filter'))
   const team = useTeam()
   const shown = agentsFor(team, filter)
@@ -112,7 +111,7 @@ export function AgentWall({ route, roster, refreshing }: { route: Route; roster:
                 {empty && shown.length === 0 && <div className="nx-empty">{empty}</div>}
                 {shown.length > 0 && (
                   <div className="nx-agents-wall__grid">
-                    {shown.map((p) => <Tile key={p.id} p={p} to={toAgent(p.id)} admin={admin} />)}
+                    {shown.map((p) => <Tile key={p.id} p={p} to={toAgent(p.id)} />)}
                   </div>
                 )}
               </>

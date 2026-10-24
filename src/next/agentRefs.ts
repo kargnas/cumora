@@ -21,7 +21,9 @@ export interface AgentRefHooks {
 /** Props that let an avatar or a name open the menu; nothing for a person. */
 export function agentRef(p: Participant | undefined, label?: string): Record<string, string | number> | undefined {
   if (p?.kind !== 'agent') return undefined
-  return label ? { 'data-agent-id': p.id, role: 'button', tabIndex: 0, 'aria-label': label } : { 'data-agent-id': p.id, role: 'button', tabIndex: 0 }
+  const props: Record<string, string | number> = { 'data-agent-id': p.id, role: 'button', tabIndex: 0, 'aria-haspopup': 'menu' }
+  if (label) props['aria-label'] = label
+  return props
 }
 
 export function bindAgentRefs(root: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>, hooks: AgentRefHooks): () => void {

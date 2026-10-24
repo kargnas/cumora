@@ -88,6 +88,7 @@ function ChatHeader({ c, layout, panelOpen, onSearch, searching }: {
         type="button"
         className="nx-pill"
         data-agent-id={agentPeer?.id}
+        aria-haspopup={agentPeer ? 'menu' : undefined}
         onClick={agentPeer ? undefined : openEdit}
         aria-label={agentPeer ? agentPeer.name : nt('chat.edit', { room: c.title })}
       >

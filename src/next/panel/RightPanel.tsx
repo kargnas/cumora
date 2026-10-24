@@ -34,7 +34,7 @@ const EventDetail = lazy(() => import('../sections/calendar/EventDetail').then((
 
 function closePanel(layout: Layout): void {
   const r = getRoute()
-  const base = withRoute(r, { panel: null, peek: null, threadId: null, params: { pane: null } })
+  const base = withRoute(r, { panel: null, peek: null, threadId: null })
   if (layout === 'full' && !r.threadId && !r.peek) navigate(withRoute(r, { panel: 'none' }), { replace: true })
   else goBack(base)
 }

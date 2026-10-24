@@ -42,6 +42,43 @@ const shown = (signal: AbortSignal) => new Promise<void>((resolve) => {
   signal.addEventListener('abort', stop)
 })
 
+/**
+ * Reads an agent's screen until `signal` aborts, one answer or failure at a
+ * time: it rests while the app is in the background and retries a failed read
+ * after 3 s. A first read answers with the newest frame the server holds.
+ * `wait: false` asks the server not to hold later reads open (the first still
+ * waits, to learn whether a browser is open); `gap` pauses between reads;
+ * `until` waits for the caller's own condition. Screen and ScreenThumb share
+ * it, so the protocol lives in one place.
+ */
+async function* screenReads(agentId: string, signal: AbortSignal, { wait = true, gap = 0, until }: {
+  wait?: boolean
+  gap?: number
+  until?: () => Promise<void>
+} = {}): AsyncGenerator<{ poll: Poll } | { error: unknown }> {
+  const path = `/fork/agents/${encodeURIComponent(agentId)}/screen`
+  let after = 0
+  while (!signal.aborted) {
+    if (until) await until()
+    if (signal.aborted) return
+    if (document.hidden) {
+      await shown(signal)
+      continue
+    }
+    let read: { poll: Poll } | { error: unknown }
+    try {
+      read = { poll: await http<Poll>(`${path}?after=${after}${!wait && after > 0 ? '&wait=0' : ''}`, { signal }) }
+    } catch (error) {
+      read = { error }
+    }
+    // An abort rejects the fetch; that is cleanup, not an error.
+    if (signal.aborted) return
+    if ('poll' in read) after = read.poll.seq
+    yield read
+    await sleep('poll' in read ? gap : 3_000, signal)
+  }
+}
+
 // CDP's modifier bits: Alt 1, Ctrl 2, Meta 4, Shift 8. The browser runs on
 // Linux, so the Mac's Command works there as Control (select all, copy).
 const mods = (e: { altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }) =>
@@ -104,49 +141,38 @@ export function Screen({ agent, big = false }: { agent: Participant; big?: boole
     // connection on the phone's native HTTP pool.
     const ac = new AbortController()
     const { signal } = ac
-    // A first poll answers at once with the newest frame the server holds.
-    let after = 0
     void (async () => {
-      while (!signal.aborted) {
-        if (document.hidden) {
-          await shown(signal)
+      for await (const read of screenReads(agent.id, signal)) {
+        if ('error' in read) {
+          setError(errText(read.error))
           continue
         }
-        try {
-          const r = await http<Poll>(`${path}?after=${after}`, { signal })
-          if (signal.aborted) return
-          after = r.seq
-          if (r.frame) {
-            const bytes = Uint8Array.from(atob(r.frame), (c) => c.charCodeAt(0))
-            const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/jpeg' }))
-            const c = canvas.current
-            if (!signal.aborted && c) {
-              if (c.width !== bitmap.width) c.width = bitmap.width
-              if (c.height !== bitmap.height) c.height = bitmap.height
-              c.getContext('2d')?.drawImage(bitmap, 0, 0)
-              // Height from the frame's aspect; see ScreenPoll.width in server/src/fork/screen.ts.
-              const w = r.width || bitmap.width
-              page.current = { w, h: (w * bitmap.height) / bitmap.width }
-              setDrawn(true)
-            }
-            bitmap.close()
+        const r = read.poll
+        if (r.frame) {
+          const bytes = Uint8Array.from(atob(r.frame), (c) => c.charCodeAt(0))
+          const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/jpeg' }))
+          const c = canvas.current
+          if (!signal.aborted && c) {
+            if (c.width !== bitmap.width) c.width = bitmap.width
+            if (c.height !== bitmap.height) c.height = bitmap.height
+            c.getContext('2d')?.drawImage(bitmap, 0, 0)
+            // Height from the frame's aspect; see ScreenPoll.width in server/src/fork/screen.ts.
+            const w = r.width || bitmap.width
+            page.current = { w, h: (w * bitmap.height) / bitmap.width }
+            setDrawn(true)
           }
-          // A browser that closed drops its last frame, so the next open waits
-          // for a fresh one instead of flashing the stale page.
-          if (r.state === 'closed') setDrawn(false)
-          setState(r.state)
-          setUrl(r.url)
-          setError(null)
-        } catch (e) {
-          // An abort rejects the fetch; that is cleanup, not an error.
-          if (signal.aborted) return
-          setError(errText(e))
-          await sleep(3_000, signal)
+          bitmap.close()
         }
+        // A browser that closed drops its last frame, so the next open waits
+        // for a fresh one instead of flashing the stale page.
+        if (r.state === 'closed') setDrawn(false)
+        setState(r.state)
+        setUrl(r.url)
+        setError(null)
       }
     })()
     return () => ac.abort()
-  }, [path, large])
+  }, [agent.id, large])
 
   const at = (e: { clientX: number; clientY: number }, r = canvas.current?.getBoundingClientRect()) => {
     if (!r || r.width === 0) return { x: 0, y: 0 }
@@ -329,28 +355,17 @@ export function ScreenThumb({ agent }: { agent: Participant }) {
       if (onScreen) wake()
     })
     io.observe(node)
-    // Cleanup wakes a loop that is waiting for the tile to scroll into view.
+    // Cleanup wakes a read that waits for the tile to scroll into view.
     signal.addEventListener('abort', () => wake(), { once: true })
-    const seen = () => new Promise<void>((resolve) => { wake = resolve })
+    const until = () => (onScreen ? Promise.resolve() : new Promise<void>((resolve) => { wake = resolve }))
     void (async () => {
-      let after = 0
-      while (!signal.aborted) {
-        if (!onScreen) { await seen(); continue }
-        if (document.hidden) { await shown(signal); continue }
-        try {
-          // The first read waits for the stream to learn whether a browser is open.
-          const wait = after > 0 ? '&wait=0' : ''
-          const r = await http<Poll>(`/fork/agents/${encodeURIComponent(agent.id)}/screen?after=${after}${wait}`, { signal })
-          if (signal.aborted) return
-          after = r.seq
-          if (r.frame) setSrc(`data:image/jpeg;base64,${r.frame}`)
-          else if (r.state === 'closed') setSrc(null)
-          setState(r.state)
-        } catch {
-          // A failed read leaves the last frame up; the next one tries again.
-          if (signal.aborted) return
-        }
-        await sleep(THUMB_MS, signal)
+      for await (const read of screenReads(agent.id, signal, { wait: false, gap: THUMB_MS, until })) {
+        // A failed read leaves the last frame up; the next one tries again.
+        if ('error' in read) continue
+        const r = read.poll
+        if (r.frame) setSrc(`data:image/jpeg;base64,${r.frame}`)
+        else if (r.state === 'closed') setSrc(null)
+        setState(r.state)
       }
     })()
     return () => {

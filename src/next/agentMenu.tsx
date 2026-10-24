@@ -23,14 +23,14 @@ import { useParticipants } from '@/stores/participants'
 import type { Participant } from '@/types'
 import { relative } from './format'
 import { haptic } from './haptics'
-import { useAdmin, useOpenDirect } from './hooks'
+import { useOpenDirect } from './hooks'
 import { useNT } from './i18n'
 import { getRoute, href, navigate, useRoute, withRoute } from './router'
 import { Avatar } from './ui/Avatar'
 import { anchorFrom, Menu, type MenuAnchor, type MenuEntry, type MenuItem } from './ui/primitives'
 import { IAgents, IAt, ICode, ICompose, IComputer, ICopy, IStop } from './ui/icons'
 import { isOpenThread, lastPr, look, newestThreads, threadTime, useCoding, type Thread } from './panel/CodingTab'
-import { agentState, hasWork, StateText } from './sections/agents/shared'
+import { agentState, StateText, useSeesWork } from './sections/agents/shared'
 import { bindAgentRefs } from './agentRefs'
 
 /** The agent drawer's panes (`?pane=` beside `peek=agent:<id>`). */
@@ -106,7 +106,6 @@ function Head({ p, now }: { p: Participant; now: Thread | undefined }) {
 export function AgentMenuHost() {
   const nt = useNT()
   const locale = useLocale()
-  const admin = useAdmin()
   const route = useRoute()
   const openDirect = useOpenDirect()
   const id = useAgentMenu((s) => s.id)
@@ -122,7 +121,7 @@ export function AgentMenuHost() {
   const typingHere = useMessages((s) => !!p && !!roomId && !!s.typing[roomId]?.includes(p.id))
   const open = anchor !== null && p !== undefined
   const active = !!p && !p.departedAt
-  const working = !!p && admin && hasWork(p)
+  const working = useSeesWork(p)
   const { coding } = useCoding(p?.id ?? '', open && working)
 
   if (!p) return <Menu open={false} anchor={null} entries={[]} onClose={close} />

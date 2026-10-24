@@ -10,14 +10,13 @@ import { lazy, Suspense } from 'react'
 import { useComputers } from '@/stores/computers'
 import { useParticipants } from '@/stores/participants'
 import type { AgentPane } from '../agentMenu'
-import { useAdmin } from '../hooks'
 import { useNT } from '../i18n'
 import type { Layout } from '../layout'
 import { getRoute, href, navigate, parseRoute, useRoute, withRoute } from '../router'
 import { Avatar } from '../ui/Avatar'
 import { IconButton, Segmented, Spinner } from '../ui/primitives'
 import { IChevronLeft, IX } from '../ui/icons'
-import { agentState, hasWork, refreshRoster, StateText } from '../sections/agents/shared'
+import { agentState, refreshRoster, StateText, useSeesWork } from '../sections/agents/shared'
 import { CodingList } from './CodingTab'
 import { Screen } from './ComputerTab'
 
@@ -26,11 +25,11 @@ const Profile = lazy(() => import('../sections/agents/Profile').then((m) => ({ d
 export function AgentDrawer({ id, layout, onClose }: { id: string; layout: Layout; onClose: () => void }) {
   const nt = useNT()
   const route = useRoute()
-  const admin = useAdmin()
   const p = useParticipants((s) => s.byId[id])
+  const seesWork = useSeesWork(p)
   const host = useComputers((s) => (p?.computerId ? s.byId[p.computerId] : undefined))
 
-  const panes: AgentPane[] = p && admin && hasWork(p) ? ['screen', 'jobs', 'profile'] : ['profile']
+  const panes: AgentPane[] = seesWork ? ['screen', 'jobs', 'profile'] : ['profile']
   // A peek without a pane (a person, a classic profile link) shows the
   // profile: the screen opens only when asked for, since it holds a stream.
   const asked = route.search.get('pane') as AgentPane | null
