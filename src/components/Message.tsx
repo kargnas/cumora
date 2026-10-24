@@ -78,6 +78,8 @@ function MentionChip({ id }: { id: string }) {
     <>
       <span
         ref={ref}
+        // Fork seam: the redesign opens its agent menu for this attribute (src/next/agentMenu.tsx).
+        data-agent-id={isAgent && !isMe ? p.id : undefined}
         onMouseEnter={enter}
         onMouseLeave={leave}
         onClick={click}

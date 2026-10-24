@@ -7,6 +7,7 @@ import { isMuted, useConversations } from '@/stores/conversations'
 import { useMessages } from '@/stores/messages'
 import { useParticipants } from '@/stores/participants'
 import type { Conversation, Message, Participant } from '@/types'
+import { agentButtonRef } from '../agentRefs'
 import { haptic } from '../haptics'
 import { useNT } from '../i18n'
 import { getRoute, goBack, href, navigate, withRoute } from '../router'
@@ -49,6 +50,7 @@ function ChatHeader({ c, layout, panelOpen, onSearch, searching }: {
   const me = useMe()
   const { agents, live } = useRoomAgents(c)
   const peer = useParticipants((s) => (c.kind === 'direct' ? s.byId[c.members.find((m) => m !== me) ?? ''] : undefined))
+  const agentPeer = peer?.kind === 'agent' ? peer : undefined
   const togglePanel = useCallback(() => {
     const r = getRoute()
     if (panelOpen) {
@@ -82,7 +84,14 @@ function ChatHeader({ c, layout, panelOpen, onSearch, searching }: {
           <IconButton label={nt('chat.back')} onClick={() => goBack(href({ section: 'chats' }))}><IChevronLeft /></IconButton>
         )}
       </div>
-      <button type="button" className="nx-pill" onClick={openEdit} aria-label={nt('chat.edit', { room: c.title })}>
+      {/* A 1:1 with an agent opens the agent menu (src/next/agentMenu.tsx); Edit stays on the panel's pencil. */}
+      <button
+        type="button"
+        className="nx-pill"
+        {...agentButtonRef(agentPeer)}
+        onClick={agentPeer ? undefined : openEdit}
+        aria-label={agentPeer ? agentPeer.name : nt('chat.edit', { room: c.title })}
+      >
         {glyph}
         <span className="nx-pill__text">
           <span className="nx-pill__title">{c.title}</span>

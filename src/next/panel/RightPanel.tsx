@@ -1,7 +1,8 @@
 /**
- * Right panel of a conversation. Agent, document and board peeks reuse the
- * classic panes (they read the useApp fields that the router projects from
- * the URL); an event peek is the Calendar section's own detail, and the tabs
+ * Right panel of a conversation. Document and board peeks reuse the classic
+ * panes (they read the useApp fields that the router projects from the URL);
+ * an agent or person peek is the agent drawer (AgentDrawer.tsx), an event
+ * peek is the Calendar section's own detail, and the tabs
  * are the redesign's own. The header identity follows whichever agent is
  * working in the room, so a glance says who is busy right now. The room's
  * settings are not a tab: the pencil opens Edit over the chat.
@@ -20,13 +21,13 @@ import { useRoomAgents } from '../chat/ChatView'
 import { HandbookTab } from './HandbookTab'
 import { CodingTab } from './CodingTab'
 import { ComputerTab } from './ComputerTab'
+import { AgentDrawer } from './AgentDrawer'
 import { MembersTab } from './MembersTab'
 import { openEdit } from './EditDialog'
 import { FilesTab } from './FilesTab'
 import { RoutinesTab } from './RoutinesTab'
 import { ThreadView } from './ThreadView'
 
-const InfoPane = lazy(() => import('@/desktop/InfoPane').then((m) => ({ default: m.InfoPane })))
 const DocumentPeekPane = lazy(() => import('@/desktop/DocumentPeekPane').then((m) => ({ default: m.DocumentPeekPane })))
 const BoardPeekPane = lazy(() => import('@/desktop/BoardPeekPane').then((m) => ({ default: m.BoardPeekPane })))
 const EventDetail = lazy(() => import('../sections/calendar/EventDetail').then((m) => ({ default: m.EventDetail })))
@@ -118,10 +119,9 @@ export function RightPanel({ route, layout }: { route: Route; layout: Layout }) 
       </Suspense>
     )
   }
+  if (route.peek?.kind === 'agent') return <AgentDrawer id={route.peek.id} layout={layout} onClose={() => closePanel(layout)} />
   if (route.peek) {
-    const pane = route.peek.kind === 'agent' ? <InfoPane />
-      : route.peek.kind === 'doc' ? <DocumentPeekPane />
-        : <BoardPeekPane />
+    const pane = route.peek.kind === 'doc' ? <DocumentPeekPane /> : <BoardPeekPane />
     return <Classic layout={layout}>{pane}</Classic>
   }
 

@@ -1,28 +1,29 @@
 /**
- * The roster: active agents (with live status, engine and computer), human
- * teammates, and off-boarded agents behind the Former filter. The filter is a
- * query param, so a filtered list survives reloads and Back.
+ * The roster as a list beside the open profile (`?roster=list`): active
+ * agents (with live status, engine and computer), human teammates, and
+ * off-boarded agents behind the Former filter. The filter is a query param,
+ * so a filtered list survives reloads and Back. A click opens the agent; a
+ * right-click or a long press opens the agent menu.
  */
-import { memo, useMemo } from 'react'
+import { memo } from 'react'
 import { motion } from 'framer-motion'
-import { useShallow } from 'zustand/react/shallow'
-import { useMe } from '@/stores/auth'
-import { useComputers } from '@/stores/computers'
-import { useParticipants } from '@/stores/participants'
 import { engineLabel } from '@/lib/engines'
 import type { Participant } from '@/types'
+import { openAgentMenu } from '../../agentMenu'
+import { useHold } from '../../hooks'
 import { useNT } from '../../i18n'
 import { href, linkClick, navigate, type Route } from '../../router'
 import { Avatar } from '../../ui/Avatar'
-import { IconButton, Segmented, Spinner, T_FAST, type SegItem } from '../../ui/primitives'
+import { IconButton, Spinner, T_FAST } from '../../ui/primitives'
 import { IPlus } from '../../ui/icons'
-import { agentState, dialogHref, engineOf, isBusy, LoadError, parseFilter, StateText, type Filter, type Roster } from './shared'
-
-const byName = (a: Participant, b: Participant) => a.name.localeCompare(b.name)
+import {
+  agentsFor, agentState, dialogHref, EMPTY_FILTER, engineOf, FilterTabs, LoadError, parseFilter, RosterSwitch, StateText, useHost, useTeam, type Roster,
+} from './shared'
 
 const AgentRow = memo(function AgentRow({ p, to, active }: { p: Participant; to: string; active: boolean }) {
   const nt = useNT()
-  const host = useComputers((s) => (p.computerId ? s.byId[p.computerId] : undefined))
+  const host = useHost(p)
+  const hold = useHold((x, y) => openAgentMenu(p.id, { x, y }))
   const isAgent = p.kind === 'agent'
   const engine = isAgent ? engineOf(p, host) : null
   // Cloud agents run the managed engine, so the computer name says it all.
@@ -37,6 +38,7 @@ const AgentRow = memo(function AgentRow({ p, to, active }: { p: Participant; to:
       className="nx-agents-row"
       aria-current={active ? 'page' : undefined}
       data-departed={p.departedAt ? '' : undefined}
+      {...(isAgent ? hold : {})}
     >
       {active && <motion.span layoutId="nx-agents-sel" className="nx-agents-row__sel" transition={T_FAST} />}
       <Avatar p={p} size={36} presence={!p.departedAt} />
@@ -74,61 +76,38 @@ interface Group { key: string; label: string | null; items: Participant[] }
 
 export function AgentList({ route, roster, refreshing }: { route: Route; roster: Roster; refreshing: boolean }) {
   const nt = useNT()
-  const me = useMe()
   const filter = parseFilter(route.search.get('filter'))
-  const people = useParticipants(useShallow((s) => Object.values(s.byId).sort(byName)))
-  const hosts = useComputers((s) => s.byId)
+  const team = useTeam()
+  const { agents, humans } = team
 
-  const { agents, busy, former, humans } = useMemo(() => {
-    const out = { agents: [] as Participant[], busy: new Set<string>(), former: [] as Participant[], humans: [] as Participant[] }
-    for (const p of people) {
-      if (p.kind === 'human') {
-        if (p.id !== me) out.humans.push(p)
-      } else if (p.departedAt) {
-        out.former.push(p)
-      } else {
-        out.agents.push(p)
-        if (isBusy(agentState(p, p.computerId ? hosts[p.computerId] : undefined))) out.busy.add(p.id)
-      }
-    }
-    // Most recently off-boarded first, as the classic roster ordered them.
-    out.former.sort((a, b) => (b.departedAt ?? '').localeCompare(a.departedAt ?? ''))
-    return out
-  }, [people, hosts, me])
+  const groups: Group[] = filter === 'all'
+    ? [
+        { key: 'agents', label: nt('agents.groupAgents'), items: agents },
+        { key: 'people', label: nt('agents.groupPeople'), items: humans },
+      ]
+    : [{ key: filter, label: null, items: agentsFor(team, filter) }]
 
-  const groups: Group[] = filter === 'working' ? [{ key: 'working', label: null, items: agents.filter((p) => busy.has(p.id)) }]
-    : filter === 'idle' ? [{ key: 'idle', label: null, items: agents.filter((p) => !busy.has(p.id)) }]
-      : filter === 'departed' ? [{ key: 'former', label: null, items: former }]
-        : [
-            { key: 'agents', label: nt('agents.groupAgents'), items: agents },
-            { key: 'people', label: nt('agents.groupPeople'), items: humans },
-          ]
-
-  const count = (n: number) => <span className="nx-agents-count nx-mono">{n}</span>
-  const tabs: Array<SegItem<Filter>> = [
-    { key: 'all', label: nt('agents.filter.all') },
-    { key: 'working', label: nt('agents.filter.working'), badge: count(busy.size) },
-    { key: 'idle', label: nt('agents.filter.idle'), badge: count(agents.length - busy.size) },
-    // Former only exists once someone has been off-boarded.
-    ...(former.length > 0 || filter === 'departed'
-      ? [{ key: 'departed' as const, label: nt('agents.filter.departed'), badge: count(former.length) }]
-      : []),
-  ]
   // Moving to another agent keeps the open view and the handbook's range;
   // a scrubbed time belongs to one agent's changes, so it stays behind.
   const toAgent = (id: string) => href({
     section: 'agents',
     id,
-    params: { filter: filter === 'all' ? null : filter, view: route.search.get('view'), since: route.search.get('since') },
+    params: {
+      filter: filter === 'all' ? null : filter,
+      roster: route.search.get('roster'),
+      view: route.search.get('view'),
+      since: route.search.get('since'),
+    },
   })
 
-  const empty = filter === 'working' ? nt('agents.noneWorking') : filter === 'idle' ? nt('agents.noneIdle') : null
+  const empty = filter === 'working' || filter === 'idle' ? nt(EMPTY_FILTER[filter]) : null
 
   return (
     <aside className="nx-agents-list" aria-label={nt('agents.title')}>
       <header className="nx-agents-head">
         <h1>{nt('agents.title')}</h1>
         {refreshing && <Spinner label={nt('agents.refreshing')} />}
+        <RosterSwitch route={route} />
         <IconButton
           label={nt('agents.hire')}
           tipPlace="below"
@@ -138,14 +117,7 @@ export function AgentList({ route, roster, refreshing }: { route: Route; roster:
           <IPlus />
         </IconButton>
       </header>
-      <div className="nx-agents-filters">
-        <Segmented
-          label={nt('agents.filters')}
-          value={filter}
-          items={tabs}
-          onChange={(k) => navigate(href({ section: 'agents', id: route.id, params: { filter: k === 'all' ? null : k } }), { replace: true })}
-        />
-      </div>
+      <div className="nx-agents-filters"><FilterTabs route={route} team={team} /></div>
       <div className="nx-agents-scroll nx-scroll" aria-busy={roster.state === 'loading' || undefined}>
         {roster.state === 'loading' ? <Skeleton />
           : roster.state === 'error' ? <LoadError onRetry={roster.retry} />

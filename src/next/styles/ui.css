@@ -283,6 +283,9 @@ textarea.nx-input { height: auto; min-height: 72px; padding: 8px 12px; line-heig
 .nx-switch[aria-checked="true"] { background: var(--primary); }
 .nx-switch[aria-checked="true"]::after { transform: translateX(14px); }
 
+/* Anything that names an agent opens the agent menu (src/next/agentMenu.tsx). */
+html.nx [data-agent-id] { cursor: pointer; }
+
 /* ── Floating layers: menu, popover, sheet, tooltip ────────────────── */
 .nx-layer { position: fixed; inset: 0; z-index: 80; }
 .nx-scrim {
@@ -323,8 +326,25 @@ textarea.nx-input { height: auto; min-height: 72px; padding: 8px 12px; line-heig
 .nx-menu__item--danger { color: var(--destructive); }
 .nx-menu__item--danger svg { color: currentColor; }
 .nx-menu__item .nx-kbd { margin-left: auto; }
+.nx-menu__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-menu__detail { flex: none; margin-left: auto; padding-left: 12px; font-size: var(--text-caption); color: var(--muted-foreground); }
+.nx-menu__detail + .nx-kbd { margin-left: 8px; }
 .nx-menu__sep { height: 1px; margin: 4px 0; background: var(--border); }
 .nx-menu__label { padding: 8px 8px 4px; font-size: var(--text-caption); color: var(--muted-foreground); }
+
+/* The agent menu (src/next/agentMenu.tsx): who, and what it is on now. */
+.nx-agent-menu__head { display: flex; align-items: flex-start; gap: 8px; padding: 8px; margin-bottom: 4px; border-bottom: 1px solid var(--border); }
+.nx-agent-menu__who { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: var(--text-caption); color: var(--muted-foreground); }
+.nx-agent-menu__who > b { font-size: var(--text-body); font-weight: 600; color: var(--foreground); }
+.nx-agent-menu__now { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--foreground); }
+.nx-agent-menu__error { color: var(--destructive); }
+.nx-agent-menu__thread { display: inline-grid; place-items: center; flex: none; width: 16px; height: 16px; color: var(--muted-foreground); }
+.nx-menu__item .nx-agent-menu__thread svg { width: 14px; height: 14px; color: inherit; }
+.nx-agent-menu__thread[data-tone="live"] { color: var(--live); }
+.nx-agent-menu__thread[data-tone="warn"] { color: var(--warn); }
+.nx-agent-menu__thread[data-tone="bad"] { color: var(--destructive); }
+.nx-live-tag { display: inline-flex; align-items: center; gap: 4px; font-weight: 500; color: var(--live); }
+.nx-live-tag::before { content: ""; width: 6px; height: 6px; border-radius: 999px; background: currentColor; }
 
 /* Touch: menus become bottom sheets with 44px rows. */
 .nx-sheet {

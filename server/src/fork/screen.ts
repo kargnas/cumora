@@ -63,7 +63,7 @@ function dashboardSessions(): Promise<Array<{ session: string; port: number }>> 
   })
 }
 
-class Screen {
+export class Screen {
   state: ScreenPoll['state'] = 'closed'
   seq = 0
   private frame: { data: string; width: number; seq: number } | null = null
@@ -75,7 +75,8 @@ class Screen {
   private ended = false
   polled = Date.now()
 
-  constructor(readonly agentId: string) { void this.connect() }
+  /** `sessions` lists the dashboard's sessions; tests give their own. */
+  constructor(readonly agentId: string, private readonly sessions = dashboardSessions) { void this.connect() }
 
   private bump(): void {
     this.seq++
@@ -87,7 +88,7 @@ class Screen {
     if (this.ended) return
     let port: number | undefined
     try {
-      const found = (await dashboardSessions()).find((s) => s.session === this.agentId)?.port
+      const found = (await this.sessions()).find((s) => s.session === this.agentId)?.port
       // The port goes straight into the ws URL path, so only a real port number does.
       if (typeof found === 'number' && Number.isInteger(found) && found > 0 && found <= 65535) port = found
     } catch (e) {
@@ -144,9 +145,11 @@ class Screen {
     }
   }
 
-  poll(after: number, signal: AbortSignal): Promise<ScreenPoll> {
+  poll(after: number, signal: AbortSignal, hold = true): Promise<ScreenPoll> {
     this.polled = Date.now()
-    if (this.seq > after || signal.aborted) return Promise.resolve(this.snapshot(after))
+    // Without `hold` a read still waits until a new stream has learned whether
+    // a browser is open; answering before that would say closed for nothing.
+    if ((!hold && this.known) || this.seq > after || signal.aborted) return Promise.resolve(this.snapshot(after))
     return new Promise((resolve) => {
       const done = () => {
         clearTimeout(timer)
@@ -283,14 +286,15 @@ async function gate(requireCompany: Requirer, req: Request & AuthedRequest, res:
 
 /** GET /api/fork/agents/:agentId/screen?after=<seq>: the browser's state, and
  *  its newest frame when one arrived after `after`. Waits up to HOLD_MS for a
- *  change when there is none. */
+ *  change when there is none, unless `wait=0`: the Agents wall's thumbnails
+ *  want the newest frame or nothing and must not hold a connection. */
 export async function agentScreen(requireCompany: Requirer, req: Request & AuthedRequest, res: Response): Promise<void> {
   const agentId = await gate(requireCompany, req, res)
   if (!agentId) return
   const after = Math.max(0, Number(req.query.after) || 0)
   const abort = new AbortController()
   res.on('close', () => abort.abort())
-  const poll = await screenOf(agentId).poll(after, abort.signal)
+  const poll = await screenOf(agentId).poll(after, abort.signal, req.query.wait !== '0')
   if (abort.signal.aborted) return
   res.setHeader('Cache-Control', 'no-store')
   res.json(poll)

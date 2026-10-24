@@ -1,6 +1,6 @@
 import { useCallback, useRef, useSyncExternalStore } from 'react'
 import { api } from '@/api/client'
-import { getMeId } from '@/stores/auth'
+import { getMeId, useAuth } from '@/stores/auth'
 import { useConversations } from '@/stores/conversations'
 import type { Conversation, Participant } from '@/types'
 import { haptic } from './haptics'
@@ -42,6 +42,15 @@ function noopSubscribe(): () => void {
   return () => {}
 }
 
+/** The viewer owns or administers the active workspace: the fork's agent
+ *  routes (screen, coding, handbook) answer only them. */
+export function useAdmin(): boolean {
+  return useAuth((s) => {
+    const role = s.companies.find((x) => x.id === s.activeCompanyId)?.role
+    return role === 'owner' || role === 'admin'
+  })
+}
+
 /** The other participant of a direct conversation. */
 export function directPeer(c: Conversation, byId: Record<string, Participant>): Participant | undefined {
   const me = getMeId()
@@ -69,6 +78,10 @@ export function useOpenDirect(): (participantId: string) => Promise<void> {
 /** How long a finger rests before a press becomes a hold. */
 export const HOLD_MS = 420
 
+// iOS (Safari and the app's WKWebView) never turns a long press into a
+// contextmenu; Android does. iPadOS reports itself as a Mac with touch.
+const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+
 /**
  * Press-and-hold on touch, right-click with a mouse: both open the same menu.
  * The click that a finger lift produces after a hold is swallowed so the row
@@ -87,6 +100,11 @@ export function useHold(onHold: (x: number, y: number) => void) {
       const t = e.touches[0]
       if (!t) return
       fired.current = false
+      // A long press on anything inside the row that names an agent (an
+      // avatar, a name, an @mention) becomes a contextmenu on Android, which
+      // opens the agent menu (agentRefs.ts); holding too would open two
+      // sheets. iOS sends none, so there the row's own menu opens.
+      if (!IOS && (e.target as Element).closest('[data-agent-id]')) return
       start.current = { x: t.clientX, y: t.clientY }
       clear()
       timer.current = window.setTimeout(() => {

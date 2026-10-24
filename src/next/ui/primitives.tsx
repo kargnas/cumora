@@ -7,6 +7,7 @@ import { AnimatePresence, motion, PresenceContext } from 'framer-motion'
 import { isMac } from '@/lib/runtime'
 import { useNT } from '../i18n'
 import { IX } from './icons'
+import { shortcutItem } from './menuKeys'
 
 /* ── Motion presets (transitions-dev tokens in seconds) ─────────────── */
 export const EASE_OUT = [0.22, 1, 0.36, 1] as const
@@ -198,6 +199,9 @@ export interface MenuItem {
   key: string
   label: string
   icon?: ReactNode
+  /** Quiet text or a badge at the end of the row (a count, a time, a live tag). */
+  detail?: ReactNode
+  /** Shown as a key hint; a single character also picks the item while the menu is open. */
   shortcut?: string
   danger?: boolean
   disabled?: boolean
@@ -210,6 +214,23 @@ export interface MenuAnchor { x: number; y: number; align?: 'start' | 'end' }
 export function anchorFrom(el: Element, align: 'start' | 'end' = 'start'): MenuAnchor {
   const r = el.getBoundingClientRect()
   return { x: align === 'end' ? r.right : r.left, y: r.bottom + 4, align }
+}
+
+/** A right-click while a menu is open never brings up the browser's own menu
+ *  on top of it. Outside the menu, pointerdown has already closed it, and the
+ *  right-click goes on to whatever lies under the layer, so another row's menu
+ *  opens with that same click, as in a desktop app. */
+function rightClickThrough(ev: React.MouseEvent<HTMLDivElement>): void {
+  ev.preventDefault()
+  if (ev.target !== ev.currentTarget) return
+  const layer = ev.currentTarget
+  // Another layer itself (a menu still fading out) would hand the click straight
+  // back; what it holds, like a dialog's content, may take it.
+  const under = document.elementsFromPoint(ev.clientX, ev.clientY)
+    .find((el) => !layer.contains(el) && !el.classList.contains('nx-layer'))
+  under?.dispatchEvent(new MouseEvent('contextmenu', {
+    bubbles: true, cancelable: true, clientX: ev.clientX, clientY: ev.clientY, button: 2, buttons: 2,
+  }))
 }
 
 export function Menu({ open, anchor, entries, onClose, header }: {
@@ -248,6 +269,8 @@ export function Menu({ open, anchor, entries, onClose, header }: {
       if (e.key === 'ArrowDown') { e.preventDefault(); setHi((i) => (i + 1) % items.length) }
       if (e.key === 'ArrowUp') { e.preventDefault(); setHi((i) => (i - 1 + items.length) % items.length) }
       if (e.key === 'Enter' && hi >= 0 && items[hi]) { e.preventDefault(); items[hi].onSelect(); onClose() }
+      const hit = shortcutItem(items, e)
+      if (hit) { e.preventDefault(); hit.onSelect(); onClose() }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -268,7 +291,8 @@ export function Menu({ open, anchor, entries, onClose, header }: {
         onClick={() => { e.onSelect(); onClose() }}
       >
         {e.icon}
-        <span>{e.label}</span>
+        <span className="nx-menu__text">{e.label}</span>
+        {e.detail && <span className="nx-menu__detail">{e.detail}</span>}
         {e.shortcut && !coarse && <Kbd>{e.shortcut}</Kbd>}
       </button>
     )
@@ -278,7 +302,11 @@ export function Menu({ open, anchor, entries, onClose, header }: {
     <Portal>
       <AnimatePresence>
         {open && (
-          <div className="nx-layer" onPointerDown={(ev) => { if (ev.target === ev.currentTarget) onClose() }}>
+          <div
+            className="nx-layer"
+            onPointerDown={(ev) => { if (ev.target === ev.currentTarget) onClose() }}
+            onContextMenu={rightClickThrough}
+          >
             {coarse ? (
               <>
                 <motion.div className="nx-scrim" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={T_FAST} onClick={onClose} />

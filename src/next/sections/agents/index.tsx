@@ -1,13 +1,15 @@
 /**
- * Agents section: the roster beside one profile on wide windows, the profile
- * pushed over the roster (swipe back) on narrow ones. Everything open is in
- * the URL: `/next/agents/:id`, `?filter=`, and the dialogs `?new=1`,
- * `?edit=1`, `?offboard=1`, `?purge=1`, so Back closes whatever was opened last.
+ * Agents section: the wall of every agent (the default), or the roster beside
+ * one agent's page on wide windows (`?roster=list`). An agent opened from the
+ * wall fills the section with a back bar; on narrow windows its page is pushed
+ * over the wall or the list (swipe back). Everything open is in the URL:
+ * `/next/agents/:id`, `?roster=`, `?filter=`, `?view=`, and the dialogs
+ * `?new=1`, `?edit=1`, `?offboard=1`, `?purge=1`, so Back closes whatever was
+ * opened last.
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion, useTransform } from 'framer-motion'
 import { api, http } from '@/api/client'
-import { useConversations } from '@/stores/conversations'
 import { useParticipants } from '@/stores/participants'
 import { useSwipeBackProps } from '@/mobile/useSwipeBack'
 import type { SectionProps } from '../types'
@@ -16,11 +18,11 @@ import { useNT } from '../../i18n'
 import { getRoute, goBack, linkClick, navigate, withRoute, type Route } from '../../router'
 import { Dialog, IconButton, SPRING_SHEET, Spinner, T_FAST } from '../../ui/primitives'
 import { IAgents, IChevronLeft, IPlus } from '../../ui/icons'
-import { DIALOG_PARAMS, dialogHref, errorText, listHref, NO_DIALOG, useRoster } from './shared'
+import { DIALOG_PARAMS, dialogHref, errorText, isWall, listHref, NO_DIALOG, refreshRoster, useRoster } from './shared'
 import { AgentList } from './List'
+import { AgentWall } from './Wall'
 import { AgentProfile } from './Profile'
 import { LookEditor } from './LookStudio'
-import './agents.css'
 
 /** Closes a URL-opened dialog exactly once. Esc reaches both `Dialog` and the
  *  classic AgentEditor's own key listener; a second goBack in the same tick
@@ -144,14 +146,14 @@ function PurgeDialog({ route, onDone }: { route: Route; onDone: () => Promise<vo
   )
 }
 
-/** Android's back key: close the dialog or the pushed profile first. NextApp's
+/** Android's back key: close the dialog or the open agent first. NextApp's
  *  own handler would jump straight to Chats from any section. Capture phase:
  *  on the target itself capture listeners run first, so this wins the event
  *  however the two effects happened to register. */
-function useHardwareBack(route: Route, stack: boolean): void {
+function useHardwareBack(route: Route, covered: boolean): void {
   useEffect(() => {
     const dialog = DIALOG_PARAMS.some((k) => route.search.has(k))
-    if (!dialog && !(stack && route.id)) return
+    if (!dialog && !(covered && route.id)) return
     const onBack = (e: Event) => {
       e.preventDefault()
       e.stopImmediatePropagation()
@@ -159,15 +161,16 @@ function useHardwareBack(route: Route, stack: boolean): void {
     }
     window.addEventListener('cumora:hardware-back', onBack, true)
     return () => window.removeEventListener('cumora:hardware-back', onBack, true)
-  }, [route, stack])
+  }, [route, covered])
 }
 
-function Detail({ route, stack, children }: { route: Route; stack: boolean; children: ReactNode }) {
+/** The open agent's page; `bar` adds the back bar when it covers the wall or list. */
+function Detail({ route, bar, children }: { route: Route; bar: boolean; children: ReactNode }) {
   const nt = useNT()
   const name = useParticipants((s) => (route.id ? s.byId[route.id]?.name : undefined))
   return (
     <section className="nx-agents-detail">
-      {stack && (
+      {bar && (
         <header className="nx-agents-bar">
           <IconButton label={nt('agents.back')} onClick={() => goBack(listHref(route))}><IChevronLeft /></IconButton>
           <span className="nx-agents-bar__title">{name}</span>
@@ -193,8 +196,9 @@ function PickAgent({ route }: { route: Route }) {
   )
 }
 
-/** Narrow windows: the profile slides over the roster, follows a swipe from
- *  anywhere, and the roster peeks back with parallax (as in chat/ChatsSection). */
+/** Narrow windows: the agent's page slides over the wall or list, follows a
+ *  swipe from anywhere, and what is under it peeks back with parallax (as in
+ *  chat/ChatsSection). */
 function StackAgents({ route, list, profile }: { route: Route; list: ReactNode; profile: ReactNode }) {
   const w = window.innerWidth
   const open = route.id !== null
@@ -208,7 +212,7 @@ function StackAgents({ route, list, profile }: { route: Route; list: ReactNode; 
       <AnimatePresence initial={false}>
         {open && (
           <motion.div key="profile" className="nx-pushed" initial={{ x: w }} animate={{ x: 0 }} exit={{ x: w }} transition={SPRING_SHEET} {...swipe.props}>
-            <Detail route={route} stack>{profile}</Detail>
+            <Detail route={route} bar>{profile}</Detail>
           </motion.div>
         )}
       </AnimatePresence>
@@ -223,34 +227,36 @@ export default function AgentsSection({ route, layout, stack }: SectionProps) {
   const refresh = useCallback(async () => {
     setRefreshing(true)
     try {
-      await Promise.all([useParticipants.getState().refresh(), useConversations.getState().reload()])
+      await refreshRoster()
     } finally {
       setRefreshing(false)
     }
   }, [])
-  useHardwareBack(route, stack)
+  const wall = isWall(route)
+  useHardwareBack(route, stack || wall)
 
-  const list = <AgentList route={route} roster={roster} refreshing={refreshing} />
+  const list = wall
+    ? <AgentWall route={route} roster={roster} refreshing={refreshing} covered={stack && route.id !== null} />
+    : <AgentList route={route} roster={roster} refreshing={refreshing} />
   const profile = route.id
     ? <AgentProfile key={route.id} id={route.id} route={route} roster={roster} onRefresh={refresh} />
     : null
+  const opened = route.id && (
+    <motion.div key={route.id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={T_FAST}>
+      {profile}
+    </motion.div>
+  )
 
   return (
     <>
       {stack ? (
         <StackAgents route={route} list={list} profile={profile} />
+      ) : wall ? (
+        opened ? <Detail route={route} bar>{opened}</Detail> : list
       ) : (
         <div className="nx-agents" data-layout={layout}>
           {list}
-          <Detail route={route} stack={false}>
-            {route.id ? (
-              <motion.div key={route.id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={T_FAST}>
-                {profile}
-              </motion.div>
-            ) : (
-              <PickAgent route={route} />
-            )}
-          </Detail>
+          <Detail route={route} bar={false}>{opened || <PickAgent route={route} />}</Detail>
         </div>
       )}
       <EditorDialog route={route} onSaved={() => void refresh()} />

@@ -1,14 +1,14 @@
 /**
  * One participant's profile. Agents get status, placement (computer, engine,
  * model), tools, email, autonomy and the hire/off-board/delete actions; people get
- * the parts that apply to them (message, email). An agent's Handbook, its
- * standing files with what changed, opens in place of the profile
- * (`?view=handbook`).
+ * the parts that apply to them (message, email). An agent's page opens on its
+ * workspace (Work.tsx) for owners and admins; `?view=profile` shows this
+ * profile and `?view=handbook` its Handbook, its standing files with what
+ * changed. The agent drawer in chats shows this profile too.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from '@/api/client'
 import { useMe } from '@/stores/auth'
-import { useComputers } from '@/stores/computers'
 import { useParticipants } from '@/stores/participants'
 import { usePrefs } from '@/stores/preferences'
 import { engineLabel } from '@/lib/engines'
@@ -21,8 +21,10 @@ import { Avatar } from '../../ui/Avatar'
 import { Segmented, Spinner } from '../../ui/primitives'
 import { ICheck, ICompose, ICopy, IExit, IPencil, IRepeat, ITrash } from '../../ui/icons'
 import { Handbook } from '../../panel/HandbookTab'
+import { AgentWork } from './Work'
 import {
-  agentState, defaultModelOf, dialogHref, engineOf, errorText, listHref, LoadError, providerLabel, StateText, type Roster,
+  agentState, defaultModelOf, dialogHref, engineOf, errorText, listHref, LoadError, providerLabel, StateText, useHost, useHostPending, useSeesWork,
+  type Roster,
 } from './shared'
 
 function Block({ title, children }: { title: string; children: ReactNode }) {
@@ -208,9 +210,9 @@ function Autonomy({ p }: { p: Participant }) {
   )
 }
 
-function Profile({ p, route, onRefresh }: { p: Participant; route: Route; onRefresh: () => Promise<void> }) {
+export function Profile({ p, route, onRefresh }: { p: Participant; route: Route; onRefresh: () => Promise<void> }) {
   const nt = useNT()
-  const host = useComputers((s) => (p.computerId ? s.byId[p.computerId] : undefined))
+  const host = useHost(p)
   const isAgent = p.kind === 'agent'
   const departed = Boolean(p.departedAt)
   // The classic card fell back to the agent's style prompt when it had no bio.
@@ -255,6 +257,9 @@ function Profile({ p, route, onRefresh }: { p: Participant; route: Route; onRefr
   )
 }
 
+type View = 'work' | 'profile' | 'handbook'
+const VIEW_LABEL = { work: 'agents.viewWork', profile: 'agents.viewProfile', handbook: 'agents.viewHandbook' } as const
+
 function ProfileSkeleton() {
   return (
     <div className="nx-agents-profile" aria-busy="true">
@@ -276,6 +281,8 @@ export function AgentProfile({ id, route, roster, onRefresh }: {
 }) {
   const nt = useNT()
   const p = useParticipants((s) => s.byId[id])
+  const seesWork = useSeesWork(p)
+  const hostPending = useHostPending(p)
   if (roster.state === 'loading') return <ProfileSkeleton />
   if (roster.state === 'error') return <LoadError onRetry={roster.retry} />
   if (!p) {
@@ -289,20 +296,29 @@ export function AgentProfile({ id, route, roster, onRefresh }: {
     )
   }
   if (p.kind !== 'agent') return <Profile p={p} route={route} onRefresh={onRefresh} />
-  const view = route.search.get('view') === 'handbook' ? 'handbook' : 'profile'
+  // An admin's views depend on the agent's host, so they wait for it.
+  if (hostPending) return <ProfileSkeleton />
+  // The workspace's screen and threads answer only owners and admins, and
+  // only an agent on a computer has them; the first view needs no `?view=`.
+  const views: View[] = seesWork ? ['work', 'profile', 'handbook'] : ['profile', 'handbook']
+  const asked = route.search.get('view') as View | null
+  const view = asked && views.includes(asked) ? asked : views[0]
   return (
     <>
       <div className="nx-agents-views">
         <Segmented
           label={nt('agents.views')}
           value={view}
-          onChange={(v) => navigate(withRoute(getRoute(), { params: { view: v === 'handbook' ? v : null } }), { replace: true })}
-          items={[{ key: 'profile', label: nt('agents.viewProfile') }, { key: 'handbook', label: nt('agents.viewHandbook') }]}
+          // A picked view stays in the URL: the first view can still change
+          // (an admin's Work, once computers that failed to load come back),
+          // and that must not move the user.
+          onChange={(v) => navigate(withRoute(getRoute(), { params: { view: v } }), { replace: true })}
+          items={views.map((k) => ({ key: k, label: nt(VIEW_LABEL[k]) }))}
         />
       </div>
-      {view === 'handbook'
-        ? <div className="nx-agents-handbook"><Handbook agentId={p.id} /></div>
-        : <Profile p={p} route={route} onRefresh={onRefresh} />}
+      {view === 'work' ? <AgentWork p={p} />
+        : view === 'handbook' ? <div className="nx-agents-handbook"><Handbook agentId={p.id} /></div>
+          : <Profile p={p} route={route} onRefresh={onRefresh} />}
     </>
   )
 }

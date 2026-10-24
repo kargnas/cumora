@@ -1,12 +1,22 @@
-/** Helpers and small pieces shared by the agents list, profile and dialogs. */
-import { useCallback, useEffect, useState } from 'react'
+/** Helpers and small pieces shared by the agents wall, list, profile and
+ *  dialogs, and by the agent menu and drawer outside this section. */
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
+import { useMe } from '@/stores/auth'
+import { useComputers } from '@/stores/computers'
+import { useConversations } from '@/stores/conversations'
 import { useParticipants } from '@/stores/participants'
 import { useLocale } from '@/lib/i18n'
 import type { Computer, EngineId, Participant, Status } from '@/types'
 import { useNT } from '../../i18n'
-import { href, withRoute, type Route } from '../../router'
+import { href, navigate, withRoute, type Route } from '../../router'
 import { elapsed } from '../../format'
-import { useNow } from '../../hooks'
+import { useAdmin, useNow } from '../../hooks'
+import { Segmented, type SegItem } from '../../ui/primitives'
+import { hasWork, noWorkReason } from './hasWork'
+// Here rather than in index.tsx: the agent menu and drawer draw these parts
+// in chats before the section's own chunk ever loads.
+import './agents.css'
 
 /** Status as the team sees it. The server's status, unless the agent was
  *  off-boarded or its own computer is offline: then nothing it last reported
@@ -19,8 +29,39 @@ export function agentState(p: Participant, host: Computer | undefined): AgentSta
   return p.status
 }
 
-/** Working or thinking: the breathing ring and the shimmer. */
-const isLive = (s: AgentState): boolean => s === 'working' || s === 'thinking'
+/** The computer an agent runs on, once the computers have loaded. */
+export const useHost = (p: Participant | undefined): Computer | undefined =>
+  useComputers((s) => (p?.computerId ? s.byId[p.computerId] : undefined))
+
+/** The viewer sees the agent's browser and T3 Code threads: they own or
+ *  administer the workspace (the routes answer no one else), and the agent
+ *  has them (`hasWork`). The menu, drawer, wall and page all ask this. */
+export function useSeesWork(p: Participant | undefined): boolean {
+  const admin = useAdmin()
+  const host = useHost(p)
+  return admin && p !== undefined && hasWork(p, host)
+}
+
+/** The computers are still loading for a viewer who may see the agent's
+ *  work: the agent's page and drawer wait, rather than open on its profile
+ *  and switch to its work once its host lands. The store swallows a failed
+ *  load, so one quiet retry reads it back from `loaded` (as Me › Computers
+ *  does), and a failure ends the wait. */
+export function useHostPending(p: Participant | undefined): boolean {
+  const admin = useAdmin()
+  const loaded = useComputers((s) => s.loaded)
+  const [failed, setFailed] = useState(false)
+  // With no host to go on, null means the agent may still have a computer.
+  const pending = admin && !loaded && !failed && p?.kind === 'agent' && noWorkReason(p, undefined, true) === null
+  useEffect(() => {
+    if (!pending) return
+    void useComputers.getState().refresh().then(() => setFailed(!useComputers.getState().loaded))
+  }, [pending])
+  return pending
+}
+
+/** Working or thinking: the breathing ring, the shimmer and the menu's Live tag. */
+export const isLive = (s: AgentState): boolean => s === 'working' || s === 'thinking'
 
 /** Busy for the filter and the timer: live, or blocked on a person. */
 export const isBusy = (s: AgentState): boolean => isLive(s) || s === 'waiting'
@@ -32,9 +73,93 @@ export function parseFilter(raw: string | null): Filter {
   return FILTERS.includes(raw as Filter) ? raw as Filter : 'all'
 }
 
-/** The list URL, keeping the filter the user picked. */
+/** The wall (the default) or the list beside the open agent: `?roster=list`. */
+export const isWall = (route: Route): boolean => route.search.get('roster') !== 'list'
+
+/** The wall or list URL, keeping the filter the user picked. */
 export function listHref(route: Route): string {
-  return href({ section: 'agents', params: { filter: route.search.get('filter') } })
+  return href({ section: 'agents', params: { filter: route.search.get('filter'), roster: route.search.get('roster') } })
+}
+
+/** Hiring, editing, off-boarding and deleting change the roster and the DM list. */
+export async function refreshRoster(): Promise<void> {
+  await Promise.all([useParticipants.getState().refresh(), useConversations.getState().reload()])
+}
+
+export interface Team { agents: Participant[]; busy: Set<string>; former: Participant[]; humans: Participant[] }
+
+/** The agents a filter shows: the wall's tiles, and the list's rows for every filter but All. */
+export function agentsFor(team: Team, filter: Filter): Participant[] {
+  if (filter === 'working') return team.agents.filter((p) => team.busy.has(p.id))
+  if (filter === 'idle') return team.agents.filter((p) => !team.busy.has(p.id))
+  return filter === 'departed' ? team.former : team.agents
+}
+
+/** What an empty Working or Idle filter says. */
+export const EMPTY_FILTER = { working: 'agents.noneWorking', idle: 'agents.noneIdle' } as const
+
+/** Everyone the section shows: active agents (and which of them are busy),
+ *  off-boarded ones, and the viewer's human teammates. */
+export function useTeam(): Team {
+  const me = useMe()
+  const people = useParticipants(useShallow((s) => Object.values(s.byId).sort((a, b) => a.name.localeCompare(b.name))))
+  const hosts = useComputers((s) => s.byId)
+  return useMemo(() => {
+    const out: Team = { agents: [], busy: new Set<string>(), former: [], humans: [] }
+    for (const p of people) {
+      if (p.kind === 'human') {
+        if (p.id !== me) out.humans.push(p)
+      } else if (p.departedAt) {
+        out.former.push(p)
+      } else {
+        out.agents.push(p)
+        if (isBusy(agentState(p, p.computerId ? hosts[p.computerId] : undefined))) out.busy.add(p.id)
+      }
+    }
+    // Most recently off-boarded first, as the classic roster ordered them.
+    out.former.sort((a, b) => (b.departedAt ?? '').localeCompare(a.departedAt ?? ''))
+    return out
+  }, [people, hosts, me])
+}
+
+/** All / Working / Idle (/ Former once someone left), with counts. */
+export function FilterTabs({ route, team }: { route: Route; team: Team }) {
+  const nt = useNT()
+  const filter = parseFilter(route.search.get('filter'))
+  const count = (n: number) => <span className="nx-agents-count nx-mono">{n}</span>
+  const tabs: Array<SegItem<Filter>> = [
+    { key: 'all', label: nt('agents.filter.all') },
+    { key: 'working', label: nt('agents.filter.working'), badge: count(team.busy.size) },
+    { key: 'idle', label: nt('agents.filter.idle'), badge: count(team.agents.length - team.busy.size) },
+    // Former only exists once someone has been off-boarded.
+    ...(team.former.length > 0 || filter === 'departed'
+      ? [{ key: 'departed' as const, label: nt('agents.filter.departed'), badge: count(team.former.length) }]
+      : []),
+  ]
+  return (
+    <Segmented
+      label={nt('agents.filters')}
+      value={filter}
+      items={tabs}
+      onChange={(k) => navigate(withRoute(route, { params: { filter: k === 'all' ? null : k } }), { replace: true })}
+    />
+  )
+}
+
+/** Wall or List. Going to the wall leaves the open agent for the whole wall. */
+export function RosterSwitch({ route }: { route: Route }) {
+  const nt = useNT()
+  const wall = isWall(route)
+  return (
+    <Segmented
+      label={nt('agents.layout')}
+      value={wall ? 'wall' : 'list'}
+      items={[{ key: 'wall', label: nt('agents.wall') }, { key: 'list', label: nt('agents.list') }]}
+      onChange={(k) => navigate(k === 'wall'
+        ? href({ section: 'agents', params: { filter: route.search.get('filter') } })
+        : withRoute(route, { params: { roster: 'list' } }), { replace: true })}
+    />
+  )
 }
 
 /** Query params of the dialogs this section opens. */
