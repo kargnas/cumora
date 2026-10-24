@@ -805,7 +805,7 @@ export function MessageList({ convoId, bottomInset, find }: { convoId: string; b
   firstRef.current = firstItemIndex
   const scroller = useRef<HTMLElement | null>(null)
 
-  // While the question the room's agent waits on is out of view, a pill says
+  // While the question the room's agents wait on is out of view, a pill says
   // so and goes to it. Only a loaded question gets one: a jump needs its row.
   // A person's reply quoting a question answers it too (waitingQuestion).
   const quoted = useMemo(() => new Set(raw.flatMap((m) => (m.quotedMessageId && byId[m.authorId]?.kind === 'human' ? [m.quotedMessageId] : []))), [raw, byId])

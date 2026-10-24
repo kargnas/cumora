@@ -4,8 +4,8 @@
  * bubble for a frame, the transcript rebuilding its rows for a card that
  * changed nothing there, a quote of the question or of its reply missing the
  * question, and the waiting pill showing for a secret request, for a
- * question a person already answered by quoting it, or for a question its
- * agent asked past.
+ * question a person already answered by quoting it or its agent asked past,
+ * or for a question older than another agent's open one.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -48,13 +48,17 @@ test('the room waits on its newest open question, not on a secret or a question 
   const newer = card('m-q2')
   const others = [card('m-s3', { kind: 'secret', options: [] }), card('m-q4', { conversationId: 'elsewhere' })]
   assert.equal(waitingQuestion([older, newer, ...others], 'room', new Set()), newer)
+  // The store lists cards in the order it first heard of them, which need not be by time.
+  const theirs = card('m-q5', { agentId: 'other' })
+  assert.equal(waitingQuestion([newer, theirs], 'room', new Set()), theirs, 'of two agents waiting, the newer question holds the pill')
+  assert.equal(waitingQuestion([theirs, newer], 'room', new Set()), theirs)
   assert.equal(waitingQuestion([newer], 'room', new Set(['m-q2'])), undefined, 'a person quoted it')
   assert.equal(waitingQuestion([older, card('m-q2', { answer: answer('card-1') })], 'room', new Set(['m-q1'])), undefined)
 })
 
 test('an agent that asked again is past its older open question, which another agent asking does not change', () => {
   const skipped = card('m-q1')
-  const asked = card('m-q2', { answer: answer('card-2', 'm-a2') })
+  const asked = card('m-q2', { answer: answer('card-2') })
   assert.equal(waitingQuestion([skipped, asked], 'room', new Set()), undefined, 'the room talked past m-q1')
   assert.equal(waitingQuestion([skipped, card('m-q2')], 'room', new Set(['m-q2'])), undefined, 'a person quoted the newer one')
   assert.equal(waitingQuestion([skipped, { ...asked, agentId: 'other' }], 'room', new Set()), skipped, 'another agent asked m-q2')

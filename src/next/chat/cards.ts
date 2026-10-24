@@ -139,7 +139,7 @@ export function useQuestionOf(conversationId: string, quotedId: string | undefin
   return useCards((s) => (quotedId ? questionOf(s.byMessage, s.answers[conversationId] ?? NO_ANSWERS, quotedId) : undefined))
 }
 
-/** The question the room's agent waits on (waitingQuestion). */
+/** The question the room's agents wait on (waitingQuestion). */
 export function useWaitingCard(conversationId: string, quoted: ReadonlySet<string>): Card | undefined {
   return useCards((s) => waitingQuestion(Object.values(s.byMessage), conversationId, quoted))
 }
