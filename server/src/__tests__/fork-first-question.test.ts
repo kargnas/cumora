@@ -3,7 +3,7 @@
  * reaches the agent only through the alarm gates, which key on the envelope's
  * kind and assignee: a wrong field there wakes nobody, or another agent. The
  * daemon's wake digest cuts the alarm line at 600 characters, so what the agent
- * must do has to come before the names, which can be long, push it out.
+ * must do comes first; long names would otherwise push it past the cut.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'

@@ -25,7 +25,7 @@ import { join } from 'node:path'
 import { DEFAULT_MEMORY_DIGEST_CHARS } from '../agents/memory-scope.js'
 
 /** Beside the agent homes in ~/.cumora/agents. */
-export const SHARED_MEMORY_DIR = join(homedir(), '.cumora', 'shared-memory')
+const SHARED_MEMORY_DIR = join(homedir(), '.cumora', 'shared-memory')
 // Every agent pays for the index on every wake, so it gets half of what an
 // agent's own index may take.
 export const SHARED_INDEX_CHARS = DEFAULT_MEMORY_DIGEST_CHARS / 2
