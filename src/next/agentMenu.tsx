@@ -1,9 +1,8 @@
 /**
  * The agent menu: one live menu for every place that names an agent. An
- * element inside the app marked `data-agent-id` opens it on a click, a
- * right-click (a long press on Android), Enter or Space while it has focus,
- * and the context-menu key. Agents wall tiles and list rows open the agent on
- * a click, so they open this menu through `useHold` and `openAgentMenu`.
+ * element marked `data-agent-id` opens it (agentRefs.ts says how); Agents wall
+ * tiles and list rows open the agent on a click, so they open this menu
+ * through `useHold` and `openAgentMenu`.
  *
  * It shows what the agent is doing now, what it owns (its screen and its T3
  * Code threads, for owners and admins), how to talk to it and what to do with
@@ -19,6 +18,7 @@ import { copyText } from '@/lib/clipboard'
 import { useLocale } from '@/lib/i18n'
 import { useComputers } from '@/stores/computers'
 import { useConversations } from '@/stores/conversations'
+import { useMessages } from '@/stores/messages'
 import { useParticipants } from '@/stores/participants'
 import type { Participant } from '@/types'
 import { relative } from './format'
@@ -29,8 +29,9 @@ import { getRoute, href, navigate, useRoute, withRoute } from './router'
 import { Avatar } from './ui/Avatar'
 import { anchorFrom, Menu, type MenuAnchor, type MenuEntry, type MenuItem } from './ui/primitives'
 import { IAgents, IAt, ICode, ICompose, IComputer, ICopy, IStop } from './ui/icons'
-import { isOpenThread, look, newestThreads, threadTime, useCoding, type Thread } from './panel/CodingTab'
+import { isOpenThread, lastPr, look, newestThreads, threadTime, useCoding, type Thread } from './panel/CodingTab'
 import { agentState, hasWork, StateText } from './sections/agents/shared'
+import { bindAgentRefs } from './agentRefs'
 
 /** The agent drawer's panes (`?pane=` beside `peek=agent:<id>`). */
 export type AgentPane = 'screen' | 'jobs' | 'profile'
@@ -42,60 +43,14 @@ export function openAgentMenu(id: string, anchor: MenuAnchor): void {
   useAgentMenu.setState({ id, anchor })
 }
 
-/** Props that let an avatar or a name open the menu; nothing for a person. */
-export function agentRef(p: Participant | undefined): { 'data-agent-id': string; role: 'button'; tabIndex: 0 } | undefined {
-  return p?.kind === 'agent' ? { 'data-agent-id': p.id, role: 'button', tabIndex: 0 } : undefined
-}
-
-/**
- * Binds the triggers on the app's root element. The listeners sit below
- * React's root, so they run before React's own handlers and stop them: a
- * click on a classic @mention chip opens this menu, not the chip's profile.
- */
-export function bindAgentRefs(root: HTMLElement): () => void {
-  let touchedAt = Number.NEGATIVE_INFINITY
-  const hit = (e: Event): { el: HTMLElement; id: string } | null => {
-    const el = (e.target as Element | null)?.closest<HTMLElement>('[data-agent-id]')
-    const id = el?.dataset.agentId
-    return el && id ? { el, id } : null
-  }
-  const onTouch = () => { touchedAt = Date.now() }
-  const onClick = (e: MouseEvent) => {
-    const h = hit(e)
-    if (!h || e.button !== 0) return
-    e.preventDefault()
-    e.stopPropagation()
-    openAgentMenu(h.id, anchorFrom(h.el))
-  }
-  const onContext = (e: MouseEvent) => {
-    const h = hit(e)
-    if (!h) return
-    e.preventDefault()
-    e.stopPropagation()
-    // On Android a long press arrives as this event, so it plays the hold.
-    if (Date.now() - touchedAt < 1_000) haptic('hold')
-    // The keyboard's context-menu key reports no pointer position.
-    const keyboard = e.clientX === 0 && e.clientY === 0
-    openAgentMenu(h.id, keyboard ? anchorFrom(h.el) : { x: e.clientX, y: e.clientY })
-  }
-  const onKey = (e: KeyboardEvent) => {
-    if (e.key !== 'Enter' && e.key !== ' ') return
-    const h = hit(e)
-    if (!h || h.el !== e.target) return
-    e.preventDefault()
-    e.stopPropagation()
-    openAgentMenu(h.id, anchorFrom(h.el))
-  }
-  root.addEventListener('touchstart', onTouch, { passive: true })
-  root.addEventListener('click', onClick)
-  root.addEventListener('contextmenu', onContext)
-  root.addEventListener('keydown', onKey)
-  return () => {
-    root.removeEventListener('touchstart', onTouch)
-    root.removeEventListener('click', onClick)
-    root.removeEventListener('contextmenu', onContext)
-    root.removeEventListener('keydown', onKey)
-  }
+/** Binds the menu's triggers on the app's root element (NextApp). */
+export function bindAgentMenu(root: HTMLElement): () => void {
+  return bindAgentRefs(root, {
+    open: (id, el, at) => openAgentMenu(id, at ?? anchorFrom(el)),
+    isOpen: () => useAgentMenu.getState().anchor !== null,
+    // On Android a long press arrives as a contextmenu, so it plays the hold.
+    held: () => haptic('hold'),
+  })
 }
 
 /** Opens one of the agent's panes: the room panel's drawer inside a chat,
@@ -116,7 +71,7 @@ export function openAgentPane(id: string, pane: AgentPane): void {
 
 /** A thread with a pull request opens it, as its row does in the Coding list. */
 function openThread(t: Thread, agentId: string): void {
-  const pr = t.pullRequests[t.pullRequests.length - 1]
+  const pr = lastPr(t)
   if (pr) window.open(pr.url, '_blank', 'noopener,noreferrer')
   else openAgentPane(agentId, 'jobs')
 }
@@ -162,6 +117,9 @@ export function AgentMenuHost() {
   const host = useComputers((s) => (p?.computerId ? s.byId[p.computerId] : undefined))
   const roomId = route.section === 'chats' ? route.id : null
   const inRoom = useConversations((s) => !!p && !!roomId && !!s.list.find((c) => c.id === roomId)?.members.includes(p.id))
+  // Its turn answers this room. The daemon stops whatever turn is running, so
+  // Stop must not show for an agent busy in another room (the composer's rule).
+  const typingHere = useMessages((s) => !!p && !!roomId && !!s.typing[roomId]?.includes(p.id))
   const open = anchor !== null && p !== undefined
   const active = !!p && !p.departedAt
   const working = !!p && admin && hasWork(p)
@@ -224,15 +182,15 @@ export function AgentMenuHost() {
       onSelect: () => window.dispatchEvent(new CustomEvent('nx:mention', { detail: p.id })),
     }] : []),
   ] : []
-  // The server stops a turn per room (server/src/fork/stop.ts), so Stop needs one.
-  const stopRoom = active && inRoom && live && canStopAgent(p) ? roomId : null
+  // The stop route takes a room (server/src/fork/stop.ts) and posts who
+  // stopped the turn there. No one-key shortcut: a stray key must not end a turn.
+  const stopRoom = active && inRoom && typingHere && canStopAgent(p) ? roomId : null
   const control: MenuItem[] = [
     ...(stopRoom ? [{
       key: 'stop',
       label: nt('agentMenu.stop'),
       icon: <IStop />,
       danger: true,
-      shortcut: 'X',
       onSelect: () => {
         stopAgent(stopRoom, p.id).then(() => haptic('success'), (e) => {
           haptic('error')

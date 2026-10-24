@@ -8,7 +8,6 @@
  */
 import { lazy, Suspense } from 'react'
 import { useComputers } from '@/stores/computers'
-import { useConversations } from '@/stores/conversations'
 import { useParticipants } from '@/stores/participants'
 import type { AgentPane } from '../agentMenu'
 import { useAdmin } from '../hooks'
@@ -18,15 +17,11 @@ import { getRoute, href, navigate, parseRoute, useRoute, withRoute } from '../ro
 import { Avatar } from '../ui/Avatar'
 import { IconButton, Segmented, Spinner } from '../ui/primitives'
 import { IChevronLeft, IX } from '../ui/icons'
-import { agentState, hasWork, StateText } from '../sections/agents/shared'
+import { agentState, hasWork, refreshRoster, StateText } from '../sections/agents/shared'
 import { CodingList } from './CodingTab'
 import { Screen } from './ComputerTab'
 
 const Profile = lazy(() => import('../sections/agents/Profile').then((m) => ({ default: m.Profile })))
-
-const refresh = async (): Promise<void> => {
-  await Promise.all([useParticipants.getState().refresh(), useConversations.getState().reload()])
-}
 
 export function AgentDrawer({ id, layout, onClose }: { id: string; layout: Layout; onClose: () => void }) {
   const nt = useNT()
@@ -36,8 +31,10 @@ export function AgentDrawer({ id, layout, onClose }: { id: string; layout: Layou
   const host = useComputers((s) => (p?.computerId ? s.byId[p.computerId] : undefined))
 
   const panes: AgentPane[] = p && admin && hasWork(p) ? ['screen', 'jobs', 'profile'] : ['profile']
+  // A peek without a pane (a person, a classic profile link) shows the
+  // profile: the screen opens only when asked for, since it holds a stream.
   const asked = route.search.get('pane') as AgentPane | null
-  const pane = asked && panes.includes(asked) ? asked : panes[0]
+  const pane = asked && panes.includes(asked) ? asked : 'profile'
 
   return (
     <aside className="nx-panel" aria-label={p?.name ?? nt('agents.notFound')}>
@@ -71,7 +68,7 @@ export function AgentDrawer({ id, layout, onClose }: { id: string; layout: Layou
               : (
                 <Suspense fallback={<div className="nx-center"><Spinner /></div>}>
                   {/* Its Edit and Off-board open their dialogs in Agents. */}
-                  <Profile p={p} route={parseRoute(href({ section: 'agents', id: p.id }), '')} onRefresh={refresh} />
+                  <Profile p={p} route={parseRoute(href({ section: 'agents', id: p.id }), '')} onRefresh={refreshRoster} />
                 </Suspense>
               )}
       </div>

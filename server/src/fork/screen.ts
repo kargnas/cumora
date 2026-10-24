@@ -144,9 +144,9 @@ class Screen {
     }
   }
 
-  poll(after: number, signal: AbortSignal): Promise<ScreenPoll> {
+  poll(after: number, signal: AbortSignal, hold = true): Promise<ScreenPoll> {
     this.polled = Date.now()
-    if (this.seq > after || signal.aborted) return Promise.resolve(this.snapshot(after))
+    if (!hold || this.seq > after || signal.aborted) return Promise.resolve(this.snapshot(after))
     return new Promise((resolve) => {
       const done = () => {
         clearTimeout(timer)
@@ -283,14 +283,15 @@ async function gate(requireCompany: Requirer, req: Request & AuthedRequest, res:
 
 /** GET /api/fork/agents/:agentId/screen?after=<seq>: the browser's state, and
  *  its newest frame when one arrived after `after`. Waits up to HOLD_MS for a
- *  change when there is none. */
+ *  change when there is none, unless `wait=0`: the Agents wall's thumbnails
+ *  want the newest frame or nothing and must not hold a connection. */
 export async function agentScreen(requireCompany: Requirer, req: Request & AuthedRequest, res: Response): Promise<void> {
   const agentId = await gate(requireCompany, req, res)
   if (!agentId) return
   const after = Math.max(0, Number(req.query.after) || 0)
   const abort = new AbortController()
   res.on('close', () => abort.abort())
-  const poll = await screenOf(agentId).poll(after, abort.signal)
+  const poll = await screenOf(agentId).poll(after, abort.signal, req.query.wait !== '0')
   if (abort.signal.aborted) return
   res.setHeader('Cache-Control', 'no-store')
   res.json(poll)

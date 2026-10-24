@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useMe } from '@/stores/auth'
 import { useComputers } from '@/stores/computers'
+import { useConversations } from '@/stores/conversations'
 import { useParticipants } from '@/stores/participants'
 import { useLocale } from '@/lib/i18n'
 import type { Computer, EngineId, Participant, Status } from '@/types'
@@ -52,14 +53,31 @@ export function listHref(route: Route): string {
   return href({ section: 'agents', params: { filter: route.search.get('filter'), roster: route.search.get('roster') } })
 }
 
+/** Hiring, editing, off-boarding and deleting change the roster and the DM list. */
+export async function refreshRoster(): Promise<void> {
+  await Promise.all([useParticipants.getState().refresh(), useConversations.getState().reload()])
+}
+
+export interface Team { agents: Participant[]; busy: Set<string>; former: Participant[]; humans: Participant[] }
+
+/** The agents a filter shows: the wall's tiles, and the list's rows for every filter but All. */
+export function agentsFor(team: Team, filter: Filter): Participant[] {
+  if (filter === 'working') return team.agents.filter((p) => team.busy.has(p.id))
+  if (filter === 'idle') return team.agents.filter((p) => !team.busy.has(p.id))
+  return filter === 'departed' ? team.former : team.agents
+}
+
+/** What an empty Working or Idle filter says. */
+export const EMPTY_FILTER = { working: 'agents.noneWorking', idle: 'agents.noneIdle' } as const
+
 /** Everyone the section shows: active agents (and which of them are busy),
  *  off-boarded ones, and the viewer's human teammates. */
-export function useTeam(): { agents: Participant[]; busy: Set<string>; former: Participant[]; humans: Participant[] } {
+export function useTeam(): Team {
   const me = useMe()
   const people = useParticipants(useShallow((s) => Object.values(s.byId).sort((a, b) => a.name.localeCompare(b.name))))
   const hosts = useComputers((s) => s.byId)
   return useMemo(() => {
-    const out = { agents: [] as Participant[], busy: new Set<string>(), former: [] as Participant[], humans: [] as Participant[] }
+    const out: Team = { agents: [], busy: new Set<string>(), former: [], humans: [] }
     for (const p of people) {
       if (p.kind === 'human') {
         if (p.id !== me) out.humans.push(p)
@@ -77,7 +95,7 @@ export function useTeam(): { agents: Participant[]; busy: Set<string>; former: P
 }
 
 /** All / Working / Idle (/ Former once someone left), with counts. */
-export function FilterTabs({ route, team }: { route: Route; team: ReturnType<typeof useTeam> }) {
+export function FilterTabs({ route, team }: { route: Route; team: Team }) {
   const nt = useNT()
   const filter = parseFilter(route.search.get('filter'))
   const count = (n: number) => <span className="nx-agents-count nx-mono">{n}</span>

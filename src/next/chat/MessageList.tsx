@@ -29,7 +29,7 @@ import { useNT, type NT } from '../i18n'
 import { href, navigate, getRoute, withRoute } from '../router'
 import { bytes, clock, dayLabel, exactTime, fullDate, pauseLength, relative, startOfDay } from '../format'
 import { HOLD_MS, useHold } from '../hooks'
-import { agentRef } from '../agentMenu'
+import { agentRef } from '../agentRefs'
 import { Avatar } from '../ui/Avatar'
 import { IconButton, INERT, Menu, Spinner, useCoarse, useMenu, type MenuEntry } from '../ui/primitives'
 import { IArrowDown, IArrowUp, ICheck, ICopy, IDownload, IFile, IMore, IReply, ISpark, IThread, IWhisper } from '../ui/icons'
@@ -599,7 +599,7 @@ function useAway(scroller: { current: HTMLElement | null }, id: string | null, b
 function Face({ p, presence = false }: { p: Participant; presence?: boolean }) {
   if (p.kind !== 'agent') return <Avatar p={p} size={28} presence={presence} />
   return (
-    <span className="nx-msg__face" data-agent-id={p.id} role="button" tabIndex={0} aria-label={p.name}>
+    <span className="nx-msg__face" {...agentRef(p, p.name)}>
       <Avatar p={p} size={28} presence={presence} />
     </span>
   )

@@ -17,9 +17,11 @@ import { href, linkClick, navigate, type Route } from '../../router'
 import { Avatar } from '../../ui/Avatar'
 import { IconButton, Spinner } from '../../ui/primitives'
 import { IPlus } from '../../ui/icons'
-import { isOpenThread, look, newestThreads, useCoding } from '../../panel/CodingTab'
+import { isOpenThread, lastPr, look, newestThreads, useCoding } from '../../panel/CodingTab'
 import { ScreenThumb } from '../../panel/ComputerTab'
-import { agentState, dialogHref, FilterTabs, hasWork, LoadError, parseFilter, RosterSwitch, StateText, useTeam, type Roster } from './shared'
+import {
+  agentsFor, agentState, dialogHref, EMPTY_FILTER, FilterTabs, hasWork, LoadError, parseFilter, RosterSwitch, StateText, useTeam, type Roster,
+} from './shared'
 
 /** The thread the agent is on (the newest still going), else its newest one. */
 function NowLine({ p }: { p: Participant }) {
@@ -30,7 +32,7 @@ function NowLine({ p }: { p: Participant }) {
   const t = threads.find(isOpenThread) ?? threads[0]
   if (!t) return <span className="nx-agents-tile__line">{nt('agents.noThreads')}</span>
   const { tone, icon } = look(t.status)
-  const pr = t.pullRequests[t.pullRequests.length - 1]
+  const pr = lastPr(t)
   return (
     <span className="nx-agents-tile__line" data-tone={tone}>
       {icon}
@@ -76,13 +78,9 @@ export function AgentWall({ route, roster, refreshing }: { route: Route; roster:
   const admin = useAdmin()
   const filter = parseFilter(route.search.get('filter'))
   const team = useTeam()
-  const { agents, busy, former } = team
-  const shown = filter === 'working' ? agents.filter((p) => busy.has(p.id))
-    : filter === 'idle' ? agents.filter((p) => !busy.has(p.id))
-      : filter === 'departed' ? former
-        : agents
+  const shown = agentsFor(team, filter)
   const toAgent = (id: string) => href({ section: 'agents', id, params: { filter: filter === 'all' ? null : filter } })
-  const empty = filter === 'working' ? nt('agents.noneWorking') : filter === 'idle' ? nt('agents.noneIdle') : null
+  const empty = filter === 'working' || filter === 'idle' ? nt(EMPTY_FILTER[filter]) : null
 
   return (
     <section className="nx-agents-wall" aria-label={nt('agents.title')}>
@@ -101,7 +99,7 @@ export function AgentWall({ route, roster, refreshing }: { route: Route; roster:
             : (
               <>
                 {filter === 'departed' && <p className="nx-agents-note">{nt('agents.formerBody')}</p>}
-                {filter === 'all' && agents.length === 0 && (
+                {filter === 'all' && team.agents.length === 0 && (
                   <div className="nx-empty">
                     <b>{nt('agents.emptyTitle')}</b>
                     {nt('agents.emptyBody')}

@@ -5,12 +5,12 @@
  * agents.css folds its own modal frame into the Dialog.
  */
 import { useCallback, useEffect, useRef } from 'react'
-import { useConversations } from '@/stores/conversations'
 import { useParticipants } from '@/stores/participants'
 import { useNT } from '../i18n'
 import { getRoute, goBack, useRoute, withRoute } from '../router'
 import { Dialog } from '../ui/primitives'
 import { LookEditor } from '../sections/agents/LookStudio'
+import { refreshRoster } from '../sections/agents/shared'
 import '../sections/agents/agents.css'
 
 export const AGENT_EDIT_PARAM = 'agent-edit'
@@ -32,7 +32,7 @@ export function AgentEditDialog() {
   }, [])
   // A rename shows in the roster, the panel header and the 1:1 room's title.
   const saved = useCallback(() => {
-    void Promise.all([useParticipants.getState().refresh(), useConversations.getState().reload()])
+    void refreshRoster()
   }, [])
   return (
     <Dialog open={editing !== null} onClose={close} title={editing ? nt('agents.editAgent', { name: editing.name }) : ''}>

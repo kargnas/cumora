@@ -10,7 +10,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion, useTransform } from 'framer-motion'
 import { api, http } from '@/api/client'
-import { useConversations } from '@/stores/conversations'
 import { useParticipants } from '@/stores/participants'
 import { useSwipeBackProps } from '@/mobile/useSwipeBack'
 import type { SectionProps } from '../types'
@@ -19,7 +18,7 @@ import { useNT } from '../../i18n'
 import { getRoute, goBack, linkClick, navigate, withRoute, type Route } from '../../router'
 import { Dialog, IconButton, SPRING_SHEET, Spinner, T_FAST } from '../../ui/primitives'
 import { IAgents, IChevronLeft, IPlus } from '../../ui/icons'
-import { DIALOG_PARAMS, dialogHref, errorText, isWall, listHref, NO_DIALOG, useRoster } from './shared'
+import { DIALOG_PARAMS, dialogHref, errorText, isWall, listHref, NO_DIALOG, refreshRoster, useRoster } from './shared'
 import { AgentList } from './List'
 import { AgentWall } from './Wall'
 import { AgentProfile } from './Profile'
@@ -228,7 +227,7 @@ export default function AgentsSection({ route, layout, stack }: SectionProps) {
   const refresh = useCallback(async () => {
     setRefreshing(true)
     try {
-      await Promise.all([useParticipants.getState().refresh(), useConversations.getState().reload()])
+      await refreshRoster()
     } finally {
       setRefreshing(false)
     }

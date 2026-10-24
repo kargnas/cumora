@@ -6,11 +6,11 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, type AgentInput } from '@/api/client'
-import { useAuth } from '@/stores/auth'
 import { isMuted, useConversations } from '@/stores/conversations'
 import { useParticipants } from '@/stores/participants'
 import type { Conversation, Participant } from '@/types'
 import { haptic } from '../haptics'
+import { useAdmin } from '../hooks'
 import { useNT } from '../i18n'
 import { getRoute, goBack, href, linkClick, navigate, useRoute, withRoute } from '../router'
 import { Avatar } from '../ui/Avatar'
@@ -167,10 +167,7 @@ function AgentGroup({ agents }: { agents: Participant[] }) {
 function RoomEdit({ c, agents }: { c: Conversation; agents: Participant[] }) {
   const nt = useNT()
   const [convening, setConvening] = useState(false)
-  const admin = useAuth((s) => {
-    const role = s.companies.find((x) => x.id === s.activeCompanyId)?.role
-    return role === 'owner' || role === 'admin'
-  })
+  const admin = useAdmin()
   const muted = isMuted(c)
   const canRename = c.kind === 'group'
   return (

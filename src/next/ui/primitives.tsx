@@ -7,6 +7,7 @@ import { AnimatePresence, motion, PresenceContext } from 'framer-motion'
 import { isMac } from '@/lib/runtime'
 import { useNT } from '../i18n'
 import { IX } from './icons'
+import { shortcutItem } from './menuKeys'
 
 /* ── Motion presets (transitions-dev tokens in seconds) ─────────────── */
 export const EASE_OUT = [0.22, 1, 0.36, 1] as const
@@ -265,10 +266,7 @@ export function Menu({ open, anchor, entries, onClose, header }: {
       if (e.key === 'ArrowDown') { e.preventDefault(); setHi((i) => (i + 1) % items.length) }
       if (e.key === 'ArrowUp') { e.preventDefault(); setHi((i) => (i - 1 + items.length) % items.length) }
       if (e.key === 'Enter' && hi >= 0 && items[hi]) { e.preventDefault(); items[hi].onSelect(); onClose() }
-      // A one-key shortcut, unless the key is typing into a field that kept focus.
-      const t = e.target as HTMLElement | null
-      if (e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey || t?.isContentEditable || t?.tagName === 'INPUT' || t?.tagName === 'TEXTAREA') return
-      const hit = items.find((x) => x.shortcut?.toLowerCase() === e.key.toLowerCase())
+      const hit = shortcutItem(items, e)
       if (hit) { e.preventDefault(); hit.onSelect(); onClose() }
     }
     window.addEventListener('keydown', onKey)

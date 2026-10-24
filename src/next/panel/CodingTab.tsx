@@ -62,6 +62,9 @@ export function look(status: string): { label: NKey; tone: string; icon: JSX.Ele
   return { label: 'coding.idle', tone: 'muted', icon: <span className="nx-coding__dot" aria-hidden /> }
 }
 
+/** The pull request a thread's row opens: the last one T3 lists. */
+export const lastPr = (t: Thread): Thread['pullRequests'][number] | undefined => t.pullRequests[t.pullRequests.length - 1]
+
 /** A running thread counts from its start, a resting one from when it stopped. */
 export const threadTime = (t: Thread): string => (isOpenThread(t) ? t.createdAt : t.updatedAt)
 
@@ -130,7 +133,7 @@ function CodingRow({ t, agent, server }: { t: Thread; agent?: Participant; serve
   const nt = useNT()
   const locale = useLocale()
   const { label, tone, icon } = look(t.status)
-  const pr = t.pullRequests[t.pullRequests.length - 1]
+  const pr = lastPr(t)
   const when = relative(threadTime(t), locale)
   const body = (
     <>

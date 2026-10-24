@@ -18,7 +18,7 @@ import { Avatar } from '../../ui/Avatar'
 import { IconButton, Spinner, T_FAST } from '../../ui/primitives'
 import { IPlus } from '../../ui/icons'
 import {
-  agentState, dialogHref, engineOf, FilterTabs, LoadError, parseFilter, RosterSwitch, StateText, useTeam, type Roster,
+  agentsFor, agentState, dialogHref, EMPTY_FILTER, engineOf, FilterTabs, LoadError, parseFilter, RosterSwitch, StateText, useTeam, type Roster,
 } from './shared'
 
 const AgentRow = memo(function AgentRow({ p, to, active }: { p: Participant; to: string; active: boolean }) {
@@ -79,15 +79,14 @@ export function AgentList({ route, roster, refreshing }: { route: Route; roster:
   const nt = useNT()
   const filter = parseFilter(route.search.get('filter'))
   const team = useTeam()
-  const { agents, busy, former, humans } = team
+  const { agents, humans } = team
 
-  const groups: Group[] = filter === 'working' ? [{ key: 'working', label: null, items: agents.filter((p) => busy.has(p.id)) }]
-    : filter === 'idle' ? [{ key: 'idle', label: null, items: agents.filter((p) => !busy.has(p.id)) }]
-      : filter === 'departed' ? [{ key: 'former', label: null, items: former }]
-        : [
-            { key: 'agents', label: nt('agents.groupAgents'), items: agents },
-            { key: 'people', label: nt('agents.groupPeople'), items: humans },
-          ]
+  const groups: Group[] = filter === 'all'
+    ? [
+        { key: 'agents', label: nt('agents.groupAgents'), items: agents },
+        { key: 'people', label: nt('agents.groupPeople'), items: humans },
+      ]
+    : [{ key: filter, label: null, items: agentsFor(team, filter) }]
 
   // Moving to another agent keeps the open view and the handbook's range;
   // a scrubbed time belongs to one agent's changes, so it stays behind.
@@ -102,7 +101,7 @@ export function AgentList({ route, roster, refreshing }: { route: Route; roster:
     },
   })
 
-  const empty = filter === 'working' ? nt('agents.noneWorking') : filter === 'idle' ? nt('agents.noneIdle') : null
+  const empty = filter === 'working' || filter === 'idle' ? nt(EMPTY_FILTER[filter]) : null
 
   return (
     <aside className="nx-agents-list" aria-label={nt('agents.title')}>

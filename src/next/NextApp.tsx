@@ -12,7 +12,7 @@ import { isElectron } from '@/lib/runtime'
 import { useAppearanceStore, type Appearance } from '@/lib/theme'
 import { initPushNotifications } from '@/lib/push'
 import { bindPressHaptics } from './haptics'
-import { AgentMenuHost, bindAgentRefs } from './agentMenu'
+import { AgentMenuHost, bindAgentMenu } from './agentMenu'
 import { useBloubLooks } from './bloub/looks'
 import { useNativeChrome, useNextDocument } from './document'
 import { switchToClassic } from './designPref'
@@ -286,7 +286,7 @@ export default function NextApp() {
   const app = useRef<HTMLDivElement>(null)
 
   useEffect(() => bindLegacyWrites(), [])
-  useEffect(() => (app.current ? bindAgentRefs(app.current) : undefined), [])
+  useEffect(() => (app.current ? bindAgentMenu(app.current) : undefined), [])
   useEffect(() => bindPressHaptics(), [])
   useBloubLooksSync()
   useEffect(() => { projectRoute(route, stack) }, [route, stack])

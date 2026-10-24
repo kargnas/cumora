@@ -305,9 +305,11 @@ const THUMB_MS = 3_000
 /**
  * A small, slow copy of an agent's screen for the Agents wall. It reads only
  * while the tile is on screen and the app is visible, one frame every
- * THUMB_MS, into an <img> so the browser decodes it off the main thread. Each
- * read keeps the server's stream for that agent open (screen.ts closes it 30 s
- * after the last read).
+ * THUMB_MS, into an <img> so the browser decodes it off the main thread. After
+ * the first read it asks with `wait=0`: a tile wants the newest frame or
+ * nothing, and must not hold one of the phone's few connections for the
+ * server's long poll. Each read keeps the server's stream for that agent open
+ * (screen.ts closes it 30 s after the last read).
  */
 export function ScreenThumb({ agent }: { agent: Participant }) {
   const nt = useNT()
@@ -330,23 +332,19 @@ export function ScreenThumb({ agent }: { agent: Participant }) {
     // Cleanup wakes a loop that is waiting for the tile to scroll into view.
     signal.addEventListener('abort', () => wake(), { once: true })
     const seen = () => new Promise<void>((resolve) => { wake = resolve })
-    let url: string | null = null
-    const show = (next: string | null) => {
-      if (url) URL.revokeObjectURL(url)
-      url = next
-      setSrc(next)
-    }
     void (async () => {
       let after = 0
       while (!signal.aborted) {
         if (!onScreen) { await seen(); continue }
         if (document.hidden) { await shown(signal); continue }
         try {
-          const r = await http<Poll>(`/fork/agents/${encodeURIComponent(agent.id)}/screen?after=${after}`, { signal })
+          // The first read waits for the stream to learn whether a browser is open.
+          const wait = after > 0 ? '&wait=0' : ''
+          const r = await http<Poll>(`/fork/agents/${encodeURIComponent(agent.id)}/screen?after=${after}${wait}`, { signal })
           if (signal.aborted) return
           after = r.seq
-          if (r.frame) show(URL.createObjectURL(new Blob([Uint8Array.from(atob(r.frame), (c) => c.charCodeAt(0))], { type: 'image/jpeg' })))
-          else if (r.state === 'closed') show(null)
+          if (r.frame) setSrc(`data:image/jpeg;base64,${r.frame}`)
+          else if (r.state === 'closed') setSrc(null)
           setState(r.state)
         } catch {
           // A failed read leaves the last frame up; the next one tries again.
@@ -358,7 +356,6 @@ export function ScreenThumb({ agent }: { agent: Participant }) {
     return () => {
       ac.abort()
       io.disconnect()
-      if (url) URL.revokeObjectURL(url)
     }
   }, [agent.id])
 
