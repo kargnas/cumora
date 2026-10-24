@@ -383,11 +383,13 @@ export function ScreenThumb({ agent, paused = false }: { agent: Participant; pau
     }
   }, [agent.id, paused])
 
+  // The stream says open before its first frame comes, so only closed means
+  // there is no browser; open without a frame still waits for one.
   return (
     <span ref={box} className="nx-thumb" data-state={src ? 'open' : state}>
       {src
         ? <img src={src} alt={nt('computer.title', { name: agent.name })} draggable={false} />
-        : state === 'loading' ? <Spinner /> : <span>{nt('computer.noBrowser')}</span>}
+        : state === 'closed' ? <span>{nt('computer.noBrowser')}</span> : <Spinner />}
     </span>
   )
 }

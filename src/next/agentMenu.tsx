@@ -57,8 +57,9 @@ function failed(id: string, anchor: MenuAnchor, error: string, cause: unknown): 
 export function bindAgentMenu(root: HTMLElement): () => void {
   return bindAgentRefs(root, {
     open: (id, el, at) => openAgentMenu(id, at ?? anchorFrom(el)),
-    // The host's own rule: it draws the menu only for an agent it knows, so an
-    // anchor left for one deleted meanwhile must not hold back the keys.
+    // Open means the menu is on screen, which AgentMenuHost decides by the
+    // same test. An anchor can outlive its agent (deleted while the menu was
+    // open), and must not keep Enter and Space from opening another agent's menu.
     isOpen: () => {
       const { id, anchor } = useAgentMenu.getState()
       return anchor !== null && hasAgentMenu(useParticipants.getState().byId[id ?? ''])
@@ -128,8 +129,9 @@ export function AgentMenuHost() {
   const host = useHost(p)
   const roomId = route.section === 'chats' ? route.id : null
   const inRoom = useConversations((s) => !!p && !!roomId && !!s.list.find((c) => c.id === roomId)?.members.includes(p.id))
-  // Its turn answers this room. The daemon stops whatever turn is running, so
-  // Stop must not show for an agent busy in another room (the composer's rule).
+  // The agent is typing here: the turn it runs now answers this room. The
+  // daemon stops whatever turn the agent runs, so Stop shows only for a turn
+  // of this room, never for one in another room (the composer's Stop agrees).
   const typingHere = useMessages((s) => !!p && !!roomId && !!s.typing[roomId]?.includes(p.id))
   const open = anchor !== null && p !== undefined
   const active = !!p && !p.departedAt
