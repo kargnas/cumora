@@ -23,7 +23,8 @@ import {
   agentsFor, agentState, dialogHref, EMPTY_FILTER, FilterTabs, LoadError, parseFilter, RosterSwitch, StateText, useSeesWork, useTeam, type Roster,
 } from './shared'
 
-/** The thread the agent is on (the newest still going), else its newest one. */
+/** The thread the agent is on (the newest still going), else its newest one with
+ *  its status; the menu's Now line names only a running one. */
 function NowLine({ p }: { p: Participant }) {
   const nt = useNT()
   const { coding } = useCoding(p.id)

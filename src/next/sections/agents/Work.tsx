@@ -53,7 +53,7 @@ function Changes({ agentId }: { agentId: string }) {
             ))}
           </div>
         )}
-      <a className="nx-btn nx-btn--outline nx-btn--sm" href={withRoute(route, { params: { view: 'handbook' } })} onClick={linkClick}>
+      <a className="nx-btn nx-btn--outline nx-btn--sm" href={withRoute(route, { params: { view: 'handbook', since: '7d' } })} onClick={linkClick}>
         {nt('agents.work.openHandbook')}
       </a>
     </>
