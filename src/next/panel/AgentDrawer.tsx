@@ -7,7 +7,6 @@
  * refuse anyone else); a person, or an agent for anyone else, gets the profile.
  */
 import { lazy, Suspense } from 'react'
-import { useComputers } from '@/stores/computers'
 import { useParticipants } from '@/stores/participants'
 import type { AgentPane } from '../agentMenu'
 import { useNT } from '../i18n'
@@ -16,7 +15,7 @@ import { getRoute, href, navigate, parseRoute, useRoute, withRoute } from '../ro
 import { Avatar } from '../ui/Avatar'
 import { IconButton, Segmented, Spinner } from '../ui/primitives'
 import { IChevronLeft, IX } from '../ui/icons'
-import { agentState, refreshRoster, StateText, useSeesWork } from '../sections/agents/shared'
+import { agentState, refreshRoster, StateText, useHost, useSeesWork } from '../sections/agents/shared'
 import { CodingList } from './CodingTab'
 import { Screen } from './ComputerTab'
 
@@ -27,7 +26,7 @@ export function AgentDrawer({ id, layout, onClose }: { id: string; layout: Layou
   const route = useRoute()
   const p = useParticipants((s) => s.byId[id])
   const seesWork = useSeesWork(p)
-  const host = useComputers((s) => (p?.computerId ? s.byId[p.computerId] : undefined))
+  const host = useHost(p)
 
   const panes: AgentPane[] = seesWork ? ['screen', 'jobs', 'profile'] : ['profile']
   // A peek without a pane (a person, a classic profile link) shows the

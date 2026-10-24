@@ -7,6 +7,7 @@ import { isMuted, useConversations } from '@/stores/conversations'
 import { useMessages } from '@/stores/messages'
 import { useParticipants } from '@/stores/participants'
 import type { Conversation, Message, Participant } from '@/types'
+import { agentButtonRef } from '../agentRefs'
 import { haptic } from '../haptics'
 import { useNT } from '../i18n'
 import { getRoute, goBack, href, navigate, withRoute } from '../router'
@@ -87,8 +88,7 @@ function ChatHeader({ c, layout, panelOpen, onSearch, searching }: {
       <button
         type="button"
         className="nx-pill"
-        data-agent-id={agentPeer?.id}
-        aria-haspopup={agentPeer ? 'menu' : undefined}
+        {...agentButtonRef(agentPeer)}
         onClick={agentPeer ? undefined : openEdit}
         aria-label={agentPeer ? agentPeer.name : nt('chat.edit', { room: c.title })}
       >

@@ -16,7 +16,6 @@ import { getServerOrigin } from '@/api/client'
 import { canStopAgent, stopAgent } from '@/lib/agentStop'
 import { copyText } from '@/lib/clipboard'
 import { useLocale } from '@/lib/i18n'
-import { useComputers } from '@/stores/computers'
 import { useConversations } from '@/stores/conversations'
 import { useMessages } from '@/stores/messages'
 import { useParticipants } from '@/stores/participants'
@@ -25,12 +24,13 @@ import { relative } from './format'
 import { haptic } from './haptics'
 import { useOpenDirect } from './hooks'
 import { useNT } from './i18n'
+import { useLayout } from './layout'
 import { getRoute, href, navigate, useRoute, withRoute } from './router'
 import { Avatar } from './ui/Avatar'
 import { anchorFrom, Menu, type MenuAnchor, type MenuEntry, type MenuItem } from './ui/primitives'
 import { IAgents, IAt, ICode, ICompose, IComputer, ICopy, IStop } from './ui/icons'
 import { isOpenThread, lastPr, look, newestThreads, threadTime, useCoding, type Thread } from './panel/CodingTab'
-import { agentState, StateText, useSeesWork } from './sections/agents/shared'
+import { agentState, isLive, StateText, useHost, useSeesWork } from './sections/agents/shared'
 import { bindAgentRefs } from './agentRefs'
 
 /** The agent drawer's panes (`?pane=` beside `peek=agent:<id>`). */
@@ -91,7 +91,7 @@ const agentLink = (id: string): string => `${getServerOrigin() || location.origi
 
 function Head({ p, now, error }: { p: Participant; now: Thread | undefined; error: string | null }) {
   const nt = useNT()
-  const host = useComputers((s) => (p.computerId ? s.byId[p.computerId] : undefined))
+  const host = useHost(p)
   return (
     <div className="nx-agent-menu__head">
       <Avatar p={p} size={32} presence={!p.departedAt} />
@@ -112,6 +112,7 @@ export function AgentMenuHost() {
   const nt = useNT()
   const locale = useLocale()
   const route = useRoute()
+  const stack = useLayout() === 'stack'
   const openDirect = useOpenDirect()
   const id = useAgentMenu((s) => s.id)
   const anchor = useAgentMenu((s) => s.anchor)
@@ -119,7 +120,7 @@ export function AgentMenuHost() {
   const close = useCallback(() => useAgentMenu.setState({ anchor: null }), [])
   const found = useParticipants((s) => (id ? s.byId[id] : undefined))
   const p = found?.kind === 'agent' ? found : undefined
-  const host = useComputers((s) => (p?.computerId ? s.byId[p.computerId] : undefined))
+  const host = useHost(p)
   const roomId = route.section === 'chats' ? route.id : null
   const inRoom = useConversations((s) => !!p && !!roomId && !!s.list.find((c) => c.id === roomId)?.members.includes(p.id))
   // Its turn answers this room. The daemon stops whatever turn is running, so
@@ -135,7 +136,7 @@ export function AgentMenuHost() {
   const threads = working && coding ? newestThreads(coding).map((x) => x.t) : []
   const running = threads.filter(isOpenThread)
   const state = agentState(p, host)
-  const live = state === 'working' || state === 'thinking'
+  const live = isLive(state)
   // Rows close the menu before their request ends; a failure opens it here again.
   const at = anchor
   const fail = (message: string) => (cause: unknown) => { if (at) failed(p.id, at, message, cause) }
@@ -176,13 +177,22 @@ export function AgentMenuHost() {
       shortcut: 'M',
       onSelect: () => { openDirect(p.id).catch(fail(nt('agentMenu.messageFailed'))) },
     },
-    // Composer adds `@id` to this room's draft (src/next/chat/Composer.tsx).
+    // The room's composer adds `@id` to its draft (src/next/chat/Composer.tsx).
+    // A drawer or thread over it closes first, and on a phone the panel too, so
+    // the draft that changed is the one on screen.
     ...(inRoom ? [{
       key: 'mention',
       label: nt('agentMenu.mention'),
       icon: <IAt />,
       shortcut: '@',
-      onSelect: () => window.dispatchEvent(new CustomEvent('nx:mention', { detail: p.id })),
+      onSelect: () => {
+        const r = getRoute()
+        const covered = stack && r.panel !== null && r.panel !== 'none'
+        if (r.peek || r.threadId || covered) {
+          navigate(withRoute(r, { peek: null, threadId: null, panel: stack ? null : r.panel }), { replace: true })
+        }
+        window.dispatchEvent(new CustomEvent('nx:mention', { detail: p.id }))
+      },
     }] : []),
   ] : []
   // The stop route takes a room (server/src/fork/stop.ts) and posts who

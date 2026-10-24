@@ -26,6 +26,12 @@ export function agentRef(p: Participant | undefined, label?: string): Record<str
   return props
 }
 
+/** The same for a <button> (a Members row, a 1:1 room's header), which
+ *  already has its role and its place in the tab order. */
+export function agentButtonRef(p: Participant | undefined): Record<string, string> | undefined {
+  return p?.kind === 'agent' ? { 'data-agent-id': p.id, 'aria-haspopup': 'menu' } : undefined
+}
+
 export function bindAgentRefs(root: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>, hooks: AgentRefHooks): () => void {
   let touchedAt = Number.NEGATIVE_INFINITY
   const hit = (e: Event): { el: Element; id: string } | null => {

@@ -5,6 +5,7 @@ import { useMe } from '@/stores/auth'
 import { useConversations } from '@/stores/conversations'
 import { useParticipants } from '@/stores/participants'
 import type { Conversation, Participant } from '@/types'
+import { agentButtonRef } from '../agentRefs'
 import { haptic } from '../haptics'
 import { useNT } from '../i18n'
 import { getRoute, navigate, withRoute } from '../router'
@@ -83,8 +84,7 @@ export function MembersTab({ c }: { c: Conversation }) {
             type="button"
             className="nx-person__open"
             // An agent's row opens the agent menu (src/next/agentMenu.tsx); a person's opens their profile.
-            data-agent-id={p.kind === 'agent' ? p.id : undefined}
-            aria-haspopup={p.kind === 'agent' ? 'menu' : undefined}
+            {...agentButtonRef(p)}
             onClick={p.kind === 'agent' ? undefined : () => navigate(withRoute(getRoute(), { peek: { kind: 'agent', id: p.id }, threadId: null }))}
           >
             <Avatar p={p} size={32} presence />

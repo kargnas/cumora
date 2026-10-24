@@ -7,7 +7,6 @@
  */
 import { memo } from 'react'
 import { motion } from 'framer-motion'
-import { useComputers } from '@/stores/computers'
 import { engineLabel } from '@/lib/engines'
 import type { Participant } from '@/types'
 import { openAgentMenu } from '../../agentMenu'
@@ -18,12 +17,12 @@ import { Avatar } from '../../ui/Avatar'
 import { IconButton, Spinner, T_FAST } from '../../ui/primitives'
 import { IPlus } from '../../ui/icons'
 import {
-  agentsFor, agentState, dialogHref, EMPTY_FILTER, engineOf, FilterTabs, LoadError, parseFilter, RosterSwitch, StateText, useTeam, type Roster,
+  agentsFor, agentState, dialogHref, EMPTY_FILTER, engineOf, FilterTabs, LoadError, parseFilter, RosterSwitch, StateText, useHost, useTeam, type Roster,
 } from './shared'
 
 const AgentRow = memo(function AgentRow({ p, to, active }: { p: Participant; to: string; active: boolean }) {
   const nt = useNT()
-  const host = useComputers((s) => (p.computerId ? s.byId[p.computerId] : undefined))
+  const host = useHost(p)
   const hold = useHold((x, y) => openAgentMenu(p.id, { x, y }))
   const isAgent = p.kind === 'agent'
   const engine = isAgent ? engineOf(p, host) : null

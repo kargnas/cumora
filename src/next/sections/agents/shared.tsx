@@ -29,17 +29,21 @@ export function agentState(p: Participant, host: Computer | undefined): AgentSta
   return p.status
 }
 
+/** The computer an agent runs on, once the computers have loaded. */
+export const useHost = (p: Participant | undefined): Computer | undefined =>
+  useComputers((s) => (p?.computerId ? s.byId[p.computerId] : undefined))
+
 /** The viewer sees the agent's browser and T3 Code threads: they own or
  *  administer the workspace (the routes answer no one else), and the agent
  *  has them (`hasWork`). The menu, drawer, wall and page all ask this. */
 export function useSeesWork(p: Participant | undefined): boolean {
   const admin = useAdmin()
-  const host = useComputers((s) => (p?.computerId ? s.byId[p.computerId] : undefined))
+  const host = useHost(p)
   return admin && p !== undefined && hasWork(p, host)
 }
 
-/** Working or thinking: the breathing ring and the shimmer. */
-const isLive = (s: AgentState): boolean => s === 'working' || s === 'thinking'
+/** Working or thinking: the breathing ring, the shimmer and the menu's Live tag. */
+export const isLive = (s: AgentState): boolean => s === 'working' || s === 'thinking'
 
 /** Busy for the filter and the timer: live, or blocked on a person. */
 export const isBusy = (s: AgentState): boolean => isLive(s) || s === 'waiting'

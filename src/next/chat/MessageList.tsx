@@ -599,7 +599,8 @@ function useAway(scroller: { current: HTMLElement | null }, id: string | null, b
 function Face({ p, presence = false }: { p: Participant; presence?: boolean }) {
   if (p.kind !== 'agent') return <Avatar p={p} size={28} presence={presence} />
   return (
-    <span className="nx-msg__face" {...agentRef(p, p.name)}>
+    // The name below is the tab stop; the face opens the same menu by pointer.
+    <span className="nx-msg__face" {...agentRef(p, p.name)} tabIndex={-1}>
       <Avatar p={p} size={28} presence={presence} />
     </span>
   )

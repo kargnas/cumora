@@ -8,10 +8,9 @@
  * the list's (`?filter=`).
  */
 import { memo } from 'react'
-import { useComputers } from '@/stores/computers'
 import type { Participant } from '@/types'
 import { openAgentMenu } from '../../agentMenu'
-import { useHold } from '../../hooks'
+import { useAdmin, useHold } from '../../hooks'
 import { useNT } from '../../i18n'
 import { href, linkClick, navigate, type Route } from '../../router'
 import { Avatar } from '../../ui/Avatar'
@@ -20,7 +19,7 @@ import { IPlus } from '../../ui/icons'
 import { isOpenThread, lastPr, look, newestThreads, useCoding } from '../../panel/CodingTab'
 import { ScreenThumb } from '../../panel/ComputerTab'
 import {
-  agentsFor, agentState, dialogHref, EMPTY_FILTER, FilterTabs, LoadError, parseFilter, RosterSwitch, StateText, useSeesWork, useTeam, type Roster,
+  agentsFor, agentState, dialogHref, EMPTY_FILTER, FilterTabs, LoadError, parseFilter, RosterSwitch, StateText, useHost, useSeesWork, useTeam, type Roster,
 } from './shared'
 
 /** The thread the agent is on (the newest still going), else its newest one with
@@ -45,16 +44,21 @@ function NowLine({ p }: { p: Participant }) {
 
 const Tile = memo(function Tile({ p, to, covered }: { p: Participant; to: string; covered: boolean }) {
   const nt = useNT()
-  const host = useComputers((s) => (p.computerId ? s.byId[p.computerId] : undefined))
+  const host = useHost(p)
   const hold = useHold((x, y) => openAgentMenu(p.id, { x, y }))
   const working = useSeesWork(p)
+  const admin = useAdmin()
+  // An empty box says why, from the same inputs as hasWork; a host that has not
+  // loaded yet leaves it blank rather than guessing.
+  const why = p.departedAt ? 'agents.filter.departed'
+    : !p.computerId || host?.kind === 'cloud' ? 'agents.cloud'
+      : !admin ? 'coding.locked'
+        : null
   return (
     <a href={to} onClick={linkClick} className="nx-agents-tile" data-departed={p.departedAt ? '' : undefined} {...hold}>
       {/* Every tile keeps the screen's box, so a row of tiles stays one height. */}
       {working ? <ScreenThumb agent={p} paused={covered} /> : (
-        <span className="nx-thumb">
-          {nt(p.departedAt ? 'agents.filter.departed' : !p.computerId ? 'agents.cloud' : 'coding.locked')}
-        </span>
+        <span className="nx-thumb">{why && nt(why)}</span>
       )}
       <span className="nx-agents-tile__who">
         <Avatar p={p} size={24} presence={!p.departedAt} className={p.departedAt ? 'nx-agents-gone' : undefined} />

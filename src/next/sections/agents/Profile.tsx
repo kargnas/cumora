@@ -9,7 +9,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from '@/api/client'
 import { useMe } from '@/stores/auth'
-import { useComputers } from '@/stores/computers'
 import { useParticipants } from '@/stores/participants'
 import { usePrefs } from '@/stores/preferences'
 import { engineLabel } from '@/lib/engines'
@@ -24,7 +23,7 @@ import { ICheck, ICompose, ICopy, IExit, IPencil, IRepeat, ITrash } from '../../
 import { Handbook } from '../../panel/HandbookTab'
 import { AgentWork } from './Work'
 import {
-  agentState, defaultModelOf, dialogHref, engineOf, errorText, listHref, LoadError, providerLabel, StateText, useSeesWork, type Roster,
+  agentState, defaultModelOf, dialogHref, engineOf, errorText, listHref, LoadError, providerLabel, StateText, useHost, useSeesWork, type Roster,
 } from './shared'
 
 function Block({ title, children }: { title: string; children: ReactNode }) {
@@ -212,7 +211,7 @@ function Autonomy({ p }: { p: Participant }) {
 
 export function Profile({ p, route, onRefresh }: { p: Participant; route: Route; onRefresh: () => Promise<void> }) {
   const nt = useNT()
-  const host = useComputers((s) => (p.computerId ? s.byId[p.computerId] : undefined))
+  const host = useHost(p)
   const isAgent = p.kind === 'agent'
   const departed = Boolean(p.departedAt)
   // The classic card fell back to the agent's style prompt when it had no bio.
@@ -306,7 +305,9 @@ export function AgentProfile({ id, route, roster, onRefresh }: {
         <Segmented
           label={nt('agents.views')}
           value={view}
-          onChange={(v) => navigate(withRoute(getRoute(), { params: { view: v === views[0] ? null : v } }), { replace: true })}
+          // A picked view stays in the URL: the first view can change once the
+          // computers load (an admin's Work), and that must not move the user.
+          onChange={(v) => navigate(withRoute(getRoute(), { params: { view: v } }), { replace: true })}
           items={views.map((k) => ({ key: k, label: nt(VIEW_LABEL[k]) }))}
         />
       </div>
