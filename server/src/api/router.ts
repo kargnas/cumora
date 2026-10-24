@@ -3051,7 +3051,7 @@ api.post('/agents', async (req, res) => {
   // Fork: a new agent starts that conversation with a question for the person
   // who hired it (fork/firstQuestion.ts).
   if (creation.created && dm) {
-    try { await askFirstQuestion({ companyId: tenant, conversationId: dm, agentId, ownerId: me }) }
+    try { await askFirstQuestion({ companyId: tenant, conversationId: dm, agent: { id: agentId, name: data.name }, ownerId: me }) }
     catch (e) { console.warn('[agents] first question failed', e) }
   }
 

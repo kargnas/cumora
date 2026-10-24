@@ -39,7 +39,7 @@ import {
 } from '../memory-scope.js'
 import { parseSseStream, wakeStreamWasStable } from '../runtime/sse-parse.js'
 import { purgeDeletedAgents } from '../../fork/computer-purge.js'
-import { SHARED_MEMORY_PROMPT, withSharedMemory } from '../../fork/sharedMemory.js'
+import { sharedMemoryPrompt, withSharedMemory } from '../../fork/sharedMemory.js'
 import { type ProviderProfile, providerProfileEnv, providerProfileFingerprint, providerProfileMetadata, readProviderProfiles, redactProviderSecret } from './provider-profiles.js'
 import { modelIdOrNull } from './model-id.js'
 import { parseComputerControlEvent } from './control-event.js'
@@ -2888,7 +2888,7 @@ export class AgentRunner {
       `Write project decisions/materials under \`memory/projects/<id>/\` (and a pointer in that folder's MEMORY.md); ` +
       `write identity-level facts under \`memory/\`. Pinning a memory makes it global. ` +
       `Saying "got it" does NOT persist. Chat history can be wiped by compaction; memory files remain.\n\n` +
-      SHARED_MEMORY_PROMPT +
+      sharedMemoryPrompt(allowUnsandboxedByoa()) +
       `Drive what you own forward — see a task through. Multi-step turns are fine; you do NOT have to ` +
       `fragment. If someone DMs you mid-task, answer briefly then keep going. The only thing to avoid ` +
       `is a pointless loop. If progress is waiting on a quiet teammate, follow up (short @<their-id> ` +
