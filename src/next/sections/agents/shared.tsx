@@ -13,7 +13,7 @@ import { href, navigate, withRoute, type Route } from '../../router'
 import { elapsed } from '../../format'
 import { useAdmin, useNow } from '../../hooks'
 import { Segmented, type SegItem } from '../../ui/primitives'
-import { hasWork } from './hasWork'
+import { hasWork, noWorkReason } from './hasWork'
 // Here rather than in index.tsx: the agent menu and drawer draw these parts
 // in chats before the section's own chunk ever loads.
 import './agents.css'
@@ -40,6 +40,24 @@ export function useSeesWork(p: Participant | undefined): boolean {
   const admin = useAdmin()
   const host = useHost(p)
   return admin && p !== undefined && hasWork(p, host)
+}
+
+/** The computers are still loading for a viewer who may see the agent's
+ *  work: the agent's page and drawer wait, rather than open on its profile
+ *  and switch to its work once its host lands. The store swallows a failed
+ *  load, so one quiet retry reads it back from `loaded` (as Me › Computers
+ *  does), and a failure ends the wait. */
+export function useHostPending(p: Participant | undefined): boolean {
+  const admin = useAdmin()
+  const loaded = useComputers((s) => s.loaded)
+  const [failed, setFailed] = useState(false)
+  // With no host to go on, null means the agent may still have a computer.
+  const pending = admin && !loaded && !failed && p?.kind === 'agent' && noWorkReason(p, undefined, true) === null
+  useEffect(() => {
+    if (!pending) return
+    void useComputers.getState().refresh().then(() => setFailed(!useComputers.getState().loaded))
+  }, [pending])
+  return pending
 }
 
 /** Working or thinking: the breathing ring, the shimmer and the menu's Live tag. */

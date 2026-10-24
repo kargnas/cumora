@@ -31,7 +31,7 @@ import { anchorFrom, Menu, type MenuAnchor, type MenuEntry, type MenuItem } from
 import { IAgents, IAt, ICode, ICompose, IComputer, ICopy, IStop } from './ui/icons'
 import { isOpenThread, lastPr, look, newestThreads, threadTime, useCoding, type Thread } from './panel/CodingTab'
 import { agentState, isLive, StateText, useHost, useSeesWork } from './sections/agents/shared'
-import { bindAgentRefs } from './agentRefs'
+import { bindAgentRefs, hasAgentMenu } from './agentRefs'
 
 /** The agent drawer's panes (`?pane=` beside `peek=agent:<id>`). */
 export type AgentPane = 'screen' | 'jobs' | 'profile'
@@ -61,7 +61,7 @@ export function bindAgentMenu(root: HTMLElement): () => void {
     // anchor left for one deleted meanwhile must not hold back the keys.
     isOpen: () => {
       const { id, anchor } = useAgentMenu.getState()
-      return anchor !== null && useParticipants.getState().byId[id ?? '']?.kind === 'agent'
+      return anchor !== null && hasAgentMenu(useParticipants.getState().byId[id ?? ''])
     },
     // On Android a long press arrives as a contextmenu, so it plays the hold.
     held: () => haptic('hold'),
@@ -124,7 +124,7 @@ export function AgentMenuHost() {
   const error = useAgentMenu((s) => s.error)
   const close = useCallback(() => useAgentMenu.setState({ anchor: null }), [])
   const found = useParticipants((s) => (id ? s.byId[id] : undefined))
-  const p = found?.kind === 'agent' ? found : undefined
+  const p = hasAgentMenu(found) ? found : undefined
   const host = useHost(p)
   const roomId = route.section === 'chats' ? route.id : null
   const inRoom = useConversations((s) => !!p && !!roomId && !!s.list.find((c) => c.id === roomId)?.members.includes(p.id))

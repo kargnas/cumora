@@ -26,10 +26,11 @@ import {
 /** The thread the agent is on (the newest still going), else its newest one with
  *  its status; the menu's Now line names only a running one. Each tile reads
  *  its own agent's threads, so one `fork.coding` event costs a read per working
- *  tile; past a few dozen agents, a store keyed by agent id should share them. */
-function NowLine({ p }: { p: Participant }) {
+ *  tile; past a few dozen agents, a store keyed by agent id should share them.
+ *  Like the thumbnail, it rests while an agent's page covers the wall. */
+function NowLine({ p, covered }: { p: Participant; covered: boolean }) {
   const nt = useNT()
-  const { coding } = useCoding(p.id)
+  const { coding } = useCoding(p.id, !covered)
   if (!coding) return <span className="nx-agents-tile__line" aria-hidden />
   const threads = newestThreads(coding).map((x) => x.t)
   const t = threads.find(isOpenThread) ?? threads[0]
@@ -66,7 +67,7 @@ const Tile = memo(function Tile({ p, to, covered }: { p: Participant; to: string
         <span className="nx-agents-tile__name">{p.name}</span>
         <StateText p={p} state={agentState(p, host)} />
       </span>
-      {working ? <NowLine p={p} /> : <span className="nx-agents-tile__line">{p.role ?? nt('agents.noRole')}</span>}
+      {working ? <NowLine p={p} covered={covered} /> : <span className="nx-agents-tile__line">{p.role ?? nt('agents.noRole')}</span>}
     </a>
   )
 })

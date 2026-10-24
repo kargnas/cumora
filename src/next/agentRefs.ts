@@ -19,11 +19,16 @@ export interface AgentRefHooks {
   held(): void
 }
 
-/** Props that let an avatar or a name open the menu; nothing for a person,
- *  nor for the stand-in of a deleted agent, which has no menu to open. */
+/** The menu has rows for this participant: an agent, but not a person, nor
+ *  the stand-in of a deleted agent. The references below and the menu's own
+ *  host and open check (agentMenu.tsx) all ask this. */
+export const hasAgentMenu = (p: Participant | undefined): p is Participant =>
+  p?.kind === 'agent' && !isDeletedAuthor(p.id)
+
+/** Props that let an avatar or a name open the menu. */
 export function agentRef(p: Participant | undefined, label?: string): Record<string, string | number> | undefined {
-  if (p?.kind !== 'agent' || isDeletedAuthor(p.id)) return undefined
-  const props: Record<string, string | number> = { 'data-agent-id': p.id, role: 'button', tabIndex: 0, 'aria-haspopup': 'menu' }
+  if (!hasAgentMenu(p)) return undefined
+  const props: Record<string, string | number> = { ...agentButtonRef(p), role: 'button', tabIndex: 0 }
   if (label) props['aria-label'] = label
   return props
 }
@@ -31,7 +36,7 @@ export function agentRef(p: Participant | undefined, label?: string): Record<str
 /** The same for a <button> (a Members row, a 1:1 room's header), which
  *  already has its role and its place in the tab order. */
 export function agentButtonRef(p: Participant | undefined): Record<string, string> | undefined {
-  return p?.kind === 'agent' ? { 'data-agent-id': p.id, 'aria-haspopup': 'menu' } : undefined
+  return hasAgentMenu(p) ? { 'data-agent-id': p.id, 'aria-haspopup': 'menu' } : undefined
 }
 
 export function bindAgentRefs(root: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>, hooks: AgentRefHooks): () => void {

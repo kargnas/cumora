@@ -15,7 +15,7 @@ import { getRoute, href, navigate, parseRoute, useRoute, withRoute } from '../ro
 import { Avatar } from '../ui/Avatar'
 import { IconButton, Segmented, Spinner } from '../ui/primitives'
 import { IChevronLeft, IX } from '../ui/icons'
-import { agentState, refreshRoster, StateText, useHost, useSeesWork } from '../sections/agents/shared'
+import { agentState, refreshRoster, StateText, useHost, useHostPending, useSeesWork } from '../sections/agents/shared'
 import { CodingList } from './CodingTab'
 import { Screen } from './ComputerTab'
 
@@ -27,6 +27,8 @@ export function AgentDrawer({ id, layout, onClose }: { id: string; layout: Layou
   const p = useParticipants((s) => s.byId[id])
   const seesWork = useSeesWork(p)
   const host = useHost(p)
+  // A `pane=screen` link must not show the profile until the host lands.
+  const hostPending = useHostPending(p)
 
   const panes: AgentPane[] = seesWork ? ['screen', 'jobs', 'profile'] : ['profile']
   // A peek without a pane (a person, a classic profile link) shows the
@@ -61,6 +63,7 @@ export function AgentDrawer({ id, layout, onClose }: { id: string; layout: Layou
       </header>
       <div className="nx-panel__body nx-scroll">
         {!p ? <div className="nx-empty">{nt('agents.notFound')}</div>
+          : hostPending ? <div className="nx-center" aria-busy="true"><Spinner /></div>
           : pane === 'screen' ? <Screen key={p.id} agent={p} />
             : pane === 'jobs' ? <CodingList agents={[p]} />
               : (

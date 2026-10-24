@@ -23,7 +23,8 @@ import { ICheck, ICompose, ICopy, IExit, IPencil, IRepeat, ITrash } from '../../
 import { Handbook } from '../../panel/HandbookTab'
 import { AgentWork } from './Work'
 import {
-  agentState, defaultModelOf, dialogHref, engineOf, errorText, listHref, LoadError, providerLabel, StateText, useHost, useSeesWork, type Roster,
+  agentState, defaultModelOf, dialogHref, engineOf, errorText, listHref, LoadError, providerLabel, StateText, useHost, useHostPending, useSeesWork,
+  type Roster,
 } from './shared'
 
 function Block({ title, children }: { title: string; children: ReactNode }) {
@@ -281,6 +282,7 @@ export function AgentProfile({ id, route, roster, onRefresh }: {
   const nt = useNT()
   const p = useParticipants((s) => s.byId[id])
   const seesWork = useSeesWork(p)
+  const hostPending = useHostPending(p)
   if (roster.state === 'loading') return <ProfileSkeleton />
   if (roster.state === 'error') return <LoadError onRetry={roster.retry} />
   if (!p) {
@@ -294,6 +296,8 @@ export function AgentProfile({ id, route, roster, onRefresh }: {
     )
   }
   if (p.kind !== 'agent') return <Profile p={p} route={route} onRefresh={onRefresh} />
+  // An admin's views depend on the agent's host, so they wait for it.
+  if (hostPending) return <ProfileSkeleton />
   // The workspace's screen and threads answer only owners and admins, and
   // only an agent on a computer has them; the first view needs no `?view=`.
   const views: View[] = seesWork ? ['work', 'profile', 'handbook'] : ['profile', 'handbook']
@@ -305,8 +309,9 @@ export function AgentProfile({ id, route, roster, onRefresh }: {
         <Segmented
           label={nt('agents.views')}
           value={view}
-          // A picked view stays in the URL: the first view can change once the
-          // computers load (an admin's Work), and that must not move the user.
+          // A picked view stays in the URL: the first view can still change
+          // (an admin's Work, once computers that failed to load come back),
+          // and that must not move the user.
           onChange={(v) => navigate(withRoute(getRoute(), { params: { view: v } }), { replace: true })}
           items={views.map((k) => ({ key: k, label: nt(VIEW_LABEL[k]) }))}
         />
