@@ -1,10 +1,13 @@
 /**
  * Pure lookups over a room's cards, for the store in ./cards.ts: which
  * messages answered a card, which question a quote is about, and which
- * question the room's agents wait on. Free of runtime imports, so
- * tests/question-cards.test.ts runs them in node.
+ * question the room's agents wait on. Free of imports that need a browser
+ * (./cards.ts opens the socket), so tests/question-cards.test.ts runs them
+ * in node.
  */
+import type { Message } from '@/types'
 import type { Card } from './cards'
+import { createdAt } from './model'
 
 /** A room's answer replies, by their id and their client id: the kind of card
  *  each answered and that card's question message. */
@@ -57,8 +60,8 @@ export function unsentAnswer(answeredBy: string, me: string | null, lost: string
  *  person answered with a reply quoting them instead of through the card,
  *  from the classic UI, an older app or the composer (`quoted` holds what
  *  people's messages quote), and questions whose agent spoke after a person
- *  wrote past them (`heard`, from lastHeard): people mostly answer in their
- *  own words or move on, and the agent went on from there. */
+ *  wrote past them (`heard`): people mostly answer in their own words or
+ *  move on, and the agent went on from there. Both come from roomTalk. */
 export function waitingQuestion(cards: Iterable<Card>, room: string, quoted: ReadonlySet<string>, heard: ReadonlyMap<string, number>): Card | undefined {
   const latest = new Map<string, Card>()
   for (const c of cards) {
@@ -74,16 +77,26 @@ export function waitingQuestion(cards: Iterable<Card>, room: string, quoted: Rea
   return newest
 }
 
-/** Per agent, the time (ms) of the newest person's message it has spoken
- *  after, from a room's messages in order (waitingQuestion). Only the agent
- *  speaking counts, not the person alone: in a room with several agents a
- *  person may be writing to another one. */
-export function lastHeard(room: Iterable<{ authorId: string; person: boolean; at: number }>): Map<string, number> {
+/** Messages that take a turn in the conversation. Work rows can come from the
+ *  very turn an agent asked in, before it read anything, and a membership
+ *  line names the person who acted as its author. */
+const TALK = new Set<Message['kind']>(['text', 'attachment', 'email', 'poll'])
+
+/** What a room's messages, in order, tell waitingQuestion: what people's
+ *  replies quote, and per agent the time (ms) of the newest person's message
+ *  it has spoken after. The agent speaking is what counts, not the person
+ *  alone: in a room with several agents a person may be writing to another
+ *  one. */
+export function roomTalk(messages: readonly Message[], isPerson: (authorId: string) => boolean): { quoted: Set<string>; heard: Map<string, number> } {
+  const quoted = new Set<string>()
   const heard = new Map<string, number>()
   let person = 0
-  for (const m of room) {
-    if (m.person) person = m.at
-    else if (person) heard.set(m.authorId, person)
+  for (const m of messages) {
+    if (!TALK.has(m.kind)) continue
+    if (isPerson(m.authorId)) {
+      if (m.quotedMessageId) quoted.add(m.quotedMessageId)
+      person = createdAt(m).getTime()
+    } else if (person) heard.set(m.authorId, person)
   }
-  return heard
+  return { quoted, heard }
 }

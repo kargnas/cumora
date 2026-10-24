@@ -5,13 +5,15 @@
  * changed nothing there, a quote of the question or of its reply missing the
  * question, and the waiting pill showing for a secret request, for a
  * question a person already answered by quoting it or its agent asked past,
- * for one a person answered in their own words that its agent went on from,
+ * for one a person answered in their own words that its agent went on from
+ * (work rows and system lines are nobody talking),
  * or for a question older than another agent's open one.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import type { Message } from '../src/types.ts'
 import type { Card, CardAnswer } from '../src/next/chat/cards.ts'
-import { answerKind, lastHeard, questionOf, roomAnswers, unsentAnswer, waitingQuestion } from '../src/next/chat/cardAnswers.ts'
+import { answerKind, questionOf, roomAnswers, roomTalk, unsentAnswer, waitingQuestion } from '../src/next/chat/cardAnswers.ts'
 
 /** The minute in `createdAt` is the id's last digit, so a higher digit is newer. */
 const card = (messageId: string, over: Partial<Card> = {}): Card => ({
@@ -69,12 +71,21 @@ test('an agent that asked again is past its older open question, which another a
 
 test('an agent that spoke after a person wrote past its question no longer waits on it', () => {
   const asked = card('m-q2')
-  const said = (authorId: string, minute: number) => ({ authorId, person: authorId === 'u1', at: Date.parse(`2026-10-23T13:0${minute}:00.000Z`) })
-  const waits = (...room: ReturnType<typeof said>[]) => waitingQuestion([asked], 'room', new Set(), lastHeard(room))
+  // u1 is the person; the minute is the message's time, so the bot asks m-q2 at minute 2.
+  const said = (authorId: string, minute: number, over: Partial<Message> = {}) =>
+    ({ id: `m-${authorId}-${minute}`, conversationId: 'room', authorId, kind: 'text', body: '', at: '', createdAt: `2026-10-23T13:0${minute}:00.000Z`, ...over }) as Message
+  const waits = (...room: Message[]) => {
+    const { quoted, heard } = roomTalk(room, (id) => id === 'u1')
+    return waitingQuestion([asked], 'room', quoted, heard)
+  }
   assert.equal(waits(said('u1', 1), said('bot', 2), said('u1', 3), said('bot', 4)), undefined, 'answered in their own words, and the bot went on')
+  assert.equal(waits(said('bot', 2), said('u1', 3, { quotedMessageId: 'm-q2' })), undefined, 'a person quoted it')
   assert.equal(waits(said('u1', 1), said('bot', 2), said('u1', 3)), asked, 'the bot has not spoken since')
   assert.equal(waits(said('u1', 1), said('bot', 2), said('bot', 3)), asked, 'the bot spoke again with no one writing')
   assert.equal(waits(said('bot', 2), said('u1', 3), said('other', 4)), asked, 'another agent answered the person')
+  assert.equal(waits(said('bot', 2), said('u1', 3), said('bot', 4, { kind: 'tool' })), asked, 'a work row of the turn that asked')
+  assert.equal(waits(said('bot', 2), said('u1', 3), said('bot', 4, { kind: 'system' })), asked, 'a runtime notice under the bot')
+  assert.equal(waits(said('bot', 2), said('u1', 3, { kind: 'system' }), said('bot', 4)), asked, 'a membership line under the person')
 })
 
 test('someone else answering first keeps what I tried or typed, and my own answer never counts as unsent', () => {
