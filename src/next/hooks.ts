@@ -78,6 +78,10 @@ export function useOpenDirect(): (participantId: string) => Promise<void> {
 /** How long a finger rests before a press becomes a hold. */
 export const HOLD_MS = 420
 
+// iOS (Safari and the app's WKWebView) never turns a long press into a
+// contextmenu; Android does. iPadOS reports itself as a Mac with touch.
+const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+
 /**
  * Press-and-hold on touch, right-click with a mouse: both open the same menu.
  * The click that a finger lift produces after a hold is swallowed so the row
@@ -96,10 +100,11 @@ export function useHold(onHold: (x: number, y: number) => void) {
       const t = e.touches[0]
       if (!t) return
       fired.current = false
-      // A press on anything inside the row that names an agent (an avatar, a
-      // name, an @mention) opens the agent menu (agentRefs.ts) instead;
-      // holding both would open two sheets.
-      if ((e.target as Element).closest('[data-agent-id]')) return
+      // A long press on anything inside the row that names an agent (an
+      // avatar, a name, an @mention) becomes a contextmenu on Android, which
+      // opens the agent menu (agentRefs.ts); holding too would open two
+      // sheets. iOS sends none, so there the row's own menu opens.
+      if (!IOS && (e.target as Element).closest('[data-agent-id]')) return
       start.current = { x: t.clientX, y: t.clientY }
       clear()
       timer.current = window.setTimeout(() => {

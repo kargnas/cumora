@@ -224,7 +224,10 @@ function rightClickThrough(ev: React.MouseEvent<HTMLDivElement>): void {
   ev.preventDefault()
   if (ev.target !== ev.currentTarget) return
   const layer = ev.currentTarget
-  const under = document.elementsFromPoint(ev.clientX, ev.clientY).find((el) => !layer.contains(el))
+  // Another layer itself (a menu still fading out) would hand the click straight
+  // back; what it holds, like a dialog's content, may take it.
+  const under = document.elementsFromPoint(ev.clientX, ev.clientY)
+    .find((el) => !layer.contains(el) && !el.classList.contains('nx-layer'))
   under?.dispatchEvent(new MouseEvent('contextmenu', {
     bubbles: true, cancelable: true, clientX: ev.clientX, clientY: ev.clientY, button: 2, buttons: 2,
   }))

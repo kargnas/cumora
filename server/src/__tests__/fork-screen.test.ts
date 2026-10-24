@@ -2,16 +2,16 @@
  * What the Computer tab may send into an agent's browser
  * (server/src/fork/screen.ts). Every event is rebuilt from known fields, so
  * nothing a client adds reaches agent-browser, and a key event never carries a
- * null string, which agent-browser answers by dropping the keystroke. Also
- * when a read that must not wait (the Agents wall's `wait=0`) still waits.
+ * null string, which agent-browser answers by dropping the keystroke. And the
+ * one wait that a read with `wait=0` (the Agents wall's) still makes.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { parseScreenInput, Screen } from '../fork/screen.js'
 
 test('a read that must not wait waits once, until a new stream knows whether a browser is open', async () => {
-  // No dashboard answers here, so the first look finds no browser.
-  const screen = new Screen('nobody')
+  // The dashboard has no session for this agent: no browser is open.
+  const screen = new Screen('nobody', async () => [])
   try {
     const signal = new AbortController().signal
     const first = await screen.poll(0, signal, false)

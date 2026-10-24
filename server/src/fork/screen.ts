@@ -75,7 +75,8 @@ export class Screen {
   private ended = false
   polled = Date.now()
 
-  constructor(readonly agentId: string) { void this.connect() }
+  /** `sessions` lists the dashboard's sessions; tests give their own. */
+  constructor(readonly agentId: string, private readonly sessions = dashboardSessions) { void this.connect() }
 
   private bump(): void {
     this.seq++
@@ -87,7 +88,7 @@ export class Screen {
     if (this.ended) return
     let port: number | undefined
     try {
-      const found = (await dashboardSessions()).find((s) => s.session === this.agentId)?.port
+      const found = (await this.sessions()).find((s) => s.session === this.agentId)?.port
       // The port goes straight into the ws URL path, so only a real port number does.
       if (typeof found === 'number' && Number.isInteger(found) && found > 0 && found <= 65535) port = found
     } catch (e) {
