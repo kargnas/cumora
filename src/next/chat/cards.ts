@@ -140,6 +140,6 @@ export function useQuestionOf(conversationId: string, quotedId: string | undefin
 }
 
 /** The question the room's agents wait on (waitingQuestion). */
-export function useWaitingCard(conversationId: string, quoted: ReadonlySet<string>): Card | undefined {
-  return useCards((s) => waitingQuestion(Object.values(s.byMessage), conversationId, quoted))
+export function useWaitingCard(conversationId: string, quoted: ReadonlySet<string>, heard: ReadonlyMap<string, number>): Card | undefined {
+  return useCards((s) => waitingQuestion(Object.values(s.byMessage), conversationId, quoted, heard))
 }

@@ -53,11 +53,13 @@ export function unsentAnswer(answeredBy: string, me: string | null, lost: string
  *  older question its agent asked past keeps its card but not the pill. The
  *  candidates are per agent because one agent asking says nothing about
  *  another's question. Left out are secret requests (one whose agent left the
- *  room can never be sent, so its pill would stay forever) and questions a
+ *  room can never be sent, so its pill would stay forever), questions a
  *  person answered with a reply quoting them instead of through the card,
- *  from the classic UI, an older app or the composer: `quoted` holds what
- *  people's messages quote. */
-export function waitingQuestion(cards: Iterable<Card>, room: string, quoted: ReadonlySet<string>): Card | undefined {
+ *  from the classic UI, an older app or the composer (`quoted` holds what
+ *  people's messages quote), and questions whose agent spoke after a person
+ *  wrote past them (`heard`, from lastHeard): people mostly answer in their
+ *  own words or move on, and the agent went on from there. */
+export function waitingQuestion(cards: Iterable<Card>, room: string, quoted: ReadonlySet<string>, heard: ReadonlyMap<string, number>): Card | undefined {
   const latest = new Map<string, Card>()
   for (const c of cards) {
     if (c.conversationId !== room || c.kind !== 'choice') continue
@@ -66,8 +68,22 @@ export function waitingQuestion(cards: Iterable<Card>, room: string, quoted: Rea
   }
   let newest: Card | undefined
   for (const c of latest.values()) {
-    if (c.answer || quoted.has(c.messageId)) continue
+    if (c.answer || quoted.has(c.messageId) || (heard.get(c.agentId) ?? 0) > Date.parse(c.createdAt)) continue
     if (!newest || c.createdAt > newest.createdAt) newest = c
   }
   return newest
+}
+
+/** Per agent, the time (ms) of the newest person's message it has spoken
+ *  after, from a room's messages in order (waitingQuestion). Only the agent
+ *  speaking counts, not the person alone: in a room with several agents a
+ *  person may be writing to another one. */
+export function lastHeard(room: Iterable<{ authorId: string; person: boolean; at: number }>): Map<string, number> {
+  const heard = new Map<string, number>()
+  let person = 0
+  for (const m of room) {
+    if (m.person) person = m.at
+    else if (person) heard.set(m.authorId, person)
+  }
+  return heard
 }
