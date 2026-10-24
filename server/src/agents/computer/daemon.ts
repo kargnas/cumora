@@ -62,6 +62,7 @@ import { runWithSessionRecovery } from './session-recovery.js'
 import { toolKindOf, type ToolKind } from '../../fork/toolKind.js'
 import { tokenMarks } from '../../fork/tokenRows.js'
 import { CARDS_PROMPT } from '../../fork/cardsPrompt.js'
+import { agentBody, DIGEST_PREVIEW, digestHumanBody, isHumanText, wholeInDigest } from '../../fork/messageBody.js'
 
 export { conversationHeader }
 
@@ -535,6 +536,29 @@ interface RuntimeInboxResponse {
 // in EVERY chat turn's prompt (see chatDelta), so it stays small.
 const DIGEST_MAX_MESSAGE_LINES = 40
 
+/** How many of each conversation's unread lines renderInboxDigest keeps, from
+ *  [conversation id, unread count] in first-seen order. Water-fill
+ *  quietest-first: each conversation takes at most an even share of what is
+ *  LEFT, so a small conversation keeps all of its messages and the busy one
+ *  absorbs the slack. When the total fits, this hands every conversation its
+ *  full set (nothing omitted, nothing announced). Exported because the fork's
+ *  whole-body budget (fork/messageBody.ts) spends only on kept lines. */
+export function digestKeep(
+  counts: ReadonlyArray<readonly [string, number]>,
+  budget = DIGEST_MAX_MESSAGE_LINES,
+): Map<string, number> {
+  const keep = new Map<string, number>()
+  let lineBudget = budget
+  let unserved = counts.length
+  for (const [id, count] of [...counts].sort((a, b) => a[1] - b[1])) {
+    const n = Math.min(count, Math.max(0, Math.floor(lineBudget / unserved)))
+    keep.set(id, n)
+    lineBudget -= n
+    unserved -= 1
+  }
+  return keep
+}
+
 /** Render the pre-loaded unread digest for the wake prompt within
  *  DIGEST_MAX_MESSAGE_LINES.
  *
@@ -557,21 +581,10 @@ const DIGEST_MAX_MESSAGE_LINES = 40
 export function renderInboxDigest(
   byConvo: Map<string, { head: string; msgs: string[] }>,
   budget = DIGEST_MAX_MESSAGE_LINES,
+  // Fork: the caller passes the keep it spent the whole-body budget on (fork/messageBody.ts).
+  keep: ReadonlyMap<string, number> = digestKeep([...byConvo].map(([id, convo]) => [id, convo.msgs.length] as const), budget),
 ): string {
   if (byConvo.size === 0) return ''
-  // Water-fill quietest-first: each conversation takes at most an even share of
-  // what is LEFT, so a small conversation keeps all of its messages and the busy
-  // one absorbs the slack. When the total fits, this hands every conversation
-  // its full set (nothing omitted, nothing announced).
-  const keep = new Map<string, number>()
-  let lineBudget = budget
-  let unserved = byConvo.size
-  for (const [id, convo] of [...byConvo].sort((a, b) => a[1].msgs.length - b[1].msgs.length)) {
-    const n = Math.min(convo.msgs.length, Math.max(0, Math.floor(lineBudget / unserved)))
-    keep.set(id, n)
-    lineBudget -= n
-    unserved -= 1
-  }
   const lines: string[] = []
   for (const [id, convo] of byConvo) {
     const shown = keep.get(id) ?? 0
@@ -2767,6 +2780,16 @@ export class AgentRunner {
     // relay/status/membership notice)? The cost gate in runTurn uses this to
     // refuse to spend ANY model on a system-only (or empty) inbox.
     let hasReal = false
+    // Fork: unread per conversation, and the people's messages the digest shows
+    // whole among the lines renderInboxDigest keeps (fork/messageBody.ts).
+    const unread = new Map<string, number>()
+    for (const row of inbox?.rows ?? []) {
+      if (typeof row.conversation_id === 'string' && row.conversation_id) {
+        unread.set(row.conversation_id, (unread.get(row.conversation_id) ?? 0) + 1)
+      }
+    }
+    const keep = digestKeep([...unread])
+    const whole = wholeInDigest(inbox?.rows ?? [], keep)
     // rows are ordered created_at ASC, so the last row per conversation is its
     // newest unread message — exactly the cursor we want to advance to.
     for (const row of inbox?.rows ?? []) {
@@ -2793,9 +2816,12 @@ export class AgentRunner {
       const who = row.author_kind ? `${author} (${row.author_kind})` : author
       // Render a due calendar alarm readably (title — prompt) so the engine
       // knows WHY it woke; other system rows stay redacted as before.
-      const body = (row.kind === 'system'
-        ? (alarm ? `[calendar:due] ${[alarm.title, alarm.agentPrompt].filter(Boolean).join(' — ') || 'scheduled alarm fired'}` : '[system]')
-        : (row.body ?? '')).replace(/\s+/g, ' ').slice(0, 600)
+      // Fork: a person's message up to BODY_CAP within the digest's budget (fork/messageBody.ts).
+      const body = isHumanText(row)
+        ? digestHumanBody(row.body ?? '', whole.has(row.id), row.conversation_id, unread.get(row.conversation_id)!)
+        : (row.kind === 'system'
+          ? (alarm ? `[calendar:due] ${[alarm.title, alarm.agentPrompt].filter(Boolean).join(' — ') || 'scheduled alarm fired'}` : '[system]')
+          : (row.body ?? '')).replace(/\s+/g, ' ').slice(0, DIGEST_PREVIEW)
       // Keep the message id + convo id on each line (like the cloud agent's
       // context) so the engine can QUOTE the exact message: `cumora reply
       // <convo> '<body>' --quote <message_id>`.
@@ -2804,7 +2830,7 @@ export class AgentRunner {
     const projectIds = uniqueProjectIds(
       (inbox?.rows ?? []).map((r) => (typeof r.project_id === 'string' ? r.project_id : null)),
     )
-    return { seen, digest: renderInboxDigest(byConvo), hasReal, projectIds }
+    return { seen, digest: renderInboxDigest(byConvo, DIGEST_MAX_MESSAGE_LINES, keep), hasReal, projectIds }
   }
 
   /** Advance this agent's read cursor over the conversations it just saw, so a
@@ -3198,7 +3224,7 @@ export class AgentRunner {
       if (!latest.id || latest.id === this.lastSteeredMsgId) return // dedup repeated wakes for the same ping
       this.lastSteeredMsgId = latest.id
       const who = latest.author_name ?? 'someone'
-      const body = (latest.body ?? '').replace(/\s+/g, ' ').slice(0, 300)
+      const body = agentBody(latest, (b) => b.replace(/\s+/g, ' ').slice(0, 300))
       let autoStop: ReturnType<typeof setTimeout> | null = null
       if (autoStopsTurn(latest, this.agent.id) && session.interrupt) {
         const seq = this.turnSeq

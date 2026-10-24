@@ -44,6 +44,7 @@
  */
 import type { ResponseInputItem } from 'openai/resources/responses/responses.mjs'
 import { env } from '../env.js'
+import { BODY_CAP, TRUNCATED } from '../fork/messageBody.js'
 
 /** One queued steer — wraps the raw message body with the metadata
  *  the summarizer / dedup paths need. Filled in by the SSE handler in
@@ -195,8 +196,9 @@ export const MAX_BATCHES_PER_TURN = 8
  *  the original is still in the messages table so the agent can
  *  re-read it via a tool if needed. Without this, a 5MB pasted file
  *  in a chat message would blow the prompt budget on a single
- *  steer. */
-export const MAX_BODY_BYTES = 4096
+ *  steer. Fork: BODY_CAP and TRUNCATED come from fork/messageBody.ts, which
+ *  gives a person's message the same cap and mark on the other agent surfaces. */
+export const MAX_BODY_BYTES = BODY_CAP
 
 /** Hard ceiling on queue length. Beyond this we FIFO-evict — the
  *  oldest queued items get dropped (they're still in the messages
@@ -279,7 +281,7 @@ export function pushSteer(agentId: string, item: SteerItem): void {
   // signal "there is more"; the full body is still in the messages
   // table.
   const body = item.body.length > MAX_BODY_BYTES
-    ? item.body.slice(0, MAX_BODY_BYTES) + '... [truncated]'
+    ? item.body.slice(0, MAX_BODY_BYTES) + TRUNCATED
     : item.body
   const safeItem: SteerItem = body === item.body ? item : { ...item, body }
 

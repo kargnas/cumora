@@ -1,5 +1,6 @@
 /**
- * Integration tests for free-tier structural limits.
+ * Integration tests for free-tier structural limits. The fork gives free the
+ * pro limits (TIER_LIMITS in api/router.ts), so the numbers here are pro's.
  */
 import { test, before, beforeEach, after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -94,24 +95,24 @@ async function seedInvitation(companyId: string, invitedBy: string): Promise<str
   return token
 }
 
-test('[integration] free users cannot create a fourth company', async () => {
-  for (let i = 0; i < 3; i++) {
+test('[integration] free users cannot create an eleventh company', async () => {
+  for (let i = 0; i < 10; i++) {
     await seedCompanyWithOwner(`co-existing-${i}`, FREE_USER_ID)
   }
 
   const res = await fetch(`${baseUrl}/api/companies`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ name: 'Fourth Company' }),
+    body: JSON.stringify({ name: 'Eleventh Company' }),
   })
   const body = await res.json() as { error?: string }
 
   assert.equal(res.status, 403)
-  assert.match(body.error ?? '', /at most 3 companies/)
+  assert.match(body.error ?? '', /at most 10 companies/)
 })
 
-test('[integration] free users cannot accept an invite into a fourth company', async () => {
-  for (let i = 0; i < 3; i++) {
+test('[integration] free users cannot accept an invite into an eleventh company', async () => {
+  for (let i = 0; i < 10; i++) {
     await seedCompanyWithOwner(`co-member-${i}`, FREE_USER_ID)
   }
   await seedCompanyWithOwner('co-target', 'u-target-owner', 'pro')
@@ -123,19 +124,19 @@ test('[integration] free users cannot accept an invite into a fourth company', a
   const body = await res.json() as { error?: string }
 
   assert.equal(res.status, 403)
-  assert.match(body.error ?? '', /at most 3 companies/)
+  assert.match(body.error ?? '', /at most 10 companies/)
 })
 
-test('[integration] free workspaces cannot create an eleventh active agent', async () => {
+test('[integration] free workspaces cannot create a twenty-first active agent', async () => {
   await seedCompanyWithOwner('co-agent-limit', FREE_USER_ID)
-  await seedActiveAgents('co-agent-limit', 10)
+  await seedActiveAgents('co-agent-limit', 20)
 
   const res = await fetch(`${baseUrl}/api/agents`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-company-id': 'co-agent-limit' },
     body: JSON.stringify({
-      id: 'eleventh-agent',
-      name: 'Eleventh Agent',
+      id: 'twenty-first-agent',
+      name: 'Twenty-first Agent',
       role: 'Agent',
       systemPrompt: 'A test agent prompt long enough.',
     }),
@@ -143,16 +144,15 @@ test('[integration] free workspaces cannot create an eleventh active agent', asy
   const body = await res.json() as { error?: string }
 
   assert.equal(res.status, 403)
-  assert.match(body.error ?? '', /at most 10 active agents/)
+  assert.match(body.error ?? '', /at most 20 active agents/)
 })
 
-test('[integration] free workspaces cannot accept a sixth human member', async () => {
+test('[integration] free workspaces cannot accept an eleventh human member', async () => {
   await seedUser(FREE_USER_ID)
   await seedCompanyWithOwner('co-human-limit', 'u-human-owner')
-  await seedHumanMember('co-human-limit', 'u-human-two')
-  await seedHumanMember('co-human-limit', 'u-human-three')
-  await seedHumanMember('co-human-limit', 'u-human-four')
-  await seedHumanMember('co-human-limit', 'u-human-five')
+  for (let i = 2; i <= 10; i++) {
+    await seedHumanMember('co-human-limit', `u-human-${i}`)
+  }
   const token = await seedInvitation('co-human-limit', 'u-human-owner')
 
   const res = await fetch(`${baseUrl}/api/invitations/${encodeURIComponent(token)}/accept`, {
@@ -161,5 +161,5 @@ test('[integration] free workspaces cannot accept a sixth human member', async (
   const body = await res.json() as { error?: string }
 
   assert.equal(res.status, 403)
-  assert.match(body.error ?? '', /at most 5 human members/)
+  assert.match(body.error ?? '', /at most 10 human members/)
 })

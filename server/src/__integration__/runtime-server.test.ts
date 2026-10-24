@@ -1313,3 +1313,36 @@ test('[integration] runtime: /llm-calls atomically records multiple caller-owned
     },
   ])
 })
+
+// Fork: a person's message reaches `cumora messages` whole up to BODY_CAP,
+// another agent's keeps its 280-char preview (fork/messageBody.ts).
+test('[integration] runtime: cumora messages shows a person\'s message whole and clips an agent\'s', async () => {
+  const reader = await seedAgent()
+  const peer = await seedPeerAgent(reader.companyId)
+  const humanId = `u-${randomUUID().slice(0, 8)}`
+  await pool.query(
+    `INSERT INTO participants (id, company_id, kind, name, role, initial, avatar_bg, status)
+       VALUES ($1, $2, 'human', $3, NULL, 'H', '#abcdef', 'avail')`,
+    [humanId, reader.companyId, humanId],
+  )
+  const humanBody = 'Answer each setup question in turn.'.repeat(30)
+  const agentBody = 'Peer agent status line.'.repeat(30)
+  const convo = await seedContextConversation({
+    companyId: reader.companyId,
+    members: [reader.agentId, peer.agentId, humanId],
+    authorId: humanId,
+    body: humanBody,
+  })
+  await pool.query(
+    `INSERT INTO messages (id, conversation_id, author_id, kind, body, sequence, company_id)
+       VALUES ($1, $2, $3, 'text', $4, 2, $5)`,
+    [`m-${randomUUID()}`, convo, peer.agentId, agentBody, reader.companyId],
+  )
+
+  const r = await call('/runtime/cli', { token: reader.token, body: { argv: ['messages', convo] } })
+  assert.equal(r.status, 200)
+  const text = String(r.body?.text ?? '')
+  assert.ok(text.includes(humanBody), 'the person\'s 1,050-char message must arrive whole')
+  assert.ok(text.includes(agentBody.slice(0, 280)), 'the agent\'s message keeps its preview')
+  assert.ok(!text.includes(agentBody.slice(0, 281)), 'the agent\'s message is still cut at 280')
+})
