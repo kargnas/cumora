@@ -149,19 +149,26 @@ export function Screen({ agent, big = false }: { agent: Participant; big?: boole
         }
         const r = read.poll
         if (r.frame) {
-          const bytes = Uint8Array.from(atob(r.frame), (c) => c.charCodeAt(0))
-          const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/jpeg' }))
-          const c = canvas.current
-          if (!signal.aborted && c) {
-            if (c.width !== bitmap.width) c.width = bitmap.width
-            if (c.height !== bitmap.height) c.height = bitmap.height
-            c.getContext('2d')?.drawImage(bitmap, 0, 0)
-            // Height from the frame's aspect; see ScreenPoll.width in server/src/fork/screen.ts.
-            const w = r.width || bitmap.width
-            page.current = { w, h: (w * bitmap.height) / bitmap.width }
-            setDrawn(true)
+          // A frame that does not decode says so and waits for the next one,
+          // instead of ending the loop with the screen frozen on the last.
+          try {
+            const bytes = Uint8Array.from(atob(r.frame), (c) => c.charCodeAt(0))
+            const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/jpeg' }))
+            const c = canvas.current
+            if (!signal.aborted && c) {
+              if (c.width !== bitmap.width) c.width = bitmap.width
+              if (c.height !== bitmap.height) c.height = bitmap.height
+              c.getContext('2d')?.drawImage(bitmap, 0, 0)
+              // Height from the frame's aspect; see ScreenPoll.width in server/src/fork/screen.ts.
+              const w = r.width || bitmap.width
+              page.current = { w, h: (w * bitmap.height) / bitmap.width }
+              setDrawn(true)
+            }
+            bitmap.close()
+          } catch (e) {
+            setError(errText(e))
+            continue
           }
-          bitmap.close()
         }
         // A browser that closed drops its last frame, so the next open waits
         // for a fresh one instead of flashing the stale page.

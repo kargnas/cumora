@@ -8,11 +8,11 @@ import type { Computer, Participant } from '@/types'
  * so tests call it directly; `useSeesWork` in shared.tsx adds the role.
  */
 export const hasWork = (p: Participant, host: Computer | undefined): boolean =>
-  p.kind === 'agent' && !p.departedAt && !!p.computerId && host !== undefined && host.kind !== 'cloud'
+  p.kind === 'agent' && host !== undefined && noWorkReason(p, host, true) === null
 
-/** Why a wall tile shows no screen, by the same rules plus the viewer's
- *  role: off-boarded, a Cumora Cloud agent, or a viewer the routes refuse.
- *  Null when the screen will show, or while the host is not known yet. */
+/** Why a wall tile shows no screen, the rules above plus the viewer's role:
+ *  off-boarded, a Cumora Cloud agent, or a viewer the routes refuse. Null
+ *  when the screen will show, or while the host is not known yet. */
 export function noWorkReason(p: Participant, host: Computer | undefined, admin: boolean): 'departed' | 'cloud' | 'locked' | null {
   if (p.departedAt) return 'departed'
   if (!p.computerId || host?.kind === 'cloud') return 'cloud'

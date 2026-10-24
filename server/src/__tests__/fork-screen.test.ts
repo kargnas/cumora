@@ -2,11 +2,29 @@
  * What the Computer tab may send into an agent's browser
  * (server/src/fork/screen.ts). Every event is rebuilt from known fields, so
  * nothing a client adds reaches agent-browser, and a key event never carries a
- * null string, which agent-browser answers by dropping the keystroke.
+ * null string, which agent-browser answers by dropping the keystroke. Also
+ * when a read that must not wait (the Agents wall's `wait=0`) still waits.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseScreenInput } from '../fork/screen.js'
+import { parseScreenInput, Screen } from '../fork/screen.js'
+
+test('a read that must not wait waits once, until a new stream knows whether a browser is open', async () => {
+  // No dashboard answers here, so the first look finds no browser.
+  const screen = new Screen('nobody')
+  try {
+    const signal = new AbortController().signal
+    const first = await screen.poll(0, signal, false)
+    assert.equal(first.state, 'closed')
+    assert.equal(first.seq, 1, 'answered before the first look, it would say closed for nothing')
+    // Known now, so it answers at once instead of holding (5 s).
+    const started = Date.now()
+    assert.equal((await screen.poll(first.seq, signal, false)).seq, 1)
+    assert.ok(Date.now() - started < 1_000)
+  } finally {
+    screen.end()
+  }
+})
 
 test('mouse events keep their fields, clamped, and lose anything else', () => {
   assert.deepEqual(parseScreenInput({ events: [

@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import type { Computer, Participant } from '../src/types.ts'
-import { bindAgentRefs } from '../src/next/agentRefs.ts'
+import { agentRef, bindAgentRefs } from '../src/next/agentRefs.ts'
 import { hasWork, noWorkReason } from '../src/next/sections/agents/hasWork.ts'
 import { shortcutItem } from '../src/next/ui/menuKeys.ts'
 
@@ -88,6 +88,14 @@ describe('agent menu triggers', () => {
     const t = setup()
     t.unbind()
     assert.equal(t.listeners.size, 0)
+  })
+
+  it('only an agent with a menu becomes a reference: not a person, nor a deleted agent’s stand-in', () => {
+    const p = (id: string, kind: string) => ({ id, kind, name: id }) as unknown as Participant
+    assert.equal(agentRef(p('atlas', 'agent'), 'Atlas')?.['data-agent-id'], 'atlas')
+    assert.equal(agentRef(p('sam', 'human')), undefined)
+    // The author chat/deletedAuthor.ts gives what a deleted agent wrote.
+    assert.equal(agentRef(p('deleted:atlas', 'agent')), undefined)
   })
 })
 

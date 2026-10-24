@@ -57,7 +57,12 @@ function failed(id: string, anchor: MenuAnchor, error: string, cause: unknown): 
 export function bindAgentMenu(root: HTMLElement): () => void {
   return bindAgentRefs(root, {
     open: (id, el, at) => openAgentMenu(id, at ?? anchorFrom(el)),
-    isOpen: () => useAgentMenu.getState().anchor !== null,
+    // The host's own rule: it draws the menu only for an agent it knows, so an
+    // anchor left for one deleted meanwhile must not hold back the keys.
+    isOpen: () => {
+      const { id, anchor } = useAgentMenu.getState()
+      return anchor !== null && useParticipants.getState().byId[id ?? '']?.kind === 'agent'
+    },
     // On Android a long press arrives as a contextmenu, so it plays the hold.
     held: () => haptic('hold'),
   })

@@ -597,12 +597,12 @@ function useAway(scroller: { current: HTMLElement | null }, id: string | null, b
 
 /** A message's avatar; an agent's opens the agent menu (src/next/agentMenu.tsx). */
 function Face({ p, presence = false }: { p: Participant; presence?: boolean }) {
-  if (p.kind !== 'agent') return <Avatar p={p} size={28} presence={presence} />
+  const ref = agentRef(p, p.name)
+  const avatar = <Avatar p={p} size={28} presence={presence} />
+  if (!ref) return avatar
   return (
     // The name below is the tab stop; the face opens the same menu by pointer.
-    <span className="nx-msg__face" {...agentRef(p, p.name)} tabIndex={-1}>
-      <Avatar p={p} size={28} presence={presence} />
-    </span>
+    <span className="nx-msg__face" {...ref} tabIndex={-1}>{avatar}</span>
   )
 }
 

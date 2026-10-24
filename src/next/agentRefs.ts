@@ -8,6 +8,7 @@
  * here imports React or a store, so tests drive it with plain objects.
  */
 import type { Participant } from '@/types'
+import { isDeletedAuthor } from './chat/deletedAuthor'
 
 export interface AgentRefHooks {
   /** Opens the menu for `id`: at the pointer, or under `el` when there is none. */
@@ -18,9 +19,10 @@ export interface AgentRefHooks {
   held(): void
 }
 
-/** Props that let an avatar or a name open the menu; nothing for a person. */
+/** Props that let an avatar or a name open the menu; nothing for a person,
+ *  nor for the stand-in of a deleted agent, which has no menu to open. */
 export function agentRef(p: Participant | undefined, label?: string): Record<string, string | number> | undefined {
-  if (p?.kind !== 'agent') return undefined
+  if (p?.kind !== 'agent' || isDeletedAuthor(p.id)) return undefined
   const props: Record<string, string | number> = { 'data-agent-id': p.id, role: 'button', tabIndex: 0, 'aria-haspopup': 'menu' }
   if (label) props['aria-label'] = label
   return props

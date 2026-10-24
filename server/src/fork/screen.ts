@@ -63,7 +63,7 @@ function dashboardSessions(): Promise<Array<{ session: string; port: number }>> 
   })
 }
 
-class Screen {
+export class Screen {
   state: ScreenPoll['state'] = 'closed'
   seq = 0
   private frame: { data: string; width: number; seq: number } | null = null

@@ -24,7 +24,9 @@ import {
 } from './shared'
 
 /** The thread the agent is on (the newest still going), else its newest one with
- *  its status; the menu's Now line names only a running one. */
+ *  its status; the menu's Now line names only a running one. Each tile reads
+ *  its own agent's threads, so one `fork.coding` event costs a read per working
+ *  tile; past a few dozen agents, a store keyed by agent id should share them. */
 function NowLine({ p }: { p: Participant }) {
   const nt = useNT()
   const { coding } = useCoding(p.id)
