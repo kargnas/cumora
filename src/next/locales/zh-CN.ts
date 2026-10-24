@@ -328,6 +328,9 @@ export const zhCN: Partial<Record<keyof typeof en, string>> = {
   'agentMenu.stop': '停止这一轮',
   'agentMenu.profile': '查看资料',
   'agentMenu.copyLink': '复制链接',
+  'agentMenu.messageFailed': '无法打开对话，请重试。',
+  'agentMenu.stopFailed': '无法停止这一轮，请重试。',
+  'agentMenu.copyFailed': '无法复制链接。',
 
   'drawer.label': '显示',
   'drawer.screen': '画面',

@@ -37,10 +37,20 @@ import { bindAgentRefs } from './agentRefs'
 export type AgentPane = 'screen' | 'jobs' | 'profile'
 
 // The menu keeps its agent after it closes, so the exit animation still has rows.
-const useAgentMenu = create<{ id: string | null; anchor: MenuAnchor | null }>(() => ({ id: null, anchor: null }))
+const useAgentMenu = create<{ id: string | null; anchor: MenuAnchor | null; error: string | null }>(
+  () => ({ id: null, anchor: null, error: null }),
+)
 
 export function openAgentMenu(id: string, anchor: MenuAnchor): void {
-  useAgentMenu.setState({ id, anchor })
+  useAgentMenu.setState({ id, anchor, error: null })
+}
+
+/** A row's action failed after the menu closed: the menu opens again where it
+ *  was and says so, the only place the failure can show (there is no toast). */
+function failed(id: string, anchor: MenuAnchor, error: string, cause: unknown): void {
+  haptic('error')
+  console.warn('[next] agent menu action failed', cause)
+  useAgentMenu.setState({ id, anchor, error })
 }
 
 /** Binds the menu's triggers on the app's root element (NextApp). */
@@ -76,16 +86,10 @@ function openThread(t: Thread, agentId: string): void {
   else openAgentPane(agentId, 'jobs')
 }
 
-function copyLink(id: string): void {
-  // The native apps run from a local origin; the server's is the one a link can open.
-  const url = `${getServerOrigin() || location.origin}${href({ section: 'agents', id })}`
-  copyText(url).catch((e) => {
-    haptic('error')
-    console.warn('[next] copy agent link failed', e)
-  })
-}
+/** The native apps run from a local origin; the server's is the one a link can open. */
+const agentLink = (id: string): string => `${getServerOrigin() || location.origin}${href({ section: 'agents', id })}`
 
-function Head({ p, now }: { p: Participant; now: Thread | undefined }) {
+function Head({ p, now, error }: { p: Participant; now: Thread | undefined; error: string | null }) {
   const nt = useNT()
   const host = useComputers((s) => (p.computerId ? s.byId[p.computerId] : undefined))
   return (
@@ -98,6 +102,7 @@ function Head({ p, now }: { p: Participant; now: Thread | undefined }) {
           <StateText p={p} state={agentState(p, host)} />
         </span>
         {now && <span className="nx-agent-menu__now">{nt('agentMenu.now', { title: now.title })}</span>}
+        {error && <span className="nx-agent-menu__error" role="alert">{error}</span>}
       </span>
     </div>
   )
@@ -110,6 +115,7 @@ export function AgentMenuHost() {
   const openDirect = useOpenDirect()
   const id = useAgentMenu((s) => s.id)
   const anchor = useAgentMenu((s) => s.anchor)
+  const error = useAgentMenu((s) => s.error)
   const close = useCallback(() => useAgentMenu.setState({ anchor: null }), [])
   const found = useParticipants((s) => (id ? s.byId[id] : undefined))
   const p = found?.kind === 'agent' ? found : undefined
@@ -130,6 +136,9 @@ export function AgentMenuHost() {
   const running = threads.filter(isOpenThread)
   const state = agentState(p, host)
   const live = state === 'working' || state === 'thinking'
+  // Rows close the menu before their request ends; a failure opens it here again.
+  const at = anchor
+  const fail = (message: string) => (cause: unknown) => { if (at) failed(p.id, at, message, cause) }
 
   const owned: MenuItem[] = working ? [
     {
@@ -165,12 +174,7 @@ export function AgentMenuHost() {
       label: nt('agentMenu.message'),
       icon: <ICompose />,
       shortcut: 'M',
-      onSelect: () => {
-        openDirect(p.id).catch((e) => {
-          haptic('error')
-          console.warn('[next] open direct failed', e)
-        })
-      },
+      onSelect: () => { openDirect(p.id).catch(fail(nt('agentMenu.messageFailed'))) },
     },
     // Composer adds `@id` to this room's draft (src/next/chat/Composer.tsx).
     ...(inRoom ? [{
@@ -190,15 +194,17 @@ export function AgentMenuHost() {
       label: nt('agentMenu.stop'),
       icon: <IStop />,
       danger: true,
-      onSelect: () => {
-        stopAgent(stopRoom, p.id).then(() => haptic('success'), (e) => {
-          haptic('error')
-          console.warn('[next] stop agent failed', e)
-        })
-      },
+      // Success shows as the agent's typing ending; no haptic for it.
+      onSelect: () => { stopAgent(stopRoom, p.id).catch(fail(nt('agentMenu.stopFailed'))) },
     }] : []),
     { key: 'profile', label: nt('agentMenu.profile'), icon: <IAgents />, shortcut: 'I', onSelect: () => openAgentPane(p.id, 'profile') },
-    { key: 'copy', label: nt('agentMenu.copyLink'), icon: <ICopy />, shortcut: 'C', onSelect: () => copyLink(p.id) },
+    {
+      key: 'copy',
+      label: nt('agentMenu.copyLink'),
+      icon: <ICopy />,
+      shortcut: 'C',
+      onSelect: () => { copyText(agentLink(p.id)).catch(fail(nt('agentMenu.copyFailed'))) },
+    },
   ]
   const entries: MenuEntry[] = [owned, talk, control]
     .filter((g) => g.length > 0)
@@ -210,7 +216,7 @@ export function AgentMenuHost() {
       anchor={anchor}
       onClose={close}
       entries={entries}
-      header={<Head p={p} now={running[0]} />}
+      header={<Head p={p} now={running[0]} error={error} />}
     />
   )
 }

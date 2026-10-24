@@ -319,6 +319,9 @@ const core = {
   'agentMenu.stop': 'Stop this turn',
   'agentMenu.profile': 'View profile',
   'agentMenu.copyLink': 'Copy link',
+  'agentMenu.messageFailed': 'Couldn’t open the chat. Try again.',
+  'agentMenu.stopFailed': 'Couldn’t stop this turn. Try again.',
+  'agentMenu.copyFailed': 'Couldn’t copy the link.',
 
   'drawer.label': 'Show',
   'drawer.screen': 'Screen',

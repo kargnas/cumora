@@ -337,6 +337,7 @@ html.nx [data-agent-id] { cursor: pointer; }
 .nx-agent-menu__who { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: var(--text-caption); color: var(--muted-foreground); }
 .nx-agent-menu__who > b { font-size: var(--text-body); font-weight: 600; color: var(--foreground); }
 .nx-agent-menu__now { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--foreground); }
+.nx-agent-menu__error { color: var(--destructive); }
 .nx-agent-menu__thread { display: inline-grid; place-items: center; flex: none; width: 16px; height: 16px; color: var(--muted-foreground); }
 .nx-menu__item .nx-agent-menu__thread svg { width: 14px; height: 14px; color: inherit; }
 .nx-agent-menu__thread[data-tone="live"] { color: var(--live); }

@@ -131,9 +131,12 @@ export function href(r: RouteInput): string {
 export function withRoute(cur: Route, patch: Partial<RouteInput>): string {
   const params: Record<string, string> = {}
   cur.search.forEach((v, k) => { if (k !== 'panel' && k !== 'peek') params[k] = v })
-  // `pane` picks a pane of an agent peek (panel/AgentDrawer.tsx), so it goes
-  // with that peek, however the peek is closed or replaced.
-  if (patch.peek !== undefined && patch.peek?.kind !== 'agent') delete params.pane
+  // `pane` picks a pane of one agent peek (panel/AgentDrawer.tsx), so it goes
+  // with that peek, however the peek is closed or replaced, even by another
+  // agent's; a caller that wants a pane passes it again in `params`.
+  const samePeek = patch.peek !== undefined && patch.peek !== null && cur.peek !== null
+    && encodePeek(patch.peek) === encodePeek(cur.peek)
+  if (patch.peek !== undefined && !samePeek) delete params.pane
   return href({
     section: patch.section ?? cur.section,
     id: patch.id !== undefined ? patch.id : cur.id,

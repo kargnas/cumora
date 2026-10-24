@@ -236,7 +236,7 @@ export default function AgentsSection({ route, layout, stack }: SectionProps) {
   useHardwareBack(route, stack || wall)
 
   const list = wall
-    ? <AgentWall route={route} roster={roster} refreshing={refreshing} />
+    ? <AgentWall route={route} roster={roster} refreshing={refreshing} covered={stack && route.id !== null} />
     : <AgentList route={route} roster={roster} refreshing={refreshing} />
   const profile = route.id
     ? <AgentProfile key={route.id} id={route.id} route={route} roster={roster} onRefresh={refresh} />

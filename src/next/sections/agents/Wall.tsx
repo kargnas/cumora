@@ -43,7 +43,7 @@ function NowLine({ p }: { p: Participant }) {
   )
 }
 
-const Tile = memo(function Tile({ p, to }: { p: Participant; to: string }) {
+const Tile = memo(function Tile({ p, to, covered }: { p: Participant; to: string; covered: boolean }) {
   const nt = useNT()
   const host = useComputers((s) => (p.computerId ? s.byId[p.computerId] : undefined))
   const hold = useHold((x, y) => openAgentMenu(p.id, { x, y }))
@@ -51,7 +51,7 @@ const Tile = memo(function Tile({ p, to }: { p: Participant; to: string }) {
   return (
     <a href={to} onClick={linkClick} className="nx-agents-tile" data-departed={p.departedAt ? '' : undefined} {...hold}>
       {/* Every tile keeps the screen's box, so a row of tiles stays one height. */}
-      {working ? <ScreenThumb agent={p} /> : (
+      {working ? <ScreenThumb agent={p} paused={covered} /> : (
         <span className="nx-thumb">
           {nt(p.departedAt ? 'agents.filter.departed' : !p.computerId ? 'agents.cloud' : 'coding.locked')}
         </span>
@@ -74,7 +74,8 @@ function Skeleton() {
   )
 }
 
-export function AgentWall({ route, roster, refreshing }: { route: Route; roster: Roster; refreshing: boolean }) {
+/** `covered`: an agent's page is pushed over the wall (a phone), so its thumbnails rest. */
+export function AgentWall({ route, roster, refreshing, covered }: { route: Route; roster: Roster; refreshing: boolean; covered: boolean }) {
   const nt = useNT()
   const filter = parseFilter(route.search.get('filter'))
   const team = useTeam()
@@ -112,7 +113,7 @@ export function AgentWall({ route, roster, refreshing }: { route: Route; roster:
                 {empty && shown.length === 0 && <div className="nx-empty">{empty}</div>}
                 {shown.length > 0 && (
                   <div className="nx-agents-wall__grid">
-                    {shown.map((p) => <Tile key={p.id} p={p} to={toAgent(p.id)} />)}
+                    {shown.map((p) => <Tile key={p.id} p={p} to={toAgent(p.id)} covered={covered} />)}
                   </div>
                 )}
               </>

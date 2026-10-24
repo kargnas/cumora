@@ -335,9 +335,11 @@ const THUMB_MS = 3_000
  * the first read it asks with `wait=0`: a tile wants the newest frame or
  * nothing, and must not hold one of the phone's few connections for the
  * server's long poll. Each read keeps the server's stream for that agent open
- * (screen.ts closes it 30 s after the last read).
+ * (screen.ts closes it 30 s after the last read). `paused` stops the reads and
+ * keeps the last frame: a pushed page covers the wall on a phone, which an
+ * IntersectionObserver cannot see.
  */
-export function ScreenThumb({ agent }: { agent: Participant }) {
+export function ScreenThumb({ agent, paused = false }: { agent: Participant; paused?: boolean }) {
   const nt = useNT()
   const box = useRef<HTMLSpanElement>(null)
   const [src, setSrc] = useState<string | null>(null)
@@ -345,7 +347,7 @@ export function ScreenThumb({ agent }: { agent: Participant }) {
 
   useEffect(() => {
     const node = box.current
-    if (!node) return
+    if (!node || paused) return
     const ac = new AbortController()
     const { signal } = ac
     let onScreen = false
@@ -372,7 +374,7 @@ export function ScreenThumb({ agent }: { agent: Participant }) {
       ac.abort()
       io.disconnect()
     }
-  }, [agent.id])
+  }, [agent.id, paused])
 
   return (
     <span ref={box} className="nx-thumb" data-state={src ? 'open' : state}>
