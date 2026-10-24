@@ -18,6 +18,7 @@ import { IconButton, Spinner } from '../../ui/primitives'
 import { IPlus } from '../../ui/icons'
 import { isOpenThread, lastPr, look, newestThreads, useCoding } from '../../panel/CodingTab'
 import { ScreenThumb } from '../../panel/ComputerTab'
+import { noWorkReason } from './hasWork'
 import {
   agentsFor, agentState, dialogHref, EMPTY_FILTER, FilterTabs, LoadError, parseFilter, RosterSwitch, StateText, useHost, useSeesWork, useTeam, type Roster,
 } from './shared'
@@ -42,23 +43,21 @@ function NowLine({ p }: { p: Participant }) {
   )
 }
 
+// An empty box says why; a host that has not loaded yet leaves it blank.
+const WHY = { departed: 'agents.filter.departed', cloud: 'agents.cloud', locked: 'coding.locked' } as const
+
 const Tile = memo(function Tile({ p, to, covered }: { p: Participant; to: string; covered: boolean }) {
   const nt = useNT()
   const host = useHost(p)
   const hold = useHold((x, y) => openAgentMenu(p.id, { x, y }))
   const working = useSeesWork(p)
   const admin = useAdmin()
-  // An empty box says why, from the same inputs as hasWork; a host that has not
-  // loaded yet leaves it blank rather than guessing.
-  const why = p.departedAt ? 'agents.filter.departed'
-    : !p.computerId || host?.kind === 'cloud' ? 'agents.cloud'
-      : !admin ? 'coding.locked'
-        : null
+  const why = noWorkReason(p, host, admin)
   return (
     <a href={to} onClick={linkClick} className="nx-agents-tile" data-departed={p.departedAt ? '' : undefined} {...hold}>
       {/* Every tile keeps the screen's box, so a row of tiles stays one height. */}
       {working ? <ScreenThumb agent={p} paused={covered} /> : (
-        <span className="nx-thumb">{why && nt(why)}</span>
+        <span className="nx-thumb">{why && nt(WHY[why])}</span>
       )}
       <span className="nx-agents-tile__who">
         <Avatar p={p} size={24} presence={!p.departedAt} className={p.departedAt ? 'nx-agents-gone' : undefined} />

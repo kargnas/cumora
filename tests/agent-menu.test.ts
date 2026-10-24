@@ -9,7 +9,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import type { Computer, Participant } from '../src/types.ts'
 import { bindAgentRefs } from '../src/next/agentRefs.ts'
-import { hasWork } from '../src/next/sections/agents/hasWork.ts'
+import { hasWork, noWorkReason } from '../src/next/sections/agents/hasWork.ts'
 import { shortcutItem } from '../src/next/ui/menuKeys.ts'
 
 type Listener = (e: Event) => void
@@ -102,6 +102,15 @@ describe('which agents have a screen and threads', () => {
   it('a Cumora Cloud agent never has them, even with a cloud-<company> computer id', () => {
     assert.equal(hasWork({ ...agent, computerId: 'cloud-acme' }, host('cloud')), false)
     assert.equal(hasWork({ ...agent, computerId: null }, undefined), false)
+  })
+
+  it('an empty tile says why, by the same rules', () => {
+    assert.equal(noWorkReason(agent, host('local'), true), null)
+    assert.equal(noWorkReason(agent, undefined, true), null)
+    assert.equal(noWorkReason(agent, host('local'), false), 'locked')
+    assert.equal(noWorkReason({ ...agent, computerId: 'cloud-acme' }, host('cloud'), true), 'cloud')
+    assert.equal(noWorkReason({ ...agent, computerId: null }, undefined, false), 'cloud')
+    assert.equal(noWorkReason({ ...agent, departedAt: '2026-10-01T00:00:00Z' }, host('local'), true), 'departed')
   })
 
   it('nor an unknown host, an off-boarded agent or a person', () => {

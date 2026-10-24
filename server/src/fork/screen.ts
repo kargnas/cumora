@@ -146,7 +146,9 @@ class Screen {
 
   poll(after: number, signal: AbortSignal, hold = true): Promise<ScreenPoll> {
     this.polled = Date.now()
-    if (!hold || this.seq > after || signal.aborted) return Promise.resolve(this.snapshot(after))
+    // Without `hold` a read still waits until a new stream has learned whether
+    // a browser is open; answering before that would say closed for nothing.
+    if ((!hold && this.known) || this.seq > after || signal.aborted) return Promise.resolve(this.snapshot(after))
     return new Promise((resolve) => {
       const done = () => {
         clearTimeout(timer)
